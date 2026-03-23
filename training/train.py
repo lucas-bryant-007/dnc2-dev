@@ -5,10 +5,8 @@ python train.py --config training/configs/vicreg_resnet50.yaml
 
 import argparse
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger, WandbLogger
-import wandb
-import faulthandler, signal
+from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
 import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -16,14 +14,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config_loader import load_config, dict_to_namespace, namespace_to_dict
 from models.vicreg import LightlyVICReg
 from models.ijepa import LightlyIJepa
-from data.mini_imagenet_datamodule import MiniImageNetDataModule, MiniImageNetCfg
+from data_utils.mini_imagenet_datamodule import MiniImageNetDataModule, MiniImageNetCfg
 from utils.export_teacher import export_teacher_encoder_only
 from utils.ckpt_schedule import ScheduledCheckpoint
 from utils.linear_probe_callback import LinearProbeCallback
 from utils.cdnv_callback import CDNVCallback
 
 def main(cfg):
-
     print("\n========== CONFIG ==========")
     cfg_dict = namespace_to_dict(cfg)
     import json
@@ -51,32 +48,19 @@ def main(cfg):
         late_every=cfg.ckpt_schedule.late_every,
         save_last=cfg.ckpt_schedule.save_last,
     )
-    # Instantiate logger only on rank 0 to avoid hangs when running under DDP.
-    # Check several common environment variables that indicate rank.
-    def _is_rank0():
-        for k in ("PL_GLOBAL_RANK", "GLOBAL_RANK", "RANK", "LOCAL_RANK", "SLURM_PROCID", "OMPI_COMM_WORLD_RANK"):
-            v = os.environ.get(k)
-            if v is not None:
-                try:
-                    return int(v) == 0
-                except Exception:
-                    continue
-        # If none are set, assume single-process (rank 0)
-        return True
-
-    if _is_rank0():
+    # create logger only on rank 0
+    @rank_zero_only
+    def create_logger(cfg):
         if cfg.logging.backend == "wandb":
-            logger = WandbLogger(
+            return WandbLogger(
                 project=cfg.logging.project,
                 # entity=cfg.logging.entity,
                 name=cfg.logging.run_name,
                 log_model=cfg.logging.log_model,
                 tags=list(cfg.logging.tags)
             )
-        else:
-            logger = CSVLogger(save_dir=cfg.paths.exp_dir, name="logs")
-    else:
-        logger = None
+        return CSVLogger(save_dir=cfg.paths.exp_dir, name="logs")
+    logger = create_logger(cfg)
 
     # linear probe callback
     probe_cb = LinearProbeCallback(**namespace_to_dict(cfg.probe))
@@ -108,9 +92,12 @@ def main(cfg):
         logger=logger,
     )
 
-    # Lightning automatically calls setup() in each distributed process                                                                                                                                                         
-    # Do NOT call data_module.setup() manually before trainer.fit() in DDP
-    trainer.fit(model, datamodule=data_module)
+    resume_ckpt = cfg.paths.get("resume_from_checkpoint", None)
+    if resume_ckpt is not None and os.path.isfile(resume_ckpt):
+        print(f"Resuming from checkpoint: {resume_ckpt}")
+        trainer.fit(model, datamodule=data_module, ckpt_path=resume_ckpt)
+    else:
+        trainer.fit(model, datamodule=data_module)
 
     # export after training (only on global rank 0)
     if trainer.is_global_zero:

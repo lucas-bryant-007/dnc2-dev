@@ -6,7 +6,6 @@ import os
 
 # Add parent directories to path to import from eval_utils
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
-
 from analysis.geometry import GeometricEvaluator
 
 
@@ -22,20 +21,12 @@ class CDNVCallback(pl. Callback):
     def __init__(
         self,
         every_n_epochs=100,
-        max_train_batches=200,
-        max_val_batches=50,
         num_classes=10,
         enabled=True,
-        compute_on_train=True,
-        compute_on_val=True
     ):
         self.every_n_epochs = every_n_epochs
-        self. max_train_batches = max_train_batches
-        self.max_val_batches = max_val_batches
         self.num_classes = num_classes
         self.enabled = enabled
-        self.compute_on_train = compute_on_train
-        self.compute_on_val = compute_on_val
         self.evaluator = None  # Will be initialized with device
 
     def _extract_backbone_features(self, backbone, images):
@@ -93,12 +84,8 @@ class CDNVCallback(pl. Callback):
             return
 
         epoch = trainer.current_epoch + 1
-        if epoch <= 100:
-            if epoch % 10 != 0:
-                return
-        else:
-            if epoch % 100 != 0:
-                return
+        if epoch % self.every_n_epochs != 0:
+            return
 
         dm = trainer.datamodule
         if dm is None:
@@ -127,63 +114,61 @@ class CDNVCallback(pl. Callback):
                     device=device,
                 )
 
-            if self.compute_on_train:
-                train_loader = dm.probe_train_dataloader() if hasattr(dm, "probe_train_dataloader") else dm.train_dataloader()
-                Xtr, Ytr = self.extract_features(
-                    train_loader, backbone, device, max_batches=self.max_train_batches
+            train_loader = dm.probe_train_dataloader() if hasattr(dm, "probe_train_dataloader") else dm.train_dataloader()
+            Xtr, Ytr = self.extract_features(
+                train_loader, backbone, device
+            )
+
+            train_cdnv = self.evaluator.compute_cdnv(Xtr, Ytr)
+            train_dir_cdnv = self.evaluator.compute_directional_cdnv(Xtr, Ytr)
+
+            if train_cdnv is not None:
+                pl_module.log(
+                    "cdnv/train_cdnv",
+                    train_cdnv,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=False,
                 )
+                pl_module.print(f"[CDNV] epoch={epoch} train_cdnv={train_cdnv:.6f}")
 
-                train_cdnv = self.evaluator.compute_cdnv(Xtr, Ytr)
-                train_dir_cdnv = self.evaluator.compute_directional_cdnv(Xtr, Ytr)
-
-                if train_cdnv is not None:
-                    pl_module.log(
-                        "cdnv/train_cdnv",
-                        train_cdnv,
-                        on_step=False,
-                        on_epoch=True,
-                        sync_dist=False,
-                    )
-                    pl_module.print(f"[CDNV] epoch={epoch} train_cdnv={train_cdnv:.6f}")
-
-                if train_dir_cdnv is not None:
-                    pl_module.log(
-                        "cdnv/train_dir_cdnv",
-                        train_dir_cdnv,
-                        on_step=False,
-                        on_epoch=True,
-                        sync_dist=False,
-                    )
-                    pl_module.print(f"[CDNV] epoch={epoch} train_dir_cdnv={train_dir_cdnv:.6f}")
-
-            if self.compute_on_val:
-                val_loader = dm.probe_test_dataloader() if hasattr(dm, "probe_test_dataloader") else dm.val_dataloader()
-                Xva, Yva = self.extract_features(
-                    val_loader, backbone, device, max_batches=self.max_val_batches
+            if train_dir_cdnv is not None:
+                pl_module.log(
+                    "cdnv/train_dir_cdnv",
+                    train_dir_cdnv,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=False,
                 )
+                pl_module.print(f"[CDNV] epoch={epoch} train_dir_cdnv={train_dir_cdnv:.6f}")
 
-                val_cdnv = self.evaluator.compute_cdnv(Xva, Yva)
-                val_dir_cdnv = self.evaluator.compute_directional_cdnv(Xva, Yva)
+            val_loader = dm.probe_test_dataloader() if hasattr(dm, "probe_test_dataloader") else dm.val_dataloader()
+            Xva, Yva = self.extract_features(
+                val_loader, backbone, device
+            )
 
-                if val_cdnv is not None:
-                    pl_module.log(
-                        "cdnv/val_cdnv",
-                        val_cdnv,
-                        on_step=False,
-                        on_epoch=True,
-                        sync_dist=False,
-                    )
-                    pl_module.print(f"[CDNV] epoch={epoch} val_cdnv={val_cdnv:.6f}")
+            val_cdnv = self.evaluator.compute_cdnv(Xva, Yva)
+            val_dir_cdnv = self.evaluator.compute_directional_cdnv(Xva, Yva)
 
-                if val_dir_cdnv is not None:
-                    pl_module.log(
-                        "cdnv/val_dir_cdnv",
-                        val_dir_cdnv,
-                        on_step=False,
-                        on_epoch=True,
-                        sync_dist=False,
-                    )
-                    pl_module.print(f"[CDNV] epoch={epoch} val_dir_cdnv={val_dir_cdnv:.6f}")
+            if val_cdnv is not None:
+                pl_module.log(
+                    "cdnv/val_cdnv",
+                    val_cdnv,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=False,
+                )
+                pl_module.print(f"[CDNV] epoch={epoch} val_cdnv={val_cdnv:.6f}")
+
+            if val_dir_cdnv is not None:
+                pl_module.log(
+                    "cdnv/val_dir_cdnv",
+                    val_dir_cdnv,
+                    on_step=False,
+                    on_epoch=True,
+                    sync_dist=False,
+                )
+                pl_module.print(f"[CDNV] epoch={epoch} val_dir_cdnv={val_dir_cdnv:.6f}")
 
         finally:
             if was_training:

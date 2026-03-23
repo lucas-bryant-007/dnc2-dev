@@ -12,15 +12,14 @@ class LinearProbeCallback(pl.Callback):
       - train a linear classifier for a few epochs (fast)
       - log val accuracy to W&B/CSV
     """
-    def __init__(self, every_n_epochs=100, max_epochs=5, lr=0.1, weight_decay=0.0,
-                 max_train_batches=200, max_val_batches=50, batch_size=256,
+    def __init__(self, every_n_epochs=100, max_epochs=5, 
+                 lr=0.1, weight_decay=0.0,
+                 batch_size=256,
                  enabled=True, run_before_training=True):
         self.every_n_epochs = every_n_epochs
         self.max_epochs = max_epochs
-        self.lr = lr
-        self.weight_decay = weight_decay
-        self.max_train_batches = max_train_batches
-        self.max_val_batches = max_val_batches
+        self.lr = float(lr)
+        self.weight_decay = float(weight_decay)
         self.batch_size = batch_size
         self.enabled = enabled
         self.run_before_training = run_before_training
@@ -111,14 +110,15 @@ class LinearProbeCallback(pl.Callback):
                 feat_dim = feat0.shape[-1]
 
             # Extract fresh features EVERY probe run
-            Xtr, Ytr = self.extract_features(train_loader, backbone, device, max_batches=self.max_train_batches)
-            Xva, Yva = self.extract_features(val_loader, backbone, device, max_batches=self.max_val_batches)
+            Xtr, Ytr = self.extract_features(train_loader, backbone, device)
+            Xva, Yva = self.extract_features(val_loader, backbone, device)
 
             train_dl = DataLoader(TensorDataset(Xtr, Ytr), batch_size=self.batch_size, shuffle=True, num_workers=0)
             val_dl = DataLoader(TensorDataset(Xva, Yva), batch_size=self.batch_size, shuffle=False, num_workers=0)
 
             clf = nn.Linear(feat_dim, num_classes).to(device)
-            opt = torch.optim.AdamW(clf.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            # opt = torch.optim.AdamW(clf.parameters(), lr=self.lr, weight_decay=self.weight_decay)
+            opt = torch.optim.SGD(clf.parameters(), lr=self.lr, weight_decay=self.weight_decay, momentum=0.9)
 
             def run_epoch_cached(dl, train=True):
                 correct, total = 0, 0
