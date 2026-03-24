@@ -1,1 +1,2 @@
 from .augmentations_hub.registry import get_transforms
+from .mini_imagenet_datamodule import MiniImageNetCfg, MiniImageNetDataModule

@@ -82,7 +82,7 @@ class MiniImageNetDataModule(pl.LightningDataModule):
             views = [torch.stack(v, dim=0) for v in views]
             return views, torch.tensor(labels, dtype=torch.long)
         else:
-            # Single view (for validation or MAE)
+            # Single view (for validation)
             images = [self.test_tfms(ex["image"].convert("RGB")) for ex in batch]
             return [torch.stack(images, dim=0)], torch.tensor(labels, dtype=torch.long)
 
