@@ -2,6 +2,7 @@ from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
+import random
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
@@ -69,27 +70,41 @@ def extract_backbone_features(backbone, images):
     return feats
 
 @torch.no_grad()
-def extract_features(loader, backbone, device, max_batches=999999):
+def extract_features(loader, backbone, device, 
+                     both_views=False, max_batches=999999):
     """Extract features and labels from a dataloader."""
-    feats_list, y_list = [], []
+    feats_view1_list, feats_view2_list, y_list = [], [], []
 
+    images_view2 = None  # Initialize to None for safety
     for batch_idx, (views, y) in enumerate(tqdm(loader)):
         if batch_idx >= max_batches:
             break
-        images = (
+        images_view1 = (
             views[0].to(device, non_blocking=True)
             if isinstance(views, (list, tuple))
             else views.to(device)
         )
-
+        if both_views and isinstance(views, (list, tuple)) and len(views) > 1:
+            images_view2 = (
+                views[1].to(device, non_blocking=True)
+            )
+            
         with torch.no_grad():
-            feats = extract_backbone_features(backbone, images)
-            feats = F.normalize(feats, dim=1)
+            feats_view1 = extract_backbone_features(backbone, images_view1)
+            feats_view1 = F.normalize(feats_view1, dim=1)
+            if images_view2 is not None:
+                feats_view2 = extract_backbone_features(backbone, images_view2)
+                feats_view2 = F.normalize(feats_view2, dim=1)
+        feats_view1_list.append(feats_view1.cpu())
+        if both_views and images_view2 is not None:
+            feats_view2_list.append(feats_view2.cpu())
 
-        feats_list.append(feats.cpu())
         y_list.append(y.cpu())
 
-    return torch.cat(feats_list, dim=0), torch.cat(y_list, dim=0)
+    if both_views and len(feats_view2_list) > 0:
+        return torch.cat(feats_view1_list, dim=0), torch.cat(feats_view2_list, dim=0), torch.cat(y_list, dim=0)
+
+    return torch.cat(feats_view1_list, dim=0), torch.cat(y_list, dim=0)
 
 def load_model_from_checkpoint(ckpt_path, device='cpu'):
     """
@@ -122,3 +137,99 @@ def load_model_from_checkpoint(ckpt_path, device='cpu'):
     else:
         print("⚠️ Skipping weight load for epoch 0 checkpoint")
     return model, cfg
+
+def freeze_model(model):
+    for param in model.parameters():
+        param.requires_grad = False
+
+def set_seed(seed=42):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False  # Ensures determinism
+    random.seed(seed)
+
+def get_subset_dataloader(
+    data_source,
+    class_indices,
+    batch_size=128,
+    shuffle=True,
+    num_workers=8,
+    drop_last=False,
+    collate_fn=None,
+    pin_memory=True,
+):
+    """
+    Create a DataLoader for a subset of the dataset filtered by class labels.
+    
+    Example:
+        >>> loader = get_subset_dataloader(original_loader, class_indices=[0, 1], 
+        ...                                collate_fn=datamodule.eval_collate)
+    """
+    import numpy as np
+    from torch.utils.data import Subset
+    
+    # Extract dataset from dataloader if needed
+    if isinstance(data_source, torch.utils.data.DataLoader):
+        dataset = data_source.dataset
+    else:
+        dataset = data_source
+    
+    class_array = np.array(class_indices)
+    # Fast index lookup using vectorized operations
+    try:
+        # Try HuggingFace dataset approach (has 'label' column)
+        all_labels = np.array(dataset['label'])
+        subset_indices = np.where(np.isin(all_labels, class_array))[0].tolist()
+    except (TypeError, KeyError):
+        # Fallback to PyTorch dataset approach
+        all_labels = []
+        for i in range(len(dataset)):
+            sample = dataset[i]
+            label = sample['label'] if isinstance(sample, dict) else sample[1]
+            all_labels.append(label)
+        all_labels = np.array(all_labels)
+        subset_indices = np.where(np.isin(all_labels, class_array))[0].tolist()
+    
+    # Create Subset and DataLoader
+    # subset = Subset(dataset, subset_indices)
+    label_map = {cls: i for i, cls in enumerate(class_indices)}
+    subset = LabelMappedDataset(dataset, subset_indices, label_map)
+    
+    kwargs = dict(
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+        drop_last=drop_last,
+    )
+    if collate_fn is not None:
+        kwargs['collate_fn'] = collate_fn
+    
+    return torch.utils.data.DataLoader(subset, **kwargs)
+
+
+class LabelMappedDataset(torch.utils.data.Dataset):
+    def __init__(self, dataset, indices, label_map):
+        self.dataset = dataset
+        self.indices = indices
+        self.label_map = label_map  # dict: original → new
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        sample = self.dataset[self.indices[idx]]
+
+        if isinstance(sample, dict):
+            label = sample.get('label', sample.get('labels'))
+            sample = dict(sample)
+            sample['label'] = self.label_map[int(label)]
+            return sample
+
+        elif isinstance(sample, (list, tuple)):
+            *data, label = sample
+            return (*data, self.label_map[int(label)])
+
+        else:
+            raise ValueError("Unsupported sample format")
