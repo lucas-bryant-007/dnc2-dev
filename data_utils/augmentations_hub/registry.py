@@ -1,9 +1,9 @@
-from data_utils.augmentations_hub import ijepa, vicreg
+from data_utils.augmentations_hub import ijepa, vicreg, wmse
 
 AUGMENTATION_REGISTRY = {
     'ijepa': ijepa.get_ijepa_transforms,
     'vicreg': vicreg.get_vicreg_transforms,
-
+    'wmse': wmse.get_wmse_transforms,
 }
 
 def get_transforms(method, dataset='imagenet'):

@@ -1,6 +1,7 @@
 """
 Run this script as:
-python train.py --config training/configs/vicreg_resnet50.yaml
+example:
+    python training/train.py --config configs/vicreg/mini_imagenet.yaml
 """
 
 import argparse
@@ -14,6 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config_loader import load_config, dict_to_namespace, namespace_to_dict
 from models.vicreg import LightlyVICReg
 from models.ijepa import LightlyIJepa
+from models.wmse import LightlyWMSE
 from data_utils.mini_imagenet_datamodule import MiniImageNetDataModule, MiniImageNetCfg
 from utils.export_teacher import export_teacher_encoder_only
 from utils.ckpt_schedule import ScheduledCheckpoint
@@ -37,8 +39,10 @@ def main(cfg):
         model = LightlyVICReg(cfg)
     elif cfg.method.name.lower() == "ijepa":
         model = LightlyIJepa(cfg)
+    elif cfg.method.name.lower() == "wmse":
+        model = LightlyWMSE(cfg)
     else:
-        raise ValueError(f"Unknown method: {cfg.method.name}. Supported: 'vicreg', 'ijepa'")
+        raise ValueError(f"Unknown method: {cfg.method.name}. Supported: 'vicreg', 'ijepa', 'wmse'")
 
     # custom model checkpointing & logging
     sched_cb = ScheduledCheckpoint(
