@@ -17,6 +17,7 @@ from models.vicreg import LightlyVICReg
 from models.ijepa import LightlyIJepa
 from models.wmse import LightlyWMSE
 from data_utils.mini_imagenet_datamodule import MiniImageNetDataModule, MiniImageNetCfg
+from data_utils.celebA_datamodule import CelebADataModule, CelebACfg
 from utils.export_teacher import export_teacher_encoder_only
 from utils.ckpt_schedule import ScheduledCheckpoint
 from utils.linear_probe_callback import LinearProbeCallback
@@ -30,9 +31,17 @@ def main(cfg):
     print("============================\n")
 
     # build data module
-    data_cfg = MiniImageNetCfg(**namespace_to_dict(cfg.data))
-    data_cfg.method = cfg.method.name
-    data_module = MiniImageNetDataModule(data_cfg)
+    breakpoint()
+    if cfg.data.name.lower() == "mini_imagenet":
+        data_cfg = MiniImageNetCfg(**namespace_to_dict(cfg.data))
+        data_cfg.method = cfg.method.name
+        data_module = MiniImageNetDataModule(data_cfg)
+    elif cfg.data.name.lower() == "celebA":
+        data_cfg = CelebACfg(**namespace_to_dict(cfg.data))
+        data_cfg.method = cfg.method.name
+        data_module = CelebADataModule(data_cfg)
+    else:
+        raise ValueError(f"Unknown dataset: {cfg.data.name}. Supported: 'mini_imagenet', 'celebA'")
 
     # build model based on method
     if cfg.method.name.lower() == "vicreg":

@@ -4,7 +4,7 @@ seed: 123
 
 # Data configuration
 data:
-  name: mini_imagenet
+  name: celebA
   hf_repo: timm/mini-imagenet
   hf_cache_dir: ${oc.env:HF_DATASETS_CACHE,~/.cache/huggingface/datasets}
   img_size: 224
