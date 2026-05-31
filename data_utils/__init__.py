@@ -1,2 +1,3 @@
 from .augmentations_hub.registry import get_transforms
 from .mini_imagenet_datamodule import MiniImageNetCfg, MiniImageNetDataModule
+from .celebA_datamodule import CelebACfg, CelebADataModule
