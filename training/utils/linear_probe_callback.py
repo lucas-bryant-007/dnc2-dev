@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 import pytorch_lightning as pl
+from tqdm import tqdm
 
 class LinearProbeCallback(pl.Callback):
     """
@@ -14,13 +15,14 @@ class LinearProbeCallback(pl.Callback):
     """
     def __init__(self, every_n_epochs=100, max_epochs=5, 
                  lr=0.1, weight_decay=0.0,
-                 batch_size=256,
+                 batch_size=256, num_classes=10,
                  enabled=True, run_before_training=True):
         self.every_n_epochs = every_n_epochs
         self.max_epochs = max_epochs
         self.lr = float(lr)
         self.weight_decay = float(weight_decay)
         self.batch_size = batch_size
+        self.num_classes = num_classes
         self.enabled = enabled
         self.run_before_training = run_before_training
 
@@ -86,25 +88,12 @@ class LinearProbeCallback(pl.Callback):
             val_loader = dm.probe_test_dataloader() if hasattr(dm, "probe_test_dataloader") else dm.val_dataloader()
             device = pl_module.device
 
-            # num classes
-            num_classes = getattr(dm, "num_classes", None) or getattr(dm, "n_classes", None)
-            if num_classes is None:
-                ds = getattr(dm, "ds_train", None) or getattr(dm, "train_set", None)
-                if ds is not None and hasattr(ds, "features") and "label" in ds.features:
-                    try:
-                        num_classes = int(ds.features["label"].num_classes)
-                    except Exception:
-                        pass
-            if num_classes is None:
-                # last resort: infer from a batch
-                _, y0 = next(iter(train_loader))
-                num_classes = int(y0.max().item() + 1)
-
             backbone = pl_module.backbone  # frozen for probe
+            breakpoint()
 
             # feature dim
             with torch.no_grad():
-                x0, _ = next(iter(train_loader))
+                x0, _, _, _ = next(iter(train_loader))
                 images0 = x0[0].to(device, non_blocking=True) if isinstance(x0, (list, tuple)) else x0.to(device)
                 feat0 = self._cls_features(backbone, images0)
                 feat_dim = feat0.shape[-1]
@@ -116,7 +105,7 @@ class LinearProbeCallback(pl.Callback):
             train_dl = DataLoader(TensorDataset(Xtr, Ytr), batch_size=self.batch_size, shuffle=True, num_workers=0)
             val_dl = DataLoader(TensorDataset(Xva, Yva), batch_size=self.batch_size, shuffle=False, num_workers=0)
 
-            clf = nn.Linear(feat_dim, num_classes).to(device)
+            clf = nn.Linear(feat_dim, self.num_classes).to(device)
             # opt = torch.optim.AdamW(clf.parameters(), lr=self.lr, weight_decay=self.weight_decay)
             opt = torch.optim.SGD(clf.parameters(), lr=self.lr, weight_decay=self.weight_decay, momentum=0.9)
 
@@ -168,7 +157,8 @@ class LinearProbeCallback(pl.Callback):
     def extract_features(self, loader, backbone, device, max_batches=999999):
         feats_list, y_list = [], []
 
-        for batch_idx, (views, y) in enumerate(loader):
+        for batch_idx, batch in tqdm(enumerate(loader), total=len(loader), desc="Extracting features"):
+            views, y, _, _ = batch
             if batch_idx >= max_batches:
                 break
             images = views[0].to(device, non_blocking=True) if isinstance(views, (list, tuple)) else views.to(device)

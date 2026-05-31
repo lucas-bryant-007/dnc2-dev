@@ -59,9 +59,10 @@ class CDNVCallback(pl. Callback):
         """Extract features and labels from a dataloader."""
         feats_list, y_list = [], []
 
-        for batch_idx, (views, y) in enumerate(loader):
+        for batch_idx, batch in enumerate(loader):
             if batch_idx >= max_batches:
                 break
+            views, y, _, _ = batch
             images = (
                 views[0]. to(device, non_blocking=True)
                 if isinstance(views, (list, tuple))
@@ -103,76 +104,75 @@ class CDNVCallback(pl. Callback):
         was_training = pl_module.training
         pl_module.eval()
 
-        try:
-            device = pl_module.device
-            backbone = pl_module.backbone
-
-            # Initialize evaluator with the correct device
-            if self.evaluator is None:
-                self.evaluator = GeometricEvaluator(
-                    num_classes=self.num_classes,
-                    device=device,
-                )
-
-            train_loader = dm.probe_train_dataloader() if hasattr(dm, "probe_train_dataloader") else dm.train_dataloader()
-            Xtr, Ytr = self.extract_features(
-                train_loader, backbone, device
+        device = pl_module.device
+        backbone = pl_module.backbone
+        
+        # Initialize evaluator with the correct device
+        if self.evaluator is None:
+            self.evaluator = GeometricEvaluator(
+                num_classes=self.num_classes,
+                device=device,
             )
 
-            train_cdnv = self.evaluator.compute_cdnv(Xtr, Ytr)
-            train_dir_cdnv = self.evaluator.compute_directional_cdnv(Xtr, Ytr)
+        train_loader = dm.probe_train_dataloader() if hasattr(dm, "probe_train_dataloader") else dm.train_dataloader()
+        Xtr, Ytr = self.extract_features(
+            train_loader, backbone, device
+        )
 
-            if train_cdnv is not None:
-                pl_module.log(
-                    "cdnv/train_cdnv",
-                    train_cdnv,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=False,
-                )
-                pl_module.print(f"[CDNV] epoch={epoch} train_cdnv={train_cdnv:.6f}")
+        print(f"[CDNV] Extracted features for epoch {epoch}: Xtr.shape={Xtr.shape}, Ytr.shape={Ytr.shape}")
+        train_cdnv = self.evaluator.compute_cdnv(Xtr, Ytr)
+        train_dir_cdnv = self.evaluator.compute_directional_cdnv(Xtr, Ytr)
 
-            if train_dir_cdnv is not None:
-                pl_module.log(
-                    "cdnv/train_dir_cdnv",
-                    train_dir_cdnv,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=False,
-                )
-                pl_module.print(f"[CDNV] epoch={epoch} train_dir_cdnv={train_dir_cdnv:.6f}")
-
-            val_loader = dm.probe_test_dataloader() if hasattr(dm, "probe_test_dataloader") else dm.val_dataloader()
-            Xva, Yva = self.extract_features(
-                val_loader, backbone, device
+        if train_cdnv is not None:
+            pl_module.log(
+                "cdnv/train_cdnv",
+                train_cdnv,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=False,
             )
+            pl_module.print(f"[CDNV] epoch={epoch} train_cdnv={train_cdnv:.6f}")
 
-            val_cdnv = self.evaluator.compute_cdnv(Xva, Yva)
-            val_dir_cdnv = self.evaluator.compute_directional_cdnv(Xva, Yva)
+        if train_dir_cdnv is not None:
+            pl_module.log(
+                "cdnv/train_dir_cdnv",
+                train_dir_cdnv,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=False,
+            )
+            pl_module.print(f"[CDNV] epoch={epoch} train_dir_cdnv={train_dir_cdnv:.6f}")
 
-            if val_cdnv is not None:
-                pl_module.log(
-                    "cdnv/val_cdnv",
-                    val_cdnv,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=False,
-                )
-                pl_module.print(f"[CDNV] epoch={epoch} val_cdnv={val_cdnv:.6f}")
+        val_loader = dm.probe_test_dataloader() if hasattr(dm, "probe_test_dataloader") else dm.val_dataloader()
+        Xva, Yva = self.extract_features(
+            val_loader, backbone, device
+        )
 
-            if val_dir_cdnv is not None:
-                pl_module.log(
-                    "cdnv/val_dir_cdnv",
-                    val_dir_cdnv,
-                    on_step=False,
-                    on_epoch=True,
-                    sync_dist=False,
-                )
-                pl_module.print(f"[CDNV] epoch={epoch} val_dir_cdnv={val_dir_cdnv:.6f}")
+        val_cdnv = self.evaluator.compute_cdnv(Xva, Yva)
+        val_dir_cdnv = self.evaluator.compute_directional_cdnv(Xva, Yva)
 
-        finally:
-            if was_training:
-                pl_module.train()
-            # signal completion to other ranks
-            if trainer.strategy is not None:
-                trainer.strategy.barrier()
+        if val_cdnv is not None:
+            pl_module.log(
+                "cdnv/val_cdnv",
+                val_cdnv,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=False,
+            )
+            pl_module.print(f"[CDNV] epoch={epoch} val_cdnv={val_cdnv:.6f}")
+
+        if val_dir_cdnv is not None:
+            pl_module.log(
+                "cdnv/val_dir_cdnv",
+                val_dir_cdnv,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=False,
+            )
+            pl_module.print(f"[CDNV] epoch={epoch} val_dir_cdnv={val_dir_cdnv:.6f}")
+
+        if was_training:
+            pl_module.train()
+        # signal completion to other ranks
+        if trainer.strategy is not None:
+            trainer.strategy.barrier()

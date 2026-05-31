@@ -14,7 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config_loader import load_config, dict_to_namespace, namespace_to_dict
 from models.vicreg import LightlyVICReg
-from models.ijepa import LightlyIJepa
+from models.ijepa import LightlyIJEPA
 from models.wmse import LightlyWMSE
 from data_utils.mini_imagenet_datamodule import MiniImageNetDataModule, MiniImageNetCfg
 from data_utils.celebA_datamodule import CelebADataModule, CelebACfg
@@ -31,23 +31,22 @@ def main(cfg):
     print("============================\n")
 
     # build data module
-    breakpoint()
     if cfg.data.name.lower() == "mini_imagenet":
         data_cfg = MiniImageNetCfg(**namespace_to_dict(cfg.data))
         data_cfg.method = cfg.method.name
         data_module = MiniImageNetDataModule(data_cfg)
-    elif cfg.data.name.lower() == "celebA":
+    elif cfg.data.name.lower() == "celeba":
         data_cfg = CelebACfg(**namespace_to_dict(cfg.data))
         data_cfg.method = cfg.method.name
         data_module = CelebADataModule(data_cfg)
     else:
-        raise ValueError(f"Unknown dataset: {cfg.data.name}. Supported: 'mini_imagenet', 'celebA'")
+        raise ValueError(f"Unknown dataset: {cfg.data.name}. Supported: 'mini_imagenet', 'celeba'")
 
     # build model based on method
     if cfg.method.name.lower() == "vicreg":
         model = LightlyVICReg(cfg)
     elif cfg.method.name.lower() == "ijepa":
-        model = LightlyIJepa(cfg)
+        model = LightlyIJEPA(cfg)
     elif cfg.method.name.lower() == "wmse":
         model = LightlyWMSE(cfg)
     else:
