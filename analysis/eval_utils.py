@@ -76,7 +76,8 @@ def extract_features(loader, backbone, device,
     feats_view1_list, feats_view2_list, y_list = [], [], []
 
     images_view2 = None  # Initialize to None for safety
-    for batch_idx, (views, y) in enumerate(tqdm(loader)):
+    for batch_idx, batch in enumerate(tqdm(loader)):
+        views, y, _, _ = batch
         if batch_idx >= max_batches:
             break
         images_view1 = (
