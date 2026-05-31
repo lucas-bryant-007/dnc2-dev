@@ -1,0 +1,344 @@
+import argparse
+import torch
+import math
+from typing import Dict, List, Optional, Sequence
+from dataclasses import dataclass
+
+import torch
+import os, sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from training.config_loader import load_config, dict_to_namespace, namespace_to_dict
+from data_utils import CelebACfg, CelebADataModule
+from eval_utils import (
+    find_checkpoint_files,
+    load_model_from_checkpoint,
+    extract_features,
+    set_seed,
+    freeze_model,
+)
+from geometry import GeometricEvaluator
+from br.diagnostics import GramStats, gram_stats, print_basis_stats
+from br.ssl_subspace import SSLSubspaceEstimator, fit_ssl_subspace
+from br.br_estimators import estimate_B_r, estimate_B_r_raw, estimate_B_r_projection
+from br.geometric_estimators import estimate_tilde_V, estimate_V, predict_tilde_V_from_B, predict_V_from_B
+from br.plotting import plot_Br_vs_r, plot_tildeV_scatter_pretty
+
+@dataclass
+class BRResults:
+    estimator: SSLSubspaceEstimator
+    psi_lab: torch.Tensor
+    r_values: List[int]
+    B_r: Dict[int, float]
+    B_r_raw: Dict[int, float]
+    tilde_V_pred: Dict[int, float]
+    tilde_V_obs: Optional[Dict[int, float]]
+    V_pred: Dict[int, float]
+    V_obs: Optional[Dict[int, float]]
+    gram_stats: Dict[int, GramStats]
+
+
+# -----------------------------------------------------------------------------
+# Main experiment pipeline
+# -----------------------------------------------------------------------------
+
+def run_br_pipeline(
+    z1_unlab: torch.Tensor,
+    z2_unlab: torch.Tensor,
+    z_lab: torch.Tensor,
+    y_lab: torch.Tensor,
+    r_values: Sequence[int],
+    *,
+    k_cap: Optional[int] = None,
+    rel_eig_threshold: float = 1e-3,
+    whiten_ridge_rel: float = 1e-3,
+    b_metric: str = "orth",
+    center_labels: bool = True,
+    gram_ridge: float = 1e-6,
+    compute_observed_tilde_V: bool = True,
+    compute_observed_V: bool = True,
+    verbose: bool = True,
+) -> BRResults:
+    """
+    End-to-end pipeline.
+
+    Recommended defaults for theorem-facing experiments:
+      - adaptive whitening dimension via rel_eig_threshold
+      - ridge whitening via whiten_ridge_rel
+      - B_r estimator = "orth"
+      - center_labels = True
+    """
+    breakpoint()
+    estimator = fit_ssl_subspace(
+        z1=z1_unlab,
+        z2=z2_unlab,
+        k_cap=k_cap,
+        rel_eig_threshold=rel_eig_threshold,
+        whiten_ridge_rel=whiten_ridge_rel,
+    )
+
+    psi_lab = estimator.transform(z_lab)
+    r_values = sorted(set(int(r) for r in r_values if 1 <= int(r) <= estimator.k_eff))
+    if len(r_values) == 0:
+        raise ValueError(f"No valid r values remain after truncation to k_eff={estimator.k_eff}")
+
+    if verbose:
+        print(f"k_requested={k_cap}, k_eff={estimator.k_eff}, lam_max={estimator.lam_max:.6e}")
+        cutoff = estimator.rel_eig_threshold * estimator.lam_max
+        ridge = estimator.whiten_ridge_rel * estimator.lam_max
+        print(f"covariance cutoff={cutoff:.6e}, whitening ridge={ridge:.6e}")
+        print_basis_stats(psi_lab, name="psi_lab")
+
+    B_r_raw = estimate_B_r_raw(
+        psi=psi_lab,
+        y=y_lab,
+        r_values=r_values,
+        center_labels=center_labels,
+    )
+
+    if b_metric == "raw":
+        B_r = dict(B_r_raw)
+    elif b_metric == "orth":
+        B_r = estimate_B_r(
+            psi=psi_lab,
+            y=y_lab,
+            r_values=r_values,
+            center_labels=center_labels,
+            gram_ridge=gram_ridge,
+        )
+    elif b_metric == "projection":
+        B_r = estimate_B_r_projection(
+            psi=psi_lab,
+            y=y_lab,
+            r_values=r_values,
+            center_labels=center_labels,
+            center_features=True,
+        )
+    else:
+        raise ValueError(f"Unknown b_metric={b_metric}. Choose from raw, orth, projection")
+
+    gram = {r: gram_stats(psi_lab, r=r) for r in r_values}
+    tilde_V_pred = {r: predict_tilde_V_from_B(B_r[r]) for r in r_values}
+    V_pred = {r: predict_V_from_B(B_r[r], r=r) for r in r_values}
+
+    tilde_V_obs = None
+    if compute_observed_tilde_V:
+        tilde_V_obs = {r: estimate_tilde_V(psi_lab, y_lab, r) for r in r_values}
+
+    V_obs = None
+    if compute_observed_V:
+        V_obs = {r: estimate_V(psi_lab, y_lab, r) for r in r_values}
+
+    if verbose:
+        print("B_r estimates:")
+        for r in r_values:
+            raw = B_r_raw[r]
+            cur = B_r[r]
+            print(f"  r={r:4d}  B_raw={raw:.6f}  B_{b_metric}={cur:.6f}")
+
+        print("\nGram diagnostics:")
+        for r in r_values:
+            gs = gram[r]
+            print(
+                f"  r={r:4d}  eig_min={gs.eig_min:.6f}  eig_max={gs.eig_max:.6f}  "
+                f"cond={gs.cond:.4f}  ||G-I||_F={gs.fro_error:.6f}"
+            )
+
+        if tilde_V_obs is not None:
+            print("\nPredicted vs observed directional CDNV:")
+            for r in r_values:
+                print(
+                    f"  r={r:4d}  pred={tilde_V_pred[r]:.6f}  obs={tilde_V_obs[r]:.6f}"
+                )
+
+        if V_obs is not None:
+            print("\nPredicted vs observed full CDNV:")
+            for r in r_values:
+                print(f"  r={r:4d}  pred={V_pred[r]:.6f}  obs={V_obs[r]:.6f}")
+
+    return BRResults(
+        estimator=estimator,
+        psi_lab=psi_lab,
+        r_values=r_values,
+        B_r=B_r,
+        B_r_raw=B_r_raw,
+        tilde_V_pred=tilde_V_pred,
+        tilde_V_obs=tilde_V_obs,
+        V_pred=V_pred,
+        V_obs=V_obs,
+        gram_stats=gram,
+    )
+
+def main(args):
+    set_seed(6)
+    # Load config from YAML file
+    cfg = load_config(args.config)
+    # Convert dict to namespace for easier access (cfg.data.x instead of cfg['data']['x'])
+    cfg = dict_to_namespace(cfg)
+
+    # build data module
+    data_cfg = CelebACfg(**namespace_to_dict(cfg.data))
+    data_cfg.method = cfg.method.name
+    data_module = CelebADataModule(data_cfg)
+    data_module.setup()
+
+    train_loader_b = data_module.train_dataloader() # required (w/ augmentations) to estimate SSL subspace
+    sv_train_loader_b = data_module.probe_train_dataloader() # single-view loader for estimating B_r and tilde_V without augmentation
+    sv_test_loader_b = data_module.probe_test_dataloader()
+
+    # build model 
+    # get all checkpoint files in the directory
+    ckpt_files = find_checkpoint_files(args.ckpt_dir)
+    epochs_to_evaluate = set(args.epochs)
+    all_results = {}
+
+    for epoch, ckpt_path in ckpt_files:
+        if epoch not in epochs_to_evaluate:
+            continue
+
+        print(f"\nEvaluating checkpoint: {ckpt_path} (epoch {epoch})")
+        model, _ = load_model_from_checkpoint(ckpt_path)
+        model = model.to(args.device)
+        freeze_model(model)
+
+        features_view1, features_view2, _ = extract_features(
+            train_loader_b,
+            model.backbone,
+            device=args.device,
+            both_views=True,
+        )
+        print(f"Extracted paired train features: {features_view1.shape}, {features_view2.shape}")
+
+        sv_train_features_b, train_labels_b = extract_features(
+            sv_train_loader_b,
+            model.backbone,
+            device=args.device,
+        )
+        print(f"Extracted labeled train features: {sv_train_features_b.shape}")
+
+        # Raw geometry on the original feature space.
+        geometric_evaluator = GeometricEvaluator(num_classes=2, device=args.device)
+        cdnv = geometric_evaluator.compute_cdnv(sv_train_features_b, train_labels_b)
+        directional_cdnv = geometric_evaluator.compute_directional_cdnv(sv_train_features_b, train_labels_b)
+        print(f"Original-space CDNV: {cdnv:.6f}")
+        print(f"Original-space directional CDNV: {directional_cdnv:.6f}")
+
+        per_cap_results = {}
+        caps = [None] if len(args.k_caps) == 0 else [None if x < 0 else int(x) for x in args.k_caps]
+        for k_cap in caps:
+            print("\n" + "=" * 80)
+            print(f"Running B_r pipeline with k_cap={k_cap}")
+            results = run_br_pipeline(
+                z1_unlab=features_view1,
+                z2_unlab=features_view2,
+                z_lab=sv_train_features_b,
+                y_lab=train_labels_b,
+                r_values=args.r_values,
+                k_cap=k_cap,
+                rel_eig_threshold=args.rel_eig_threshold,
+                whiten_ridge_rel=args.whiten_ridge_rel,
+                b_metric=args.b_metric,
+                center_labels=not args.no_center_labels,
+                gram_ridge=args.gram_ridge,
+                compute_observed_tilde_V=True,
+                compute_observed_V=True,
+                verbose=True,
+            )
+
+            key = "adaptive" if k_cap is None else f"cap_{k_cap}"
+            per_cap_results[key] = {
+                "k_eff": results.estimator.k_eff,
+                "r_values": results.r_values,
+                "B_r": results.B_r,
+                "B_r_raw": results.B_r_raw,
+                "tilde_V_pred": results.tilde_V_pred,
+                "tilde_V_obs": results.tilde_V_obs,
+                "V_pred": results.V_pred,
+                "V_obs": results.V_obs,
+                "gram_stats": {
+                    r: {
+                        "eig_min": gs.eig_min,
+                        "eig_max": gs.eig_max,
+                        "cond": gs.cond,
+                        "fro_error": gs.fro_error,
+                    }
+                    for r, gs in results.gram_stats.items()
+                },
+            }
+
+        all_results[epoch] = per_cap_results
+        plot_Br_vs_r(all_results[epoch], f"figures/br_vs_r_epoch_{epoch}")
+        plot_tildeV_scatter_pretty(all_results[epoch], f"figures/tildeV_epoch_{epoch}")
+
+    print("\nFinished.")
+    print(f"Evaluated epochs: {sorted(all_results.keys())}")
+
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", "-c", type=str, required=True, help="Path to YAML config file")
+    parser.add_argument("--ckpt_dir", "-ckpt", type=str, required=True, help="Directory containing model checkpoints")
+    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--seed", type=int, default=6)
+    parser.add_argument("--batch_size", type=int, default=128)
+
+    parser.add_argument(
+        "--epochs",
+        nargs="+",
+        type=int,
+        default=[0, 1000],
+        help="Checkpoint epochs to evaluate",
+    )
+    parser.add_argument(
+        "--classes",
+        nargs=2,
+        type=int,
+        default=None,
+        help="Optional fixed pair of classes; otherwise sampled randomly",
+    )
+    parser.add_argument(
+        "--r_values",
+        nargs="+",
+        type=int,
+        default=[8, 16, 32, 64, 128, 256, 512],
+        help="Requested r values",
+    )
+    parser.add_argument(
+        "--k_caps",
+        nargs="*",
+        type=int,
+        default=[],
+        help="Optional whitening caps to compare. Use no values for fully adaptive k. Use -1 to mean adaptive.",
+    )
+    parser.add_argument(
+        "--rel_eig_threshold",
+        type=float,
+        default=1e-3,
+        help="Keep covariance directions with lambda_i >= rel_eig_threshold * lambda_1",
+    )
+    parser.add_argument(
+        "--whiten_ridge_rel",
+        type=float,
+        default=1e-3,
+        help="Whitening ridge = whiten_ridge_rel * lambda_1",
+    )
+    parser.add_argument(
+        "--b_metric",
+        type=str,
+        default="orth",
+        choices=["raw", "orth", "projection"],
+        help="B_r estimator to report",
+    )
+    parser.add_argument(
+        "--gram_ridge",
+        type=float,
+        default=1e-6,
+        help="Gram ridge for the orth estimator",
+    )
+    parser.add_argument(
+        "--no_center_labels",
+        action="store_true",
+        help="Disable label centering before estimating B_r",
+    )
+
+    main(parser.parse_args())
