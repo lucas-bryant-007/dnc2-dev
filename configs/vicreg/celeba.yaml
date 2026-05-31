@@ -1,0 +1,89 @@
+# Experiment name and seed
+exp_name: resnet50_vicreg
+seed: 6
+
+# Data configuration
+data:
+  name: celeba
+  hf_repo: flwrlabs/celeba
+  hf_cache_dir: ${oc.env:HF_DATASETS_CACHE,~/.cache/huggingface/datasets}
+  img_size: 128
+  batch_size: 1024
+  num_workers: 32
+  num_views: 2
+  train_split: train
+  test_split: test
+  label_key: "Male"
+
+# Model configuration
+model:
+  resnet_name: "resnet50"
+  pretrained: false
+  lr: 1.5e-4         # Base learning rate (will be scaled)
+  weight_decay: 1e-6
+  warmup_epochs: 10
+  min_lr: 0.002
+  # VICReg specific parameters
+  lambda_param: 25.0  # Invariance loss weight
+  mu_param: 25.0      # Variance loss weight
+  nu_param: 1.0       # Covariance loss weight
+  hidden_dim: 2048
+  output_dim: 2048
+  num_layers: 2
+
+# Training configuration
+trainer:
+  devices: 1
+  accelerator: gpu
+  strategy: auto
+  max_epochs: 1001
+  accumulate_grad_batches: 1
+  use_distributed_sampler: false
+  num_sanity_val_steps: 0
+  log_every_n_steps: 50
+
+# Method configuration
+method:
+  name: "vicreg"
+
+# Logging configuration
+logging:
+  backend: wandb               # options: "csv", "wandb"
+  project: dnc
+  entity: null                  # set if you use a team
+  run_name: vicreg_celeba
+  tags: ["vicreg"]
+  log_model: false              # true if you want checkpoints uploaded
+  log_every_n_steps: 50
+
+# Precision configuration
+precision: bf16-mixed           # change to "16-mixed" if bf16 isn't supported
+
+# Paths configuration
+paths:
+  output_root: ${oc.env:OUTPUT_ROOT,./checkpoints}
+  exp_dir: ${oc.env:EXP_DIR,null}  # set this to override, otherwise will be computed as output_root/exp_name
+  resume_from_checkpoint: ${oc.env:RESUME_FROM_CHECKPOINT,null}  # set this env var to resume from a checkpoint
+
+# Checkpoint scheduling configuration
+ckpt_schedule:
+  dirpath: "checkpoints/vicreg_celeba"  # will be set to exp_dir/checkpoints in train.py if not provided
+  early_every: 10     # save every 10 epochs...
+  early_until: 100    # ...up to epoch 100 (inclusive)
+  late_every: 100     # then save every 100 epochs afterwards
+  save_last: true
+
+# Linear probe callback configuration
+probe:
+  enabled: False
+  every_n_epochs: 500
+  max_epochs: 100             # probe training epochs (keep small)
+  lr: 0.1
+  weight_decay: 1e-6
+  batch_size: 256
+
+# CDNV callback configuration
+cdnv:
+  every_n_epochs: 20
+  num_classes: 2
+  enabled: False

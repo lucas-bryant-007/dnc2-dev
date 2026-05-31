@@ -1,0 +1,93 @@
+# Experiment name and seed
+exp_name: vit_b_ijepa
+seed: 123
+
+# Data configuration
+data:
+  name: celeba
+  hf_repo: flwrlabs/celeba
+  hf_cache_dir: ${oc.env:HF_DATASETS_CACHE,~/.cache/huggingface/datasets}
+  img_size: 128
+  batch_size: 1024
+  num_workers: 32
+  num_views: 2
+  train_split: train
+  test_split: test
+  label_key: "Male"
+
+model:
+  encoder_type: "vit_base_patch16_224"
+  pretrained: false
+  lr: 3e-4         # Base learning rate (will be scaled)
+  weight_decay: 1e-6
+  warmup_epochs: 10
+  min_lr: 0.002
+  # IJEPA specific parameters
+  context_encoder_depth: 12
+  target_encoder_depth: 12
+  predictor_depth: 6
+  predictor_heads: 12
+  embed_dim: 768
+  ema_momentum_start: 0.996
+  ema_momentum_end: 1.0
+  image_size: 224
+  patch_size: 14
+
+# Training configuration
+trainer:
+  devices: 1
+  accelerator: gpu
+  strategy: auto
+  max_epochs: 1001
+  accumulate_grad_batches: 1
+  use_distributed_sampler: false
+  num_sanity_val_steps: 0
+  log_every_n_steps: 50
+
+
+# Method configuration
+method:
+  name: "ijepa"
+
+# Logging configuration
+logging:
+  backend: csv             # options: "csv", "wandb"
+  project: dnc
+  entity: null                  # set if you use a team
+  run_name: ijepa_celeba
+  tags: ["ijepa"]
+  log_model: false              # true if you want checkpoints uploaded
+  log_every_n_steps: 25
+
+# Precision configuration
+precision: bf16-mixed           # change to "16-mixed" if bf16 isn't supported
+
+# Paths configuration
+paths:
+  output_root: ${oc.env:OUTPUT_ROOT,./checkpoints}
+  exp_dir: ${oc.env:EXP_DIR,null}  # set this to override, otherwise will be computed as output_root/exp_name
+  resume_from_checkpoint: ${oc.env:RESUME_FROM_CHECKPOINT,null}  # set this env var to resume from a checkpoint
+
+# Checkpoint scheduling configuration
+ckpt_schedule:
+  dirpath: "checkpoints/ijepa_celeba"  # will be set to exp_dir/checkpoints in train.py if not provided
+  early_every: 10     # save every 10 epochs...
+  early_until: 100    # ...up to epoch 100 (inclusive)
+  late_every: 100     # then save every 100 epochs afterwards
+  save_last: true
+
+# Linear probe callback configuration
+probe:
+  enabled: true
+  every_n_epochs: 20
+  max_epochs: 100             # probe training epochs (keep small)
+  lr: 0.1
+  weight_decay: 1e-6
+  batch_size: 256
+  num_classes: 2              # number of classes for the linear probe (2 for celeba)
+
+# CDNV callback configuration
+cdnv:
+  enabled: true
+  every_n_epochs: 20
+  num_classes: 2
