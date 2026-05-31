@@ -89,7 +89,7 @@ class LightlyVICReg(pl.LightningModule):
         if self.global_step == 0 and self.global_rank == 0:
             self.print(f"world_size={self.trainer.world_size}, per_gpu_bs={self.cfg.data.batch_size}")
 
-        views, _ = batch
+        views, _, _, _ = batch
         images_0 = views[0] 
         images_1 = views[1]  
 

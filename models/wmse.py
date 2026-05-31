@@ -90,7 +90,7 @@ class LightlyWMSE(pl.LightningModule):
         if self.global_step == 0 and self.global_rank == 0:
             self.print(f"world_size={self.trainer.world_size}, per_gpu_bs={self.cfg.data.batch_size}")
 
-        views, _ = batch
+        views, _, _, _ = batch
         images_0 = views[0] 
         images_1 = views[1]  
 
@@ -115,12 +115,6 @@ class LightlyWMSE(pl.LightningModule):
             lr=scaled_lr,
             weight_decay=float(self.cfg.model.weight_decay),
         )
-
-        # optimizer = Lars(
-        #     self.parameters(),
-        #     lr=scaled_lr,
-        #     weight_decay=float(self.cfg.model.weight_decay),
-        # )
 
         # Warmup + cosine decay scheduler
         warmup_epochs = self.cfg.model.warmup_epochs
@@ -298,7 +292,7 @@ def whitening(x: Tensor, eps: float = 1e-4) -> Tensor:
     # center
     x = x - x.mean(dim=0, keepdim=True)
 
-    # 🔥 reshape like official implementation
+    # reshape like official implementation
     T = x.T.contiguous()  # [D, B]
 
     # covariance
