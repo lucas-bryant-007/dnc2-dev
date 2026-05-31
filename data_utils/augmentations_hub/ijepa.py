@@ -22,9 +22,6 @@ def get_ijepa_transforms(dataset: str = 'imagenet'):
         train_transform = transforms.Compose([
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
-            transforms.ColorJitter(0.8 * s, 0.8 * s, 0.8 * s, 0.2 * s),
-            transforms.RandomGrayscale(p=0.2),
-            transforms.RandomApply([transforms.GaussianBlur(3, sigma=(1.5, 1.5))], p=0.1),
             transforms.ToTensor(),
             RepeatChannelsIfNeeded(),
             transforms.Normalize(mean=mean, std=std),
@@ -32,6 +29,25 @@ def get_ijepa_transforms(dataset: str = 'imagenet'):
         basic_transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            RepeatChannelsIfNeeded(),
+            transforms.Normalize(mean=mean, std=std),
+        ])
+
+    elif dataset == "celeba":
+        s = 1.0
+        mean = [0.485, 0.456, 0.406]
+        std = [0.229, 0.224, 0.225]
+        train_transform = transforms.Compose([
+            transforms.RandomCrop(160),
+            transforms.Resize((224, 224)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            RepeatChannelsIfNeeded(),
+            transforms.Normalize(mean=mean, std=std),
+        ])
+        basic_transform = transforms.Compose([
+            transforms.Resize((224, 224)),
             transforms.ToTensor(),
             RepeatChannelsIfNeeded(),
             transforms.Normalize(mean=mean, std=std),
@@ -46,8 +62,6 @@ def get_ijepa_transforms(dataset: str = 'imagenet'):
         train_transform = transforms.Compose([
             transforms.RandomResizedCrop(32),
             transforms.RandomHorizontalFlip(),
-            transforms.RandomApply([color_jitter], p=0.8),
-            transforms.RandomGrayscale(p=0.2),
             transforms.ToTensor(),
             transforms.Normalize(mean=mean, std=std),
         ])
