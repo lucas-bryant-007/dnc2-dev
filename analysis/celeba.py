@@ -200,12 +200,20 @@ def main(args):
         model = model.to(args.device)
         freeze_model(model)
 
-        features_view1, features_view2, _ = extract_features(
+        extracted = extract_features(
             train_loader_b,
             model.backbone,
             device=args.device,
             both_views=True,
         )
+        if len(extracted) == 3:
+            features_view1, features_view2, _ = extracted
+        elif len(extracted) == 2:
+            features_view1, _ = extracted
+            features_view2 = features_view1
+            print("Warning: only one view returned by extract_features; reusing view1 as view2.")
+        else:
+            raise ValueError(f"Unexpected extract_features return format with {len(extracted)} values")
         print(f"Extracted paired train features: {features_view1.shape}, {features_view2.shape}")
 
         sv_train_features_b, train_labels_b = extract_features(

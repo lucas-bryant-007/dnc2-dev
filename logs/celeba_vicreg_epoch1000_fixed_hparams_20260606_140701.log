@@ -1,0 +1,36 @@
+Using VICReg augmentations for CelebA
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+Evaluating checkpoint: /data/lucas_bryant1/hf_models/vicreg-resnet50-celeba/converted_checkpoints/epoch_1000.ckpt (epoch 1000)
+/data/lucas_bryant1/dnc2_env/lib/python3.11/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/data/lucas_bryant1/dnc2_env/lib/python3.11/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+Traceback (most recent call last):
+  File "/data/lucas_bryant1/dnc2_work/dnc2/analysis/celeba.py", line 344, in <module>
+    main(parser.parse_args())
+  File "/data/lucas_bryant1/dnc2_work/dnc2/analysis/celeba.py", line 200, in main
+    model = model.to(args.device)
+            ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/lucas_bryant1/dnc2_env/lib/python3.11/site-packages/lightning_fabric/utilities/device_dtype_mixin.py", line 59, in to
+    return super().to(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/lucas_bryant1/dnc2_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1384, in to
+    return self._apply(convert)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/data/lucas_bryant1/dnc2_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 934, in _apply
+    module._apply(fn)
+  File "/data/lucas_bryant1/dnc2_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 934, in _apply
+    module._apply(fn)
+  File "/data/lucas_bryant1/dnc2_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 965, in _apply
+    param_applied = fn(param)
+                    ^^^^^^^^^
+  File "/data/lucas_bryant1/dnc2_env/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1370, in convert
+    return t.to(
+           ^^^^^
+torch.AcceleratorError: CUDA error: CUDA-capable device(s) is/are busy or unavailable
+Search for `cudaErrorDevicesUnavailable' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+

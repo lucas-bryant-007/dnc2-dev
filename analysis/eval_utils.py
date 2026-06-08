@@ -127,8 +127,8 @@ def load_model_from_checkpoint(ckpt_path, device='cpu'):
         from models.vicreg import LightlyVICReg
         model = LightlyVICReg(cfg)
     elif method_name == 'ijepa':
-        from models.ijepa import LightlyIJepa
-        model = LightlyIJepa(cfg)
+        from models.ijepa import LightlyIJEPA
+        model = LightlyIJEPA(cfg)
     else:
         raise ValueError(f"Unsupported method {method_name} in checkpoint {ckpt_path}")
 
