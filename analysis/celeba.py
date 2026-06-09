@@ -67,7 +67,6 @@ def run_br_pipeline(
       - B_r estimator = "orth"
       - center_labels = True
     """
-    breakpoint()
     estimator = fit_ssl_subspace(
         z1=z1_unlab,
         z2=z2_unlab,
