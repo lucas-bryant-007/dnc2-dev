@@ -130,41 +130,59 @@ def plot_cosine_heatmap(cos_abs, names, save_path, title=None):
     plt.close(fig)
 
 
-def plot_box_3d(coords, box, triple_names, save_path, max_points=4000, title=None):
+def plot_box_3d(coords, box, granular_task, triple_names, save_path,
+                per_task=600, title=None):
+    """3D hyper-rectangle: random samples colored by granular task + the 8
+    granular-task centroids (box corners) in matching colors, per Tomer's spec.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+    import numpy as np
 
-    fig = plt.figure(figsize=(8, 7))
+    fig = plt.figure(figsize=(9, 7.5))
     ax = fig.add_subplot(111, projection="3d")
+    cmap = plt.cm.tab10
+    p = coords.numpy()
+    g = granular_task.numpy()
 
-    # Subsample of points, colored by the first triple attribute's sign.
-    pts = coords
-    if pts.shape[0] > max_points:
-        idx = torch.randperm(pts.shape[0])[:max_points]
-        pts = pts[idx]
-    p = pts.numpy()
-    ax.scatter(p[:, 0], p[:, 1], p[:, 2], s=3, alpha=0.12, c="gray")
+    def combo_label(combo):
+        return " ".join((("+" if b else "-") + n) for n, b in zip(triple_names, combo))
 
-    # 8 sub-class-mean corners + cube wireframe (edges differ in one bit).
+    # Random samples from each granular task, colored by task.
+    for idx in range(8):
+        combo = ((idx >> 2) & 1, (idx >> 1) & 1, idx & 1)
+        sel = np.where(g == idx)[0]
+        if sel.size == 0:
+            continue
+        if sel.size > per_task:
+            sel = np.random.choice(sel, per_task, replace=False)
+        ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2], s=5, alpha=0.25,
+                   color=cmap(idx), label=combo_label(combo))
+
+    # The 8 granular-task centroids (box corners) in matching colors.
     centers = {tuple(e["combo"]): e["center"] for e in box if e["center"] is not None}
     for combo, ctr in centers.items():
-        ax.scatter(ctr[0], ctr[1], ctr[2], s=80, edgecolor="black",
-                   c="crimson", depthshade=False)
+        idx = combo[0] * 4 + combo[1] * 2 + combo[2]
+        ax.scatter(ctr[0], ctr[1], ctr[2], s=170, color=cmap(idx),
+                   edgecolor="black", linewidth=1.3, depthshade=False)
+    # Cube wireframe: connect centroids differing in exactly one task bit.
     for combo, ctr in centers.items():
         for axis in range(3):
             nbr = list(combo); nbr[axis] ^= 1; nbr = tuple(nbr)
             if nbr in centers and nbr > combo:
                 q = centers[nbr]
                 ax.plot([ctr[0], q[0]], [ctr[1], q[1]], [ctr[2], q[2]],
-                        color="crimson", linewidth=1.5)
+                        color="black", linewidth=1.0, alpha=0.6)
 
     ax.set_xlabel(f"axis 0: {triple_names[0]}")
     ax.set_ylabel(f"axis 1: {triple_names[1]}")
     ax.set_zlabel(f"axis 2: {triple_names[2]}")
     if title:
         ax.set_title(title)
+    ax.legend(loc="upper left", fontsize=7, markerscale=2, framealpha=0.9,
+              title="granular task")
     fig.tight_layout()
     fig.savefig(save_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
@@ -244,6 +262,7 @@ def main(args):
 
     # --- metrics export ---
     coords = res.pop("coords")
+    granular_task = res.pop("granular_task")
     payload = {
         "method": method, "tag": tag or None, "epoch": args.epoch,
         "split": args.split, "config": args.config, "ckpt_path": ckpt_path,
@@ -297,9 +316,10 @@ def main(args):
             plot_cosine_heatmap(sub.numpy(), sub_names, heat_path,
                                 title=f"{method} CelebA epoch {args.epoch}: task-axis |cos|")
             print(f"Saved cosine heatmap: {heat_path}")
-        if res["box"] is not None and coords is not None:
+        if res["box"] is not None and coords is not None and granular_task is not None:
             box_path = os.path.join(fig_dir, f"hyperrect_box_{stem}.png")
-            plot_box_3d(coords.cpu(), res["box"], res["triple_names"], box_path,
+            plot_box_3d(coords.cpu(), res["box"], granular_task.cpu(),
+                        res["triple_names"], box_path,
                         title=f"{method} CelebA epoch {args.epoch}: "
                               f"{' / '.join(res['triple_names'])}")
             print(f"Saved 3D box: {box_path}")

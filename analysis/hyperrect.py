@@ -128,24 +128,25 @@ def orthonormal_basis(deltas3: torch.Tensor) -> torch.Tensor:
 
 def subclass_box(
     features: torch.Tensor, attr3: torch.Tensor, basis: torch.Tensor
-) -> Tuple[torch.Tensor, List[Dict]]:
+) -> Tuple[torch.Tensor, List[Dict], torch.Tensor]:
     """Project features onto ``basis`` and return the 8 sub-class-mean corners.
 
-    ``attr3`` is [N, 3] binary {0,1}. Returns (coords[N,3], box) where ``box`` is
-    a list of 8 dicts: {combo, count, center(3) or None}.
+    ``attr3`` is [N, 3] binary {0,1}. Returns (coords[N,3], box, granular_task[N])
+    where ``box`` is a list of 8 dicts {combo, count, center(3) or None} ordered
+    by ``itertools.product((0,1), repeat=3)``, and ``granular_task`` gives each
+    sample's box-corner index ``b0*4 + b1*2 + b2`` in 0..7 (matching that order),
+    so the scatter can be colored per granular task.
     """
     coords = features @ basis  # [N, 3]
+    a3 = attr3.long()
+    granular_task = a3[:, 0] * 4 + a3[:, 1] * 2 + a3[:, 2]  # [N] in 0..7
     box: List[Dict] = []
     for combo in itertools.product((0, 1), repeat=3):
-        mask = (
-            (attr3[:, 0] == combo[0])
-            & (attr3[:, 1] == combo[1])
-            & (attr3[:, 2] == combo[2])
-        )
+        mask = (a3[:, 0] == combo[0]) & (a3[:, 1] == combo[1]) & (a3[:, 2] == combo[2])
         cnt = int(mask.sum().item())
         center = coords[mask].mean(dim=0).tolist() if cnt > 0 else None
         box.append({"combo": list(combo), "count": cnt, "center": center})
-    return coords, box
+    return coords, box, granular_task
 
 
 def analyze(
@@ -231,12 +232,13 @@ def analyze(
     coords = None
     box: Optional[List[Dict]] = None
     triple_names: Optional[List[str]] = None
+    granular_task = None
     if triple_idx is not None:
         triple_names = [attr_names[i] for i in triple_idx]
         d3 = torch.stack([deltas_t[i] for i in triple_idx], dim=1)  # [D, 3]
         basis = orthonormal_basis(d3)
         attr3 = torch.stack([bin_cols[i] for i in triple_idx], dim=1)  # [N, 3]
-        coords, box = subclass_box(features, attr3, basis)
+        coords, box, granular_task = subclass_box(features, attr3, basis)
 
     # Mean off-diagonal |cos| over usable attributes -- a scalar "interference".
     u_idx = [i for i in range(K) if usable[i]]
@@ -258,4 +260,5 @@ def analyze(
         "triple_max_abs_cos": triple_score,
         "box": box,
         "coords": coords,  # tensor [N,3] or None; pop before JSON
+        "granular_task": granular_task,  # tensor [N] in 0..7 or None; pop before JSON
     }
