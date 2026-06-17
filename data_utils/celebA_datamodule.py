@@ -215,6 +215,10 @@ class CelebADataModule(pl.LightningDataModule):
         collate_fn = self._collate_ijepa if self.cfg.method == "ijepa" else self._collate_vicreg
         return self._make_loader(self.ds_train, train=True, collate_fn=collate_fn, shuffle=True, num_workers=self.cfg.num_workers)
 
+    def paired_train_dataloader(self):
+        """Analysis loader for SSL subspace estimation with two augmented views."""
+        return self._make_loader(self.ds_train, train=True, collate_fn=self._collate_vicreg, shuffle=True, num_workers=self.cfg.num_workers)
+
     def val_dataloader(self):
         return self._make_loader(self.ds_test, train=False, collate_fn=self._collate_eval, shuffle=False)
 

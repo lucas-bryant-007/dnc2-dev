@@ -180,7 +180,7 @@ def main(args):
     data_module = CelebADataModule(data_cfg)
     data_module.setup()
 
-    train_loader_b = data_module.train_dataloader() # required (w/ augmentations) to estimate SSL subspace
+    train_loader_b = data_module.paired_train_dataloader() # required (w/ augmentations) to estimate SSL subspace
     sv_train_loader_b = data_module.probe_train_dataloader() # single-view loader for estimating B_r and tilde_V without augmentation
     sv_test_loader_b = data_module.probe_test_dataloader()
 
@@ -207,12 +207,11 @@ def main(args):
         )
         if len(extracted) == 3:
             features_view1, features_view2, _ = extracted
-        elif len(extracted) == 2:
-            features_view1, _ = extracted
-            features_view2 = features_view1
-            print("Warning: only one view returned by extract_features; reusing view1 as view2.")
         else:
-            raise ValueError(f"Unexpected extract_features return format with {len(extracted)} values")
+            raise ValueError(
+                "Expected paired augmented views for SSL subspace estimation, "
+                f"but extract_features returned {len(extracted)} values"
+            )
         print(f"Extracted paired train features: {features_view1.shape}, {features_view2.shape}")
 
         sv_train_features_b, train_labels_b = extract_features(
