@@ -141,3 +141,22 @@ def write_csv(csv_path: str, rows: List[Dict[str, Any]]) -> str:
         for row in rows:
             writer.writerow({k: row.get(k) for k in CSV_FIELDNAMES})
     return csv_path
+
+
+def write_json(path: str, payload: Dict[str, Any]) -> str:
+    """Write an arbitrary JSON payload (non-finite floats -> null)."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(sanitize(payload), f, indent=2)
+    return path
+
+
+def write_table(path: str, fieldnames: List[str], rows: List[Dict[str, Any]]) -> str:
+    """Write rows to CSV using an explicit column order (non-finite -> empty)."""
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: _finite(row.get(k)) for k in fieldnames})
+    return path
