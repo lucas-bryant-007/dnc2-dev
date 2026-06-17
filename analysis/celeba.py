@@ -22,6 +22,13 @@ from br.ssl_subspace import SSLSubspaceEstimator, fit_ssl_subspace
 from br.br_estimators import estimate_B_r, estimate_B_r_raw, estimate_B_r_projection
 from br.geometric_estimators import estimate_tilde_V, estimate_V, predict_tilde_V_from_B, predict_V_from_B
 from br.plotting import plot_Br_vs_r, plot_tildeV_scatter_pretty
+from metrics_io import (
+    run_stem,
+    csv_name,
+    write_epoch_json,
+    build_csv_rows,
+    write_csv,
+)
 
 @dataclass
 class BRResults:
@@ -180,6 +187,16 @@ def main(args):
     data_module = CelebADataModule(data_cfg)
     data_module.setup()
 
+    # Run identity used to build non-colliding figure/metric filenames.
+    run_method = str(cfg.method.name)
+    run_attr = str(getattr(cfg.data, "label_key", "label"))
+    run_tag = (args.tag or "").strip()
+    fig_dir = os.path.join(args.out_dir, "figures")
+    metrics_dir = os.path.join(args.out_dir, "metrics")
+    os.makedirs(fig_dir, exist_ok=True)
+    os.makedirs(metrics_dir, exist_ok=True)
+    csv_rows = []
+
     train_loader_b = data_module.paired_train_dataloader() # required (w/ augmentations) to estimate SSL subspace
     sv_train_loader_b = data_module.probe_train_dataloader() # single-view loader for estimating B_r and tilde_V without augmentation
     sv_test_loader_b = data_module.probe_test_dataloader()
@@ -272,8 +289,47 @@ def main(args):
             }
 
         all_results[epoch] = per_cap_results
-        plot_Br_vs_r(all_results[epoch], f"figures/br_vs_r_epoch_{epoch}")
-        plot_tildeV_scatter_pretty(all_results[epoch], f"figures/tildeV_epoch_{epoch}")
+
+        # Method/attribute/epoch-specific names so sweeps never overwrite.
+        stem = run_stem(run_method, run_attr, epoch, run_tag)
+        plot_Br_vs_r(all_results[epoch], os.path.join(fig_dir, f"br_vs_r_{stem}.png"))
+        plot_tildeV_scatter_pretty(all_results[epoch], os.path.join(fig_dir, f"tildeV_{stem}.png"))
+
+        # Durable per-epoch record (re-plottable without re-extracting features).
+        json_path = write_epoch_json(metrics_dir, stem, {
+            "method": run_method,
+            "attribute": run_attr,
+            "tag": run_tag or None,
+            "epoch": epoch,
+            "config": args.config,
+            "ckpt_path": ckpt_path,
+            "b_metric": args.b_metric,
+            "center_labels": (not args.no_center_labels),
+            "rel_eig_threshold": args.rel_eig_threshold,
+            "whiten_ridge_rel": args.whiten_ridge_rel,
+            "gram_ridge": args.gram_ridge,
+            "original_space": {"cdnv": cdnv, "directional_cdnv": directional_cdnv},
+            "results": per_cap_results,
+        })
+        print(f"Saved metrics JSON: {json_path}")
+
+        csv_rows.extend(build_csv_rows(
+            method=run_method,
+            attribute=run_attr,
+            tag=run_tag,
+            epoch=epoch,
+            per_cap_results=per_cap_results,
+            orig_cdnv=cdnv,
+            orig_directional_cdnv=directional_cdnv,
+            b_metric=args.b_metric,
+        ))
+
+    if csv_rows:
+        csv_path = write_csv(
+            os.path.join(metrics_dir, csv_name(run_method, run_attr, run_tag)),
+            csv_rows,
+        )
+        print(f"Saved metrics CSV: {csv_path}")
 
     print("\nFinished.")
     print(f"Evaluated epochs: {sorted(all_results.keys())}")
@@ -287,6 +343,18 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--seed", type=int, default=6)
     parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument(
+        "--out_dir",
+        type=str,
+        default=".",
+        help="Output root; figures -> <out_dir>/figures, metrics -> <out_dir>/metrics",
+    )
+    parser.add_argument(
+        "--tag",
+        type=str,
+        default="",
+        help="Optional run tag appended to figure/metric filenames (e.g. twoview, full_s2)",
+    )
 
     parser.add_argument(
         "--epochs",
