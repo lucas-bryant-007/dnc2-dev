@@ -21,13 +21,16 @@ from br.diagnostics import GramStats, gram_stats, print_basis_stats
 from br.ssl_subspace import SSLSubspaceEstimator, fit_ssl_subspace
 from br.br_estimators import estimate_B_r, estimate_B_r_raw, estimate_B_r_projection
 from br.geometric_estimators import estimate_tilde_V, estimate_V, predict_tilde_V_from_B, predict_V_from_B
-from br.plotting import plot_Br_vs_r, plot_tildeV_scatter_pretty
+from br.plotting import plot_Br_vs_r, plot_tildeV_scatter_pretty, plot_fewshot
+from bounds import fewshot_curves
 from metrics_io import (
     run_stem,
     csv_name,
     write_epoch_json,
     build_csv_rows,
     write_csv,
+    write_table,
+    slug,
 )
 
 @dataclass
@@ -196,6 +199,7 @@ def main(args):
     os.makedirs(fig_dir, exist_ok=True)
     os.makedirs(metrics_dir, exist_ok=True)
     csv_rows = []
+    fewshot_rows = []
 
     train_loader_b = data_module.paired_train_dataloader() # required (w/ augmentations) to estimate SSL subspace
     sv_train_loader_b = data_module.probe_train_dataloader() # single-view loader for estimating B_r and tilde_V without augmentation
@@ -288,6 +292,24 @@ def main(args):
                 },
             }
 
+            # Few-shot NCC: empirical error vs the Thm 4.5 bound on the whitened
+            # representation psi_lab, using B_r and r already computed above.
+            if args.fewshot:
+                fs_r = [r for r in (args.fewshot_r or results.r_values)
+                        if r in results.B_r]
+                fs = fewshot_curves(
+                    results.psi_lab, train_labels_b, results.B_r,
+                    r_values=fs_r, m_values=args.fewshot_m,
+                    n_trials=args.fewshot_trials,
+                )
+                per_cap_results[key]["fewshot"] = fs
+                print("\nFew-shot NCC (empirical vs Thm 4.5 bound):")
+                for r in fs_r:
+                    print(f"  r={r:4d}  B={fs[r]['B']:.4f}")
+                    for m in args.fewshot_m:
+                        print(f"    m={int(m):4d}  emp={fs[r]['empirical'][int(m)]:.4f}  "
+                              f"bound={fs[r]['bound'][int(m)]:.4f}")
+
         all_results[epoch] = per_cap_results
 
         # Method/attribute/epoch-specific names so sweeps never overwrite.
@@ -313,6 +335,27 @@ def main(args):
         })
         print(f"Saved metrics JSON: {json_path}")
 
+        # Few-shot figures + rows (one per cap that produced a curve).
+        if args.fewshot:
+            for cap_key, cap in per_cap_results.items():
+                if "fewshot" not in cap:
+                    continue
+                fs = cap["fewshot"]
+                cap_suffix = "" if cap_key == "adaptive" else f"_{cap_key}"
+                plot_fewshot(
+                    fs,
+                    os.path.join(fig_dir, f"fewshot_{stem}{cap_suffix}.png"),
+                    title=f"{run_method} {run_attr} epoch {epoch}: few-shot NCC",
+                )
+                for r, d in fs.items():
+                    for m in args.fewshot_m:
+                        fewshot_rows.append({
+                            "method": run_method, "attribute": run_attr, "tag": run_tag,
+                            "epoch": epoch, "k_cap": cap_key, "r": r, "B": d["B"],
+                            "m": int(m), "empirical_nccc": d["empirical"][int(m)],
+                            "bound_nccc": d["bound"][int(m)],
+                        })
+
         csv_rows.extend(build_csv_rows(
             method=run_method,
             attribute=run_attr,
@@ -330,6 +373,17 @@ def main(args):
             csv_rows,
         )
         print(f"Saved metrics CSV: {csv_path}")
+
+    if fewshot_rows:
+        suffix = f"_{slug(run_tag)}" if run_tag else ""
+        fs_csv = write_table(
+            os.path.join(metrics_dir,
+                         f"metrics_fewshot_{slug(run_method)}_{slug(run_attr)}{suffix}.csv"),
+            ["method", "attribute", "tag", "epoch", "k_cap", "r", "B", "m",
+             "empirical_nccc", "bound_nccc"],
+            fewshot_rows,
+        )
+        print(f"Saved few-shot CSV: {fs_csv}")
 
     print("\nFinished.")
     print(f"Evaluated epochs: {sorted(all_results.keys())}")
@@ -413,6 +467,31 @@ if __name__ == "__main__":
         "--no_center_labels",
         action="store_true",
         help="Disable label centering before estimating B_r",
+    )
+    parser.add_argument(
+        "--fewshot",
+        action="store_true",
+        help="Also compute empirical m-shot NCC error vs the Thm 4.5 bound on psi_lab",
+    )
+    parser.add_argument(
+        "--fewshot_m",
+        nargs="+",
+        type=int,
+        default=[1, 2, 5, 10, 20, 50, 100],
+        help="Shot counts m for the few-shot NCC curve",
+    )
+    parser.add_argument(
+        "--fewshot_r",
+        nargs="*",
+        type=int,
+        default=None,
+        help="r values for the few-shot curve (default: all evaluated r)",
+    )
+    parser.add_argument(
+        "--fewshot_trials",
+        type=int,
+        default=100,
+        help="Number of support/query resamples per (r, m)",
     )
 
     main(parser.parse_args())

@@ -115,17 +115,19 @@ def near_orthogonality_bound(
 # ---------------------------------------------------------------------------
 @torch.no_grad()
 def empirical_nccc_error(
-    features: torch.Tensor, labels01: torch.Tensor, m: int,
-    n_trials: int = 200, seed: int = 0,
+    features: torch.Tensor, labels: torch.Tensor, m: int,
+    n_trials: int = 200, seed: int = 0, max_query: int = None,
 ) -> float:
     """Balanced m-shot nearest-centroid error for a binary task.
 
     Each trial samples m support points per class, forms the two centroids, and
     classifies the held-out remainder by nearest (Euclidean) centroid; the
     per-class error rates are averaged (balanced error, matching balanced Y).
-    To compare against Thm 4.5, pass the *whitened* representation.
+    Labels may be {0,1} or {-1,1} (positive := label > 0). ``max_query`` caps the
+    number of query points per class (for speed). To compare against Thm 4.5,
+    pass the *whitened* representation.
     """
-    labels01 = labels01.reshape(-1)
+    labels01 = (labels.reshape(-1) > 0).long()
     pos_idx = (labels01 == 1).nonzero(as_tuple=True)[0]
     neg_idx = (labels01 == 0).nonzero(as_tuple=True)[0]
     if pos_idx.numel() <= m or neg_idx.numel() <= m:
@@ -139,9 +141,35 @@ def empirical_nccc_error(
         nn = neg_idx[torch.randperm(neg_idx.numel(), generator=gen)]
         c_pos = features[pp[:m]].mean(dim=0)
         c_neg = features[nn[:m]].mean(dim=0)
-        q_pos, q_neg = features[pp[m:]], features[nn[m:]]
-        # nearest-centroid: predict positive iff closer to c_pos
-        err_pos = (((q_pos - c_pos) ** 2).sum(1) >= ((q_pos - c_neg) ** 2).sum(1)).float().mean()
-        err_neg = (((q_neg - c_neg) ** 2).sum(1) > ((q_neg - c_pos) ** 2).sum(1)).float().mean()
+        q_pos, q_neg = pp[m:], nn[m:]
+        if max_query is not None:
+            q_pos, q_neg = q_pos[:max_query], q_neg[:max_query]
+        fp, fn = features[q_pos], features[q_neg]
+        # nearest-centroid: predict positive iff strictly closer to c_pos
+        err_pos = (((fp - c_pos) ** 2).sum(1) >= ((fp - c_neg) ** 2).sum(1)).float().mean()
+        err_neg = (((fn - c_neg) ** 2).sum(1) > ((fn - c_pos) ** 2).sum(1)).float().mean()
         errs.append(0.5 * float(err_pos) + 0.5 * float(err_neg))
     return sum(errs) / len(errs)
+
+
+@torch.no_grad()
+def fewshot_curves(
+    psi: torch.Tensor, labels: torch.Tensor, B_by_r: dict,
+    r_values, m_values, n_trials: int = 100, seed: int = 0, max_query: int = 5000,
+) -> dict:
+    """Empirical m-shot NCC error and the Thm 4.5 bound, per rank r and shot m.
+
+    ``psi`` is the whitened representation [N, k]; for each r the support/query
+    NCC runs on ``psi[:, :r]`` and the bound uses B = ``B_by_r[r]`` and that r.
+    Returns {r: {"B": B, "empirical": {m: err}, "bound": {m: err}}}.
+    """
+    out = {}
+    for r in r_values:
+        r = int(r)
+        psir = psi[:, :r]
+        B = float(B_by_r[r])
+        emp = {int(m): empirical_nccc_error(psir, labels, int(m), n_trials, seed, max_query)
+               for m in m_values}
+        bnd = {int(m): nccc_error_bound(B, r, int(m)) for m in m_values}
+        out[r] = {"B": B, "empirical": emp, "bound": bnd}
+    return out

@@ -149,12 +149,40 @@ def subclass_box(
     return coords, box, granular_task
 
 
+def task_probe(features: torch.Tensor, labels01: torch.Tensor) -> torch.Tensor:
+    """Population MSE probe / capture vector w = E[Y F] with Y = 2*label-1 in {+-1}.
+
+    For a centered whitened F this is the paper's w (Cor 4.3): ||w||^2 = B(F) and
+    the centroid along task t sits near sqrt(B_t) * Y_t. For balanced labels it
+    equals (mu_+ - mu_-)/2.
+    """
+    y_pm = (2 * labels01.reshape(-1).float() - 1.0)
+    return (y_pm.unsqueeze(1) * features).mean(dim=0)
+
+
+def predicted_box_corners(w_cols: torch.Tensor, basis: torch.Tensor) -> List[Dict]:
+    """Predicted hyper-rectangle corners (Thm 4.4) for the 3 chosen tasks.
+
+    ``w_cols`` is [D, 3] (column t = capture vector w_t); the predicted centroid
+    for granular task (y0,y1,y2) is sum_t y_t w_t, projected via ``basis`` [D,3].
+    With orthogonal tasks the corners sit at (+-||w_0||, +-||w_1||, +-||w_2||).
+    """
+    corners: List[Dict] = []
+    for combo in itertools.product((0, 1), repeat=3):
+        signs = torch.tensor([2 * b - 1 for b in combo],
+                             dtype=w_cols.dtype, device=w_cols.device)
+        vec = (w_cols * signs).sum(dim=1)  # sum_t y_t w_t  [D]
+        corners.append({"combo": list(combo), "center": (vec @ basis).tolist()})
+    return corners
+
+
 def analyze(
     features: torch.Tensor,
     attr_matrix: torch.Tensor,
     attr_names: Sequence[str],
     min_class_frac: float = 0.02,
     viz_triple: Optional[Sequence[str]] = None,
+    compute_capture: bool = False,
 ) -> Dict:
     """Full multi-attribute analysis on a frozen feature matrix.
 
@@ -181,12 +209,16 @@ def analyze(
 
     metrics: List[Dict] = []
     deltas: List[torch.Tensor] = []
+    probes: List[torch.Tensor] = []
     bin_cols: List[torch.Tensor] = []
     usable: List[bool] = []
 
     for t, name in enumerate(attr_names):
         lab = to_binary01(attr_matrix[:, t])
         bin_cols.append(lab)
+        w = task_probe(features, lab) if compute_capture else torch.zeros(
+            D, device=features.device, dtype=features.dtype)
+        probes.append(w)
         m = compute_attribute_metrics(features, lab, name)
         if m is None:
             metrics.append({
@@ -199,6 +231,8 @@ def analyze(
             continue
         delta = m.pop("_delta")
         deltas.append(delta)
+        if compute_capture:
+            m["capture_B"] = float((w @ w).item())  # B_t = ||E[Y_t F]||^2
         frac = min(m["pos_frac"], 1.0 - m["pos_frac"])
         m["usable"] = bool(frac >= min_class_frac)
         usable.append(m["usable"])
@@ -231,6 +265,7 @@ def analyze(
 
     coords = None
     box: Optional[List[Dict]] = None
+    predicted_box: Optional[List[Dict]] = None
     triple_names: Optional[List[str]] = None
     granular_task = None
     if triple_idx is not None:
@@ -239,6 +274,9 @@ def analyze(
         basis = orthonormal_basis(d3)
         attr3 = torch.stack([bin_cols[i] for i in triple_idx], dim=1)  # [N, 3]
         coords, box, granular_task = subclass_box(features, attr3, basis)
+        if compute_capture:
+            w3 = torch.stack([probes[i] for i in triple_idx], dim=1)  # [D, 3]
+            predicted_box = predicted_box_corners(w3, basis)
 
     # Mean off-diagonal |cos| over usable attributes -- a scalar "interference".
     u_idx = [i for i in range(K) if usable[i]]
@@ -259,6 +297,7 @@ def analyze(
         "triple_names": triple_names,
         "triple_max_abs_cos": triple_score,
         "box": box,
+        "predicted_box": predicted_box,  # Thm 4.4 sqrt(B_t) corners (whitened only)
         "coords": coords,  # tensor [N,3] or None; pop before JSON
         "granular_task": granular_task,  # tensor [N] in 0..7 or None; pop before JSON
     }

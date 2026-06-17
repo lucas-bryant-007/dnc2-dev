@@ -20,6 +20,7 @@ Example
         --device cuda:0 --epoch 1000 --tag twoview
 """
 import argparse
+import math
 import os
 import sys
 
@@ -35,9 +36,11 @@ from eval_utils import (
     find_checkpoint_files,
     load_model_from_checkpoint,
     extract_backbone_features,
+    extract_features,
     set_seed,
     freeze_model,
 )
+from br.ssl_subspace import fit_ssl_subspace
 import hyperrect as H
 import metrics_io as mio
 
@@ -131,9 +134,11 @@ def plot_cosine_heatmap(cos_abs, names, save_path, title=None):
 
 
 def plot_box_3d(coords, box, granular_task, triple_names, save_path,
-                per_task=600, title=None):
+                predicted_box=None, per_task=600, title=None):
     """3D hyper-rectangle: random samples colored by granular task + the 8
     granular-task centroids (box corners) in matching colors, per Tomer's spec.
+    If ``predicted_box`` is given (whitened mode), the Thm 4.4 sqrt(B_t) corners
+    are overlaid as hollow diamonds joined by dashed edges for comparison.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -175,6 +180,22 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                 q = centers[nbr]
                 ax.plot([ctr[0], q[0]], [ctr[1], q[1]], [ctr[2], q[2]],
                         color="black", linewidth=1.0, alpha=0.6)
+
+    # Predicted Thm 4.4 corners (hollow diamonds + dashed wireframe).
+    if predicted_box is not None:
+        pcent = {tuple(e["combo"]): e["center"] for e in predicted_box
+                 if e["center"] is not None}
+        for combo, ctr in pcent.items():
+            ax.scatter(ctr[0], ctr[1], ctr[2], s=120, marker="D",
+                       facecolors="none", edgecolors="black", linewidth=1.4,
+                       depthshade=False)
+        for combo, ctr in pcent.items():
+            for axis in range(3):
+                nbr = list(combo); nbr[axis] ^= 1; nbr = tuple(nbr)
+                if nbr in pcent and nbr > combo:
+                    q = pcent[nbr]
+                    ax.plot([ctr[0], q[0]], [ctr[1], q[1]], [ctr[2], q[2]],
+                            color="black", linewidth=1.0, alpha=0.4, linestyle="--")
 
     ax.set_xlabel(f"axis 0: {triple_names[0]}")
     ax.set_ylabel(f"axis 1: {triple_names[1]}")
@@ -230,6 +251,20 @@ def main(args):
     )
     print(f"Extracted features {tuple(features.shape)}, attrs {tuple(attr_matrix.shape)}")
 
+    # Optional: map into the whitened SSL subspace (paper-faithful geometry).
+    # Thm 4.4's sqrt(B_t) hyper-rectangle and the one-scalar B(F) results hold
+    # for centered+whitened F; for VICReg/Barlow the raw box is a parallelepiped
+    # (App. A) until rewhitened, which is exactly what this does.
+    if args.whiten:
+        paired_loader = data_module.paired_train_dataloader()
+        z1, z2, _ = extract_features(
+            paired_loader, model.backbone, device=args.device, both_views=True)
+        estimator = fit_ssl_subspace(
+            z1, z2, rel_eig_threshold=args.rel_eig_threshold,
+            whiten_ridge_rel=args.whiten_ridge_rel)
+        features = estimator.transform(features)  # -> psi (whitened SSL coords)
+        print(f"Whitened to psi: {tuple(features.shape)} (k_eff={estimator.k_eff})")
+
     # Geometry on GPU if available (40 attributes x ~160k x D).
     feats_dev = features.to(args.device)
     attrs_dev = attr_matrix.to(args.device)
@@ -237,6 +272,7 @@ def main(args):
         feats_dev, attrs_dev, attr_names,
         min_class_frac=args.min_class_frac,
         viz_triple=(args.viz_attrs if args.viz_attrs else None),
+        compute_capture=args.whiten,
     )
 
     method = str(cfg.method.name)
@@ -267,9 +303,10 @@ def main(args):
         "method": method, "tag": tag or None, "epoch": args.epoch,
         "split": args.split, "config": args.config, "ckpt_path": ckpt_path,
         "n_samples": res["n_samples"], "feature_dim": res["feature_dim"],
+        "whitened": bool(args.whiten),
         **{k: res[k] for k in (
             "attributes", "metrics", "cosine_matrix", "mean_abs_offdiag_cosine",
-            "triple_names", "triple_max_abs_cos", "box")},
+            "triple_names", "triple_max_abs_cos", "box", "predicted_box")},
     }
     json_path = mio.write_json(os.path.join(metrics_dir, f"hyperrect_{stem}.json"), payload)
     print(f"\nSaved JSON: {json_path}")
@@ -278,12 +315,14 @@ def main(args):
         "method": method, "epoch": args.epoch, "tag": tag, "attribute": m["name"],
         "n_pos": m.get("n_pos"), "n_neg": m.get("n_neg"), "pos_frac": m.get("pos_frac"),
         "gap": m.get("gap"), "directional_cdnv": m.get("directional_cdnv"),
-        "cdnv": m.get("cdnv"), "usable": m.get("usable"),
+        "cdnv": m.get("cdnv"), "capture_B": m.get("capture_B"),
+        "sqrt_capture_B": (math.sqrt(m["capture_B"]) if m.get("capture_B") is not None else None),
+        "usable": m.get("usable"),
     } for m in res["metrics"]]
     attr_csv = mio.write_table(
         os.path.join(metrics_dir, f"hyperrect_attrs_{stem}.csv"),
         ["method", "epoch", "tag", "attribute", "n_pos", "n_neg", "pos_frac",
-         "gap", "directional_cdnv", "cdnv", "usable"],
+         "gap", "directional_cdnv", "cdnv", "capture_B", "sqrt_capture_B", "usable"],
         attr_rows,
     )
     print(f"Saved attribute CSV: {attr_csv}")
@@ -318,9 +357,11 @@ def main(args):
             print(f"Saved cosine heatmap: {heat_path}")
         if res["box"] is not None and coords is not None and granular_task is not None:
             box_path = os.path.join(fig_dir, f"hyperrect_box_{stem}.png")
+            space = "whitened psi" if args.whiten else "raw features"
             plot_box_3d(coords.cpu(), res["box"], granular_task.cpu(),
                         res["triple_names"], box_path,
-                        title=f"{method} CelebA epoch {args.epoch}: "
+                        predicted_box=res.get("predicted_box"),
+                        title=f"{method} CelebA epoch {args.epoch} ({space}): "
                               f"{' / '.join(res['triple_names'])}")
             print(f"Saved 3D box: {box_path}")
     except Exception as e:  # noqa: BLE001 - never lose metrics over a plotting error
@@ -350,4 +391,11 @@ if __name__ == "__main__":
     parser.add_argument("--tag", type=str, default="")
     parser.add_argument("--list_attributes", action="store_true",
                         help="Print dataset columns and exit")
+    parser.add_argument("--whiten", action="store_true",
+                        help="Map features into the whitened SSL subspace (two-view) "
+                             "for the paper-faithful sqrt(B_t) hyper-rectangle")
+    parser.add_argument("--rel_eig_threshold", type=float, default=1e-3,
+                        help="Whitening: keep covariance directions >= rel*lambda_1")
+    parser.add_argument("--whiten_ridge_rel", type=float, default=1e-3,
+                        help="Whitening ridge = whiten_ridge_rel * lambda_1")
     main(parser.parse_args())

@@ -3,6 +3,37 @@ from matplotlib.colors import Normalize
 from matplotlib.colors import LogNorm
 import numpy as np
 
+
+def plot_fewshot(fs, save_path=None, title="Few-shot NCC error"):
+    """Empirical m-shot NCC error (markers) vs the Thm 4.5 bound (dashed line).
+
+    ``fs`` is {r: {"B": float, "empirical": {m: err}, "bound": {m: err}}}.
+    One color per r; solid+markers = empirical, dashed = bound.
+    """
+    plt.figure(figsize=(7.5, 5.5))
+    cmap = plt.cm.viridis
+    rs = sorted(fs.keys())
+    for i, r in enumerate(rs):
+        color = cmap(i / max(1, len(rs) - 1))
+        ms = sorted(fs[r]["empirical"].keys())
+        emp = [fs[r]["empirical"][m] for m in ms]
+        bnd = [fs[r]["bound"][m] for m in ms]
+        plt.plot(ms, emp, marker="o", color=color,
+                 label=f"r={r} (B={fs[r]['B']:.3f}) empirical")
+        plt.plot(ms, bnd, linestyle="--", color=color, alpha=0.8,
+                 label=f"r={r} Thm 4.5 bound")
+    plt.xscale("log")
+    plt.xlabel("shots per class (m)")
+    plt.ylabel("balanced NCC error")
+    plt.title(title)
+    plt.grid(True, which="both", alpha=0.3)
+    plt.legend(fontsize=7, ncol=2)
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+    plt.close()
+
+
 def plot_Br_vs_r(all_results, save_path=None, title="B_r vs r"):
     plt.figure(figsize=(7, 5))
     
