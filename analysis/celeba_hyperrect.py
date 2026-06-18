@@ -118,18 +118,20 @@ def plot_cosine_heatmap(cos_abs, names, save_path, title=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from br import style
+    style.apply_style()
 
     n = len(names)
     fig, ax = plt.subplots(figsize=(max(6, 0.4 * n), max(5, 0.4 * n)))
     im = ax.imshow(cos_abs, vmin=0.0, vmax=1.0, cmap="viridis")
     ax.set_xticks(range(n)); ax.set_yticks(range(n))
-    ax.set_xticklabels(names, rotation=90, fontsize=7)
-    ax.set_yticklabels(names, fontsize=7)
-    fig.colorbar(im, ax=ax, label="|cos(delta_s, delta_t)|")
-    if title:
-        ax.set_title(title)
+    ax.set_xticklabels(names, rotation=90, fontsize=8)
+    ax.set_yticklabels(names, fontsize=8)
+    ax.grid(False)
+    fig.colorbar(im, ax=ax, label=r"$|\cos(\delta_s,\delta_t)|$")
+    style.maybe_title(ax, title)
     fig.tight_layout()
-    fig.savefig(save_path, dpi=200, bbox_inches="tight")
+    fig.savefig(save_path)
     plt.close(fig)
 
 
@@ -145,6 +147,8 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
     import numpy as np
+    from br import style
+    style.apply_style()
 
     fig = plt.figure(figsize=(9, 7.5))
     ax = fig.add_subplot(111, projection="3d")
@@ -200,12 +204,11 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     ax.set_xlabel(f"axis 0: {triple_names[0]}")
     ax.set_ylabel(f"axis 1: {triple_names[1]}")
     ax.set_zlabel(f"axis 2: {triple_names[2]}")
-    if title:
-        ax.set_title(title)
-    ax.legend(loc="upper left", fontsize=7, markerscale=2, framealpha=0.9,
+    style.maybe_title(ax, title)
+    ax.legend(loc="upper left", fontsize=8, markerscale=2, framealpha=0.9,
               title="granular task")
     fig.tight_layout()
-    fig.savefig(save_path, dpi=200, bbox_inches="tight")
+    fig.savefig(save_path)
     plt.close(fig)
 
 
