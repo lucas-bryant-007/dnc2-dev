@@ -45,16 +45,20 @@ def plot_fewshot_compare(curves_for_r, save_path=None, title="Few-shot NCC: new 
     style.apply_style()
     cv = curves_for_r["curves"]
     ms = sorted(cv.keys())
+    # Bounds are error PROBABILITIES; clip the display at 1 so a vacuous/huge
+    # bound (e.g. the Euclidean CDNV bound on a whitened rep) can't blow up the
+    # axis. Empirical is left unclipped (it is always <= 0.5 for a balanced task).
     col = lambda k: [cv[m][k] for m in ms]
+    colc = lambda k: [min(cv[m][k], 1.0) for m in ms]
     plt.figure(figsize=(7.5, 5.5))
     plt.plot(ms, col("empirical"), marker="o", color="black", label="empirical NCC")
-    plt.plot(ms, col("thm45_B"), marker="s", color="tab:red",
+    plt.plot(ms, colc("thm45_B"), marker="s", color="tab:red",
              label=r"NEW: $B(F)$ (Thm 4.5)")
-    plt.plot(ms, col("thm41_dir"), marker="^", linestyle="--", color="tab:blue",
+    plt.plot(ms, colc("thm41_dir"), marker="^", linestyle="--", color="tab:blue",
              label=r"OLD: dir-CDNV (Thm 4.1)")
-    plt.plot(ms, col("luthra2025"), marker="x", linestyle=":", color="tab:purple",
+    plt.plot(ms, colc("luthra2025"), marker="x", linestyle=":", color="tab:purple",
              label="Luthra 2025")
-    plt.plot(ms, col("lim"), linestyle=":", color="tab:green", label=r"$4\tilde{V}$ (lim)")
+    plt.plot(ms, colc("lim"), linestyle=":", color="tab:green", label=r"$4\tilde{V}$ (lim)")
     plt.axhline(0.5, color="gray", linewidth=0.9, alpha=0.6)
     plt.xscale("log"); plt.yscale("log")
     plt.xlabel(r"shots per class $m$"); plt.ylabel("NCC error")

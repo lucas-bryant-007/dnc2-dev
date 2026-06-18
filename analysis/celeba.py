@@ -189,12 +189,14 @@ def main(args):
     # build data module
     data_cfg = CelebACfg(**namespace_to_dict(cfg.data))
     data_cfg.method = cfg.method.name
+    if getattr(args, "label_key", None):
+        data_cfg.label_key = args.label_key  # override the attribute (e.g. a high-B task)
     data_module = CelebADataModule(data_cfg)
     data_module.setup()
 
     # Run identity used to build non-colliding figure/metric filenames.
     run_method = str(cfg.method.name)
-    run_attr = str(getattr(cfg.data, "label_key", "label"))
+    run_attr = str(data_cfg.label_key)
     run_tag = (args.tag or "").strip()
     fig_dir = os.path.join(args.out_dir, "figures")
     metrics_dir = os.path.join(args.out_dir, "metrics")
@@ -445,6 +447,8 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--seed", type=int, default=6)
     parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--label_key", type=str, default=None,
+                        help="Override the CelebA attribute (default: from config, e.g. Male)")
     parser.add_argument(
         "--out_dir",
         type=str,
