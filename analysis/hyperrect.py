@@ -150,6 +150,31 @@ def pick_orthogonal_triple(
     return best, best_score
 
 
+def pick_box_triple(cos_abs, caps, candidates, cos_ceiling: float = 0.4):
+    """Best-captured triple that is also reasonably orthogonal.
+
+    Among ``candidates`` (attribute indices), return the triple with the largest
+    min capture whose worst pairwise |cos| <= ``cos_ceiling``. If none meet the
+    ceiling (e.g. all well-captured attrs are correlated, as on CelebA), fall
+    back to the most-orthogonal triple among the candidates.
+    """
+    best = None
+    best_minc = -1.0
+    best_mc = None
+    for a, b, c in itertools.combinations(candidates, 3):
+        mc = max(float(cos_abs[a, b]), float(cos_abs[a, c]), float(cos_abs[b, c]))
+        if mc <= cos_ceiling:
+            minc = min(caps[a], caps[b], caps[c])
+            if minc > best_minc:
+                best_minc, best, best_mc = minc, (a, b, c), mc
+    if best is not None:
+        return best, best_mc
+    sub = torch.zeros(len(caps), dtype=torch.bool)
+    for i in candidates:
+        sub[i] = True
+    return pick_orthogonal_triple(cos_abs, sub)
+
+
 def orthonormal_basis(deltas3: torch.Tensor) -> torch.Tensor:
     """[D, 3] (columns = task directions) -> [D, 3] orthonormal basis (QR).
 
@@ -219,7 +244,8 @@ def analyze(
     min_class_frac: float = 0.02,
     viz_triple: Optional[Sequence[str]] = None,
     compute_capture: bool = False,
-    min_capture: float = 0.08,
+    min_capture: float = 0.10,
+    cos_ceiling: float = 0.40,
 ) -> Dict:
     """Full multi-attribute analysis on a frozen feature matrix.
 
@@ -298,13 +324,16 @@ def analyze(
             float(cos_abs[j, k].item()),
         )
     else:
-        # Prefer well-captured axes (large sqrt(B_t) => visible separation), then
-        # pick the most orthogonal triple among them. Falls back to all usable
-        # attributes if fewer than 3 clear the capture floor.
+        # Navigate the capture-vs-orthogonality trade-off: among attributes above
+        # a capture floor, take the best-captured triple that is also orthogonal
+        # (max |cos| <= cos_ceiling). On CelebA the well-captured attributes are
+        # correlated, so this beats optimizing either axis alone.
         caps = [capture_proxy(m) if usable[t] else 0.0 for t, m in enumerate(metrics)]
-        well_captured = [usable[t] and caps[t] >= min_capture for t in range(K)]
-        cand_mask = torch.tensor(well_captured) if sum(well_captured) >= 3 else usable_mask
-        triple_idx, triple_score = pick_orthogonal_triple(cos_abs, cand_mask)
+        cand = [t for t in range(K) if usable[t] and caps[t] >= min_capture]
+        if len(cand) >= 3:
+            triple_idx, triple_score = pick_box_triple(cos_abs, caps, cand, cos_ceiling)
+        else:
+            triple_idx, triple_score = pick_orthogonal_triple(cos_abs, usable_mask)
 
     coords = None
     box: Optional[List[Dict]] = None

@@ -283,6 +283,7 @@ def main(args):
         viz_triple=(args.viz_attrs if args.viz_attrs else None),
         compute_capture=args.whiten,
         min_capture=args.min_capture,
+        cos_ceiling=args.cos_ceiling,
     )
 
     method = str(cfg.method.name)
@@ -295,8 +296,13 @@ def main(args):
     os.makedirs(metrics_dir, exist_ok=True)
 
     print(f"\nMean off-diagonal |cos| (interference): {res['mean_abs_offdiag_cosine']}")
-    print(f"Most-orthogonal triple: {res['triple_names']} "
-          f"(max pairwise |cos| = {res['triple_max_abs_cos']})")
+    if res["triple_names"]:
+        mbyname = {m["name"]: m for m in res["metrics"]}
+        axinfo = ", ".join(
+            f"{n}(sqrtB={math.sqrt(max(mbyname[n].get('capture_B') or 0.0, 0.0)):.2f})"
+            for n in res["triple_names"])
+        print(f"Box triple: {res['triple_names']}  max pairwise |cos|={res['triple_max_abs_cos']:.3f}")
+        print(f"  axes: {axinfo}")
     print("\nPer-attribute, sorted by capture (best first; * = ~balanced):")
     usable_sorted = sorted(
         [m for m in res["metrics"] if m.get("usable")],
@@ -399,8 +405,11 @@ if __name__ == "__main__":
                         help="Three attribute names for the 3D box (default: auto-pick most orthogonal)")
     parser.add_argument("--min_class_frac", type=float, default=0.02,
                         help="Minority-class fraction below which an attribute is excluded from the box triple")
-    parser.add_argument("--min_capture", type=float, default=0.08,
-                        help="Min per-attribute capture B for the auto-picked box triple (prefers well-separated axes)")
+    parser.add_argument("--min_capture", type=float, default=0.10,
+                        help="Min per-attribute capture B for box-triple candidates")
+    parser.add_argument("--cos_ceiling", type=float, default=0.40,
+                        help="Max pairwise |cos| allowed for the auto-picked box triple "
+                             "(best-captured triple under this ceiling is chosen)")
     parser.add_argument("--max_samples", type=int, default=None,
                         help="Optional cap on number of samples (for speed)")
     parser.add_argument("--out_dir", type=str, default=".")
