@@ -136,7 +136,7 @@ def plot_cosine_heatmap(cos_abs, names, save_path, title=None):
 
 
 def plot_box_3d(coords, box, granular_task, triple_names, save_path,
-                predicted_box=None, per_task=600, title=None):
+                predicted_box=None, per_task=350, title=None):
     """3D hyper-rectangle: random samples colored by granular task + the 8
     granular-task centroids (box corners) in matching colors, per Tomer's spec.
     If ``predicted_box`` is given (whitened mode), the Thm 4.4 sqrt(B_t) corners
@@ -167,7 +167,7 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
             continue
         if sel.size > per_task:
             sel = np.random.choice(sel, per_task, replace=False)
-        ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2], s=5, alpha=0.25,
+        ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2], s=4, alpha=0.16,
                    color=cmap(idx), label=combo_label(combo))
 
     # The 8 granular-task centroids (box corners) in matching colors.
@@ -200,6 +200,13 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                     q = pcent[nbr]
                     ax.plot([ctr[0], q[0]], [ctr[1], q[1]], [ctr[2], q[2]],
                             color="black", linewidth=1.0, alpha=0.4, linestyle="--")
+
+    # Focus the axes on the box (centroids), not the unit-variance cloud tails,
+    # so the hyper-rectangle fills the frame instead of sitting in a corner.
+    allc = np.array(list(centers.values())) if centers else np.array([[1.0, 1.0, 1.0]])
+    lim = max(1.2, float(np.abs(allc).max()) * 2.6)
+    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_zlim(-lim, lim)
+    ax.view_init(elev=18, azim=-60)
 
     ax.set_xlabel(f"axis 0: {triple_names[0]}")
     ax.set_ylabel(f"axis 1: {triple_names[1]}")
