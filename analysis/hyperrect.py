@@ -19,11 +19,27 @@ attributes t; orthogonal task axes => the per-attribute class means sit at the
 corners of an axis-aligned box (a hyper-rectangle).
 """
 import itertools
+import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
 
 from br.geometric_estimators import estimate_tilde_V, estimate_V
+
+
+def capture_proxy(m: Dict) -> float:
+    """Per-attribute capture B in [0,1] for ranking the box triple.
+
+    Uses the measured ``capture_B`` when present (whitened mode), else inverts
+    directional CDNV via Prop 4.1 (B = 1/(1 + 2*tilde_V)). Higher = better
+    captured = larger sqrt(B_t) box side, i.e. cleaner separation along that axis.
+    """
+    if m.get("capture_B") is not None:
+        return float(m["capture_B"])
+    dv = m.get("directional_cdnv")
+    if dv is None or not math.isfinite(dv):
+        return 0.0
+    return 1.0 / (1.0 + 2.0 * dv)
 
 
 def to_binary01(labels: torch.Tensor) -> torch.Tensor:
@@ -183,6 +199,7 @@ def analyze(
     min_class_frac: float = 0.02,
     viz_triple: Optional[Sequence[str]] = None,
     compute_capture: bool = False,
+    min_capture: float = 0.08,
 ) -> Dict:
     """Full multi-attribute analysis on a frozen feature matrix.
 
@@ -261,7 +278,13 @@ def analyze(
             float(cos_abs[j, k].item()),
         )
     else:
-        triple_idx, triple_score = pick_orthogonal_triple(cos_abs, usable_mask)
+        # Prefer well-captured axes (large sqrt(B_t) => visible separation), then
+        # pick the most orthogonal triple among them. Falls back to all usable
+        # attributes if fewer than 3 clear the capture floor.
+        caps = [capture_proxy(m) if usable[t] else 0.0 for t, m in enumerate(metrics)]
+        well_captured = [usable[t] and caps[t] >= min_capture for t in range(K)]
+        cand_mask = torch.tensor(well_captured) if sum(well_captured) >= 3 else usable_mask
+        triple_idx, triple_score = pick_orthogonal_triple(cos_abs, cand_mask)
 
     coords = None
     box: Optional[List[Dict]] = None

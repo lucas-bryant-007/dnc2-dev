@@ -276,6 +276,7 @@ def main(args):
         min_class_frac=args.min_class_frac,
         viz_triple=(args.viz_attrs if args.viz_attrs else None),
         compute_capture=args.whiten,
+        min_capture=args.min_capture,
     )
 
     method = str(cfg.method.name)
@@ -290,14 +291,18 @@ def main(args):
     print(f"\nMean off-diagonal |cos| (interference): {res['mean_abs_offdiag_cosine']}")
     print(f"Most-orthogonal triple: {res['triple_names']} "
           f"(max pairwise |cos| = {res['triple_max_abs_cos']})")
-    print("\nPer-attribute directional CDNV (sorted):")
+    print("\nPer-attribute, sorted by capture (best first; * = ~balanced):")
     usable_sorted = sorted(
         [m for m in res["metrics"] if m.get("usable")],
         key=lambda m: m["directional_cdnv"],
     )
     for m in usable_sorted:
-        print(f"  {m['name']:>22s}  dirCDNV={m['directional_cdnv']:.4f}  "
-              f"CDNV={m['cdnv']:.3f}  gap={m['gap']:.4f}  pos_frac={m['pos_frac']:.3f}")
+        capB = m.get("capture_B")
+        cap_str = (f"  B={capB:.3f} sqrtB={math.sqrt(max(capB,0.0)):.3f}"
+                   if capB is not None else "")
+        bal = " *" if 0.30 <= m["pos_frac"] <= 0.70 else ""
+        print(f"  {m['name']:>22s}  dirCDNV={m['directional_cdnv']:.4f}{cap_str}  "
+              f"gap={m['gap']:.4f}  pos_frac={m['pos_frac']:.3f}{bal}")
 
     # --- metrics export ---
     coords = res.pop("coords")
@@ -388,6 +393,8 @@ if __name__ == "__main__":
                         help="Three attribute names for the 3D box (default: auto-pick most orthogonal)")
     parser.add_argument("--min_class_frac", type=float, default=0.02,
                         help="Minority-class fraction below which an attribute is excluded from the box triple")
+    parser.add_argument("--min_capture", type=float, default=0.08,
+                        help="Min per-attribute capture B for the auto-picked box triple (prefers well-separated axes)")
     parser.add_argument("--max_samples", type=int, default=None,
                         help="Optional cap on number of samples (for speed)")
     parser.add_argument("--out_dir", type=str, default=".")
