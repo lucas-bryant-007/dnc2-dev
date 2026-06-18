@@ -136,11 +136,11 @@ def plot_cosine_heatmap(cos_abs, names, save_path, title=None):
 
 
 def plot_box_3d(coords, box, granular_task, triple_names, save_path,
-                predicted_box=None, per_task=350, title=None):
-    """3D hyper-rectangle: random samples colored by granular task + the 8
-    granular-task centroids (box corners) in matching colors, per Tomer's spec.
-    If ``predicted_box`` is given (whitened mode), the Thm 4.4 sqrt(B_t) corners
-    are overlaid as hollow diamonds joined by dashed edges for comparison.
+                predicted_box=None, per_task=500, title=None, zoom=1.5):
+    """Clean 3D hyper-rectangle for the proposal: a swarm of samples colored by
+    granular task clustered around each of the 8 centroids, a bold box through
+    the centroids, and labeled arrows along the three task axes (orthogonality).
+    Tick numbers are dropped; the predicted sqrt(B_t) overlay is opt-in.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -167,23 +167,23 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
             continue
         if sel.size > per_task:
             sel = np.random.choice(sel, per_task, replace=False)
-        ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2], s=4, alpha=0.16,
-                   color=cmap(idx), label=combo_label(combo))
+        ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2], s=7, alpha=0.30,
+                   color=cmap(idx), edgecolors="none", label=combo_label(combo))
 
     # The 8 granular-task centroids (box corners) in matching colors.
     centers = {tuple(e["combo"]): e["center"] for e in box if e["center"] is not None}
     for combo, ctr in centers.items():
         idx = combo[0] * 4 + combo[1] * 2 + combo[2]
-        ax.scatter(ctr[0], ctr[1], ctr[2], s=170, color=cmap(idx),
-                   edgecolor="black", linewidth=1.3, depthshade=False)
-    # Cube wireframe: connect centroids differing in exactly one task bit.
+        ax.scatter(ctr[0], ctr[1], ctr[2], s=240, color=cmap(idx),
+                   edgecolor="black", linewidth=1.6, depthshade=False, zorder=5)
+    # Bold box: connect centroids differing in exactly one task bit.
     for combo, ctr in centers.items():
         for axis in range(3):
             nbr = list(combo); nbr[axis] ^= 1; nbr = tuple(nbr)
             if nbr in centers and nbr > combo:
                 q = centers[nbr]
                 ax.plot([ctr[0], q[0]], [ctr[1], q[1]], [ctr[2], q[2]],
-                        color="black", linewidth=1.0, alpha=0.6)
+                        color="black", linewidth=2.2, alpha=0.85, zorder=4)
 
     # Predicted Thm 4.4 corners (hollow diamonds + dashed wireframe).
     if predicted_box is not None:
@@ -201,19 +201,25 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                     ax.plot([ctr[0], q[0]], [ctr[1], q[1]], [ctr[2], q[2]],
                             color="black", linewidth=1.0, alpha=0.4, linestyle="--")
 
-    # Focus the axes on the box (centroids), not the unit-variance cloud tails,
-    # so the hyper-rectangle fills the frame instead of sitting in a corner.
+    # Labeled arrows along the three task axes (shows orthogonality).
     allc = np.array(list(centers.values())) if centers else np.array([[1.0, 1.0, 1.0]])
-    lim = max(1.2, float(np.abs(allc).max()) * 2.6)
-    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_zlim(-lim, lim)
-    ax.view_init(elev=18, azim=-60)
+    cext = float(np.abs(allc).max())
+    L = cext * 1.1
+    for k, vec in enumerate([(L, 0, 0), (0, L, 0), (0, 0, L)]):
+        ax.quiver(0, 0, 0, vec[0], vec[1], vec[2], color="black",
+                  linewidth=2.0, arrow_length_ratio=0.12)
+        ax.text(vec[0] * 1.16, vec[1] * 1.16, vec[2] * 1.16, triple_names[k],
+                fontsize=12, fontweight="bold", ha="center", va="center")
 
-    ax.set_xlabel(f"axis 0: {triple_names[0]}")
-    ax.set_ylabel(f"axis 1: {triple_names[1]}")
-    ax.set_zlabel(f"axis 2: {triple_names[2]}")
+    # Zoom so the box fills the frame; drop distracting tick numbers.
+    lim = max(0.8, cext * zoom)
+    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_zlim(-lim, lim)
+    ax.view_init(elev=18, azim=-58)
+    ax.set_xticks([]); ax.set_yticks([]); ax.set_zticks([])
     style.maybe_title(ax, title)
-    ax.legend(loc="upper left", fontsize=8, markerscale=2, framealpha=0.9,
-              title="granular task")
+    leg = ax.legend(loc="upper left", fontsize=10, markerscale=2.2,
+                    framealpha=0.95, title="granular task")
+    leg.get_title().set_fontsize(11)
     fig.tight_layout()
     fig.savefig(save_path)
     plt.close(fig)
@@ -387,7 +393,8 @@ def main(args):
             space = "whitened psi" if args.whiten else "raw features"
             plot_box_3d(coords.cpu(), res["box"], granular_task.cpu(),
                         res["triple_names"], box_path,
-                        predicted_box=res.get("predicted_box"),
+                        predicted_box=(res.get("predicted_box")
+                                       if args.show_predicted_box else None),
                         title=f"{method} CelebA epoch {args.epoch} ({space}): "
                               f"{' / '.join(res['triple_names'])}")
             print(f"Saved 3D box: {box_path}")
@@ -412,6 +419,9 @@ if __name__ == "__main__":
                         help="Three attribute names for the 3D box (default: auto-pick most orthogonal)")
     parser.add_argument("--min_class_frac", type=float, default=0.02,
                         help="Minority-class fraction below which an attribute is excluded from the box triple")
+    parser.add_argument("--show_predicted_box", action="store_true",
+                        help="Overlay the Thm 4.4 sqrt(B_t) predicted corners (validation "
+                             "view); off by default for a single clean box")
     parser.add_argument("--min_capture", type=float, default=0.10,
                         help="Min per-attribute capture B for box-triple candidates")
     parser.add_argument("--cos_ceiling", type=float, default=0.40,
