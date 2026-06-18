@@ -59,24 +59,41 @@ git add figures/ && git commit -m "clean CelebA hyperrectangle box" && git push
 Expect: a clean box, but overlapping swarms (CelebA attributes aren't well
 separated). Send it as the stopgap.
 
-### Phase 2 — DSprites clean box (THE hero, ~half a day incl. a short train)
+### Phase 2 — DSprites clean box (THE hero) — **CODE BUILT, ready to train**
 DSprites = 64×64 shapes with **independent, balanced factors** (shape, scale,
 orientation, posX, posY) → exactly the regime that yields a crisp, axis-aligned
-hyper-rectangle (this is the published Fig. 5 idea with a standard dataset).
+hyper-rectangle (the published Fig. 5 idea on a standard dataset).
 
-Steps:
-1. **DSprites datamodule** (`data_utils/dsprites_datamodule.py`): load the
-   `dsprites_*.npz`, expose factor labels, two-view collate.
-2. **Augmentations that preserve the 3 task factors and destroy the rest.** Pick
-   tasks = {shape (ellipse vs not), scale (large vs small), posX (left vs right)};
-   augment with random **orientation** rotation (+ light noise/blur) so the 3
-   tasks stay recoverable while orientation is the nuisance.
-3. **Train a small SSL encoder** (VICReg or SimCLR, small CNN / ResNet-18) from
-   scratch — small images, so ~20–40 min, a handful of checkpoints.
-4. **Run the hyper-rectangle** with `--whiten --viz_attrs shape scale posX`
-   → crisp box (tight clusters, orthogonal axes, symmetric corners).
-5. (Bonus, almost free) the same DSprites run over its saved epochs gives the
-   **multitask-orthogonalization-over-training** curve for free.
+What's in the repo now:
+- `data_utils/dsprites_core.py` — pure-torch loader/pairing/datasets. Tasks =
+  {shape (square vs ellipse), scale (small vs large), posX (left vs right)};
+  nuisance = orientation + posY. A positive **pair shares the 3 task bits and
+  resamples the nuisance** (`pair_mode: granular`) — the pairing *is* the
+  two-view augmentation, so no fragile pixel-crop that would destroy posX.
+- `data_utils/dsprites_datamodule.py` + `training/train.py` branch + `configs/vicreg/dsprites.yaml`
+  (ResNet-18, 64px, CSV logger, 81 epochs, checkpoints every 5).
+- `analysis/dsprites_hyperrect.py` — the box driver (shared `analysis/box_viz.py`).
+- Smoke-tested end-to-end on a synthetic npz (CPU): pairing, geometry, and the
+  box render all verified.
+
+Run it (server, ~30–60 min total):
+```bash
+git pull
+# one-time: fetch the standard dsprites npz
+mkdir -p data/dsprites && wget -O data/dsprites/dsprites.npz \
+  https://github.com/google-deepmind/dsprites-dataset/raw/master/dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz
+export DSPRITES_NPZ=$PWD/data/dsprites/dsprites.npz
+# train the small SSL encoder
+$PY training/train.py --config configs/vicreg/dsprites.yaml
+# render the hero box (epoch 80; try a few late epochs and pick the cleanest)
+$PY -u analysis/dsprites_hyperrect.py --config configs/vicreg/dsprites.yaml \
+  --ckpt_dir checkpoints/resnet18_vicreg_dsprites/checkpoints \
+  --device cuda:0 --epoch 80 --tag twoview --whiten
+git add figures/ metrics/ && git commit -m "DSprites hero hyperrectangle" && git push
+```
+Bonus, almost free: rendering the box at several saved epochs gives the
+**orthogonalization-over-training** story (axes start tangled, separate into a
+clean box) for the same proposal.
 
 ### Phase 3 — Few-shot bound on mini-ImageNet (stretch)
 Only needed if Tomer wants the bound figure for the proposal. Needs mini-ImageNet
@@ -110,7 +127,7 @@ the *published* Fig. 2, so it supports rather than headlines the new contributio
 |---|---|
 | Clean box code (per call) | ✅ done, verified |
 | CelebA clean box (run) | ▶ run Phase 1 |
-| DSprites hero box | ⏳ Phase 2 (build + short train) |
+| DSprites hero box | 🔧 code built + smoke-tested — run train + box |
 | Directional CDNV / Prop 4.1 | ✅ have |
 | Epoch sweep (VICReg) | ▶ running |
 | Few-shot bound figure | ⏳ needs mini-ImageNet |

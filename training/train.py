@@ -39,8 +39,13 @@ def main(cfg):
         data_cfg = CelebACfg(**namespace_to_dict(cfg.data))
         data_cfg.method = cfg.method.name
         data_module = CelebADataModule(data_cfg)
+    elif cfg.data.name.lower() == "dsprites":
+        from data_utils.dsprites_datamodule import DSpritesDataModule, DSpritesCfg
+        data_cfg = DSpritesCfg(**namespace_to_dict(cfg.data))
+        data_cfg.method = cfg.method.name
+        data_module = DSpritesDataModule(data_cfg)
     else:
-        raise ValueError(f"Unknown dataset: {cfg.data.name}. Supported: 'mini_imagenet', 'celeba'")
+        raise ValueError(f"Unknown dataset: {cfg.data.name}. Supported: 'mini_imagenet', 'celeba', 'dsprites'")
 
     # build model based on method
     if cfg.method.name.lower() == "vicreg":

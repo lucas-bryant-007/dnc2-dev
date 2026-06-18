@@ -1,0 +1,94 @@
+# Experiment name and seed
+exp_name: resnet18_vicreg_dsprites
+seed: 6
+
+# Data configuration
+data:
+  name: dsprites
+  # Point this at the standard dsprites npz. Download (one-time):
+  #   mkdir -p data/dsprites && wget -O data/dsprites/dsprites.npz \
+  #     https://github.com/google-deepmind/dsprites-dataset/raw/master/dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz
+  npz_path: ${oc.env:DSPRITES_NPZ,./data/dsprites/dsprites.npz}
+  img_size: 64
+  batch_size: 512
+  num_workers: 16
+  num_views: 2
+  # Tasks: shape (square vs ellipse), scale (small vs large), posX (left vs right).
+  shapes: [0, 1]            # keep square(0) + ellipse(1); drop heart for a balanced binary shape task
+  scale_threshold: 3        # scale index >= 3 -> "large"
+  posx_threshold: 16        # posX index >= 16 -> "right"
+  pair_mode: granular       # positives share the 3 task bits; nuisance (orientation/posY) resampled
+  max_samples: 150000       # subsample for a fast train (null = use all)
+
+# Model configuration
+model:
+  resnet_name: "resnet18"
+  pretrained: false
+  lr: 3.0e-4         # Base learning rate (will be scaled by world_size*bs/256)
+  weight_decay: 1e-6
+  warmup_epochs: 5
+  min_lr: 0.0002
+  # VICReg specific parameters
+  lambda_param: 25.0  # Invariance loss weight
+  mu_param: 25.0      # Variance loss weight
+  nu_param: 1.0       # Covariance loss weight
+  hidden_dim: 1024
+  output_dim: 1024
+  num_layers: 2
+
+# Training configuration
+trainer:
+  devices: 1
+  accelerator: gpu
+  strategy: auto
+  max_epochs: 81
+  accumulate_grad_batches: 1
+  use_distributed_sampler: false
+  num_sanity_val_steps: 0
+  log_every_n_steps: 50
+
+# Method configuration
+method:
+  name: "vicreg"
+
+# Logging configuration
+logging:
+  backend: csv                  # csv avoids needing a wandb login for this quick run
+  project: dnc
+  entity: null
+  run_name: vicreg_dsprites
+  tags: ["vicreg", "dsprites"]
+  log_model: false
+  log_every_n_steps: 50
+
+# Precision configuration
+precision: bf16-mixed           # change to "16-mixed" if bf16 isn't supported
+
+# Paths configuration
+paths:
+  output_root: ${oc.env:OUTPUT_ROOT,./checkpoints}
+  exp_dir: ${oc.env:EXP_DIR,null}
+  resume_from_checkpoint: ${oc.env:RESUME_FROM_CHECKPOINT,null}
+
+# Checkpoint scheduling configuration
+ckpt_schedule:
+  dirpath: "checkpoints/vicreg_dsprites"  # overwritten to exp_dir/checkpoints in train.py if null
+  early_every: 5      # save every 5 epochs...
+  early_until: 40     # ...up to epoch 40
+  late_every: 20      # then every 20 epochs
+  save_last: true
+
+# Linear probe callback (disabled)
+probe:
+  enabled: False
+  every_n_epochs: 500
+  max_epochs: 100
+  lr: 0.1
+  weight_decay: 1e-6
+  batch_size: 256
+
+# CDNV callback (disabled)
+cdnv:
+  every_n_epochs: 20
+  num_classes: 2
+  enabled: False
