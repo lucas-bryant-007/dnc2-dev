@@ -387,7 +387,8 @@ def main(args):
             space = "whitened psi" if args.whiten else "raw features"
             plot_box_3d(coords.cpu(), res["box"], granular_task.cpu(),
                         res["triple_names"], box_path,
-                        predicted_box=res.get("predicted_box"),
+                        predicted_box=(res.get("predicted_box")
+                                       if args.show_predicted_box else None),
                         title=f"{method} CelebA epoch {args.epoch} ({space}): "
                               f"{' / '.join(res['triple_names'])}")
             print(f"Saved 3D box: {box_path}")
@@ -412,6 +413,9 @@ if __name__ == "__main__":
                         help="Three attribute names for the 3D box (default: auto-pick most orthogonal)")
     parser.add_argument("--min_class_frac", type=float, default=0.02,
                         help="Minority-class fraction below which an attribute is excluded from the box triple")
+    parser.add_argument("--show_predicted_box", action="store_true",
+                        help="Overlay the Thm 4.4 sqrt(B_t) predicted corners (validation "
+                             "view); off by default for a single clean box")
     parser.add_argument("--min_capture", type=float, default=0.10,
                         help="Min per-attribute capture B for box-triple candidates")
     parser.add_argument("--cos_ceiling", type=float, default=0.40,
