@@ -113,6 +113,110 @@ def near_orthogonality_bound(
 # ---------------------------------------------------------------------------
 # Empirical m-shot NCC error (to plot against the Thm 4.5 bound)
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Directional-CDNV few-shot bounds from "Directional Neural Collapse Explains
+# Few-Shot Transfer in SSL" (Luthra, Salunkhe, Galanti 2026). These act on the
+# *raw* frozen features and are the curves in that paper's Figure 3:
+#   - "Our bound"   = Thm 4.1 (optimized) / Thm C.2 (lambda=1)
+#   - "Lim bound"   = m->inf limit = 4 * Vtilde
+#   - "Luthra 2025" = the prior bound (Luthra et al. 2025b), a=16 instance
+# Each pairwise dict entry has keys d2, vi, vj, Vij, Vtilde_ij, Theta_ij
+# (exactly what geometry.GeometricEvaluator.compute_pairwise_metrics returns).
+# ---------------------------------------------------------------------------
+def _E_terms(V: float, Theta: float, m: int):
+    """E1, E2, E3 from Prop C.1 (the finite-shot leakage / tail terms)."""
+    E1 = (4.0 / m) * (V * V + 0.25 * V)
+    E2 = V / m
+    E3 = (Theta + 2.0 * (m - 1) * V * V) / (m ** 3)
+    return E1, E2, E3
+
+
+def _imbalance_denom(vi: float, vj: float, dij2: float, m: int) -> float:
+    """(1 + (v_j - v_i)/(m d_ij^2))^2 variance-imbalance factor."""
+    return (1.0 + (vj - vi) / (m * dij2)) ** 2
+
+
+def nccc_pair_thm41(Vt, V, Theta, vi, vj, dij2, m) -> float:
+    """Pairwise NCC bound, Thm 4.1 form: 4*Vt + (sqrt E1 + sqrt E2 + sqrt E3)^2."""
+    E1, E2, E3 = _E_terms(V, Theta, m)
+    num = 4.0 * Vt + (math.sqrt(E1) + math.sqrt(E2) + math.sqrt(E3)) ** 2
+    return num / _imbalance_denom(vi, vj, dij2, m)
+
+
+def nccc_pair_c2(Vt, V, Theta, vi, vj, dij2, m) -> float:
+    """Pairwise NCC bound, Thm C.2 form (lambda=1): 4*Vt + 3*(E1+E2+E3).
+
+    By Cauchy-Schwarz (sqrt E1+sqrt E2+sqrt E3)^2 <= 3(E1+E2+E3), so the Thm 4.1
+    bound is always <= this one.
+    """
+    E1, E2, E3 = _E_terms(V, Theta, m)
+    num = 4.0 * Vt + 3.0 * (E1 + E2 + E3)
+    return num / _imbalance_denom(vi, vj, dij2, m)
+
+
+def _pairwise_classes(pairwise: dict):
+    cs = set()
+    for (i, j) in pairwise:
+        cs.add(i); cs.add(j)
+    return sorted(cs)
+
+
+def directional_nccc_bound(pairwise: dict, m: int, kind: str = "thm41") -> float:
+    """Multiclass-averaged directional bound: (1/C') sum_i sum_{j!=i} pair(i,j).
+
+    kind in {"thm41", "c2", "lim"} (lim = m->inf limit, 4*Vtilde, m-independent).
+    """
+    classes = _pairwise_classes(pairwise)
+    Cp = len(classes)
+    if kind == "lim":
+        return sum(4.0 * p["Vtilde_ij"] for p in pairwise.values()) / Cp
+    fn = {"thm41": nccc_pair_thm41, "c2": nccc_pair_c2}[kind]
+    return sum(
+        fn(p["Vtilde_ij"], p["Vij"], p["Theta_ij"], p["vi"], p["vj"], p["d2"], m)
+        for p in pairwise.values()
+    ) / Cp
+
+
+def luthra2025_nccc_bound(pairwise: dict, m: int) -> float:
+    """Prior bound (Luthra et al. 2025b), a=16 instance:
+
+        (C'-1) [ 8 Vtilde_f + (sqrt8/m) Vs_f + (sqrt8/m + 4/m) V_f ],
+    with Vtilde_f, V_f, Vs_f = averaged directional CDNV, CDNV, sqrt(CDNV).
+    """
+    classes = _pairwise_classes(pairwise)
+    Cp = len(classes)
+    pairs = list(pairwise.values())
+    n = len(pairs)
+    Vt_f = sum(p["Vtilde_ij"] for p in pairs) / n
+    V_f = sum(p["Vij"] for p in pairs) / n
+    Vs_f = sum(math.sqrt(max(p["Vij"], 0.0)) for p in pairs) / n
+    s8 = math.sqrt(8.0)
+    return (Cp - 1) * (8.0 * Vt_f + (s8 / m) * Vs_f + (s8 / m + 4.0 / m) * V_f)
+
+
+@torch.no_grad()
+def directional_fewshot_curves(
+    features: torch.Tensor, labels: torch.Tensor, pairwise: dict,
+    m_values, n_trials: int = 100, seed: int = 0, max_query: int = 5000,
+) -> dict:
+    """Figure-3 curves: empirical NCC error + Our/Lim/Luthra bounds, per shot m.
+
+    ``pairwise`` is precomputed (e.g. GeometricEvaluator.compute_pairwise_metrics)
+    on the same ``features`` so the bound geometry and empirical error match.
+    """
+    out = {}
+    for m in m_values:
+        m = int(m)
+        out[m] = {
+            "empirical": empirical_nccc_error(features, labels, m, n_trials, seed, max_query),
+            "our_thm41": directional_nccc_bound(pairwise, m, "thm41"),
+            "our_c2": directional_nccc_bound(pairwise, m, "c2"),
+            "lim": directional_nccc_bound(pairwise, m, "lim"),
+            "luthra2025": luthra2025_nccc_bound(pairwise, m),
+        }
+    return out
+
+
 @torch.no_grad()
 def empirical_nccc_error(
     features: torch.Tensor, labels: torch.Tensor, m: int,

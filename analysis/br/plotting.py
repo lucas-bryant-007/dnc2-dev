@@ -34,6 +34,37 @@ def plot_fewshot(fs, save_path=None, title="Few-shot NCC error"):
     plt.close()
 
 
+def plot_directional_fewshot(curves, save_path=None,
+                             title="Few-shot NCC: directional bounds vs empirical"):
+    """Figure-3 style: empirical NCC error + Our (Thm 4.1) / Luthra 2025 / Lim bounds.
+
+    ``curves`` is {m: {"empirical", "our_thm41", "lim", "luthra2025", ...}}.
+    """
+    ms = sorted(curves.keys())
+    emp = [curves[m]["empirical"] for m in ms]
+    our = [curves[m]["our_thm41"] for m in ms]
+    lim = [curves[m]["lim"] for m in ms]
+    luthra = [curves[m]["luthra2025"] for m in ms]
+
+    plt.figure(figsize=(7.5, 5.5))
+    plt.plot(ms, emp, marker="o", color="black", label="NCC error (empirical)")
+    plt.plot(ms, our, marker="s", color="tab:red", label="Our bound (Thm 4.1)")
+    plt.plot(ms, luthra, linestyle="--", color="tab:blue", label="Luthra 2025")
+    plt.plot(ms, lim, linestyle=":", color="tab:green", label=r"Lim bound ($4\tilde{V}$)")
+    plt.axhline(0.5, color="gray", linewidth=0.8, alpha=0.6)  # chance for binary
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.xlabel("shots per class (m)")
+    plt.ylabel("NCC error")
+    plt.title(title)
+    plt.grid(True, which="both", alpha=0.3)
+    plt.legend(fontsize=8)
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+    plt.close()
+
+
 def plot_Br_vs_r(all_results, save_path=None, title="B_r vs r"):
     plt.figure(figsize=(7, 5))
     

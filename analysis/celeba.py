@@ -21,8 +21,10 @@ from br.diagnostics import GramStats, gram_stats, print_basis_stats
 from br.ssl_subspace import SSLSubspaceEstimator, fit_ssl_subspace
 from br.br_estimators import estimate_B_r, estimate_B_r_raw, estimate_B_r_projection
 from br.geometric_estimators import estimate_tilde_V, estimate_V, predict_tilde_V_from_B, predict_V_from_B
-from br.plotting import plot_Br_vs_r, plot_tildeV_scatter_pretty, plot_fewshot
-from bounds import fewshot_curves
+from br.plotting import (
+    plot_Br_vs_r, plot_tildeV_scatter_pretty, plot_fewshot, plot_directional_fewshot,
+)
+from bounds import fewshot_curves, directional_fewshot_curves
 from metrics_io import (
     run_stem,
     csv_name,
@@ -200,6 +202,7 @@ def main(args):
     os.makedirs(metrics_dir, exist_ok=True)
     csv_rows = []
     fewshot_rows = []
+    fewshot_dir_rows = []
 
     train_loader_b = data_module.paired_train_dataloader() # required (w/ augmentations) to estimate SSL subspace
     sv_train_loader_b = data_module.probe_train_dataloader() # single-view loader for estimating B_r and tilde_V without augmentation
@@ -248,6 +251,30 @@ def main(args):
         directional_cdnv = geometric_evaluator.compute_directional_cdnv(sv_train_features_b, train_labels_b)
         print(f"Original-space CDNV: {cdnv:.6f}")
         print(f"Original-space directional CDNV: {directional_cdnv:.6f}")
+
+        # Directional-CDNV few-shot comparison (paper Fig. 3) on the *raw* frozen
+        # features: empirical NCC error vs Our (Thm 4.1) / Luthra 2025 / Lim bounds.
+        if args.fewshot_dir:
+            pairwise = geometric_evaluator.compute_pairwise_metrics(
+                sv_train_features_b, (train_labels_b > 0).long())
+            dir_curves = directional_fewshot_curves(
+                sv_train_features_b, train_labels_b, pairwise,
+                m_values=args.fewshot_dir_m, n_trials=args.fewshot_dir_trials)
+            dstem = run_stem(run_method, run_attr, epoch, run_tag)
+            plot_directional_fewshot(
+                dir_curves, os.path.join(fig_dir, f"fewshot_dir_{dstem}.png"),
+                title=f"{run_method} {run_attr} epoch {epoch}: directional few-shot bounds")
+            print("\nDirectional few-shot (empirical vs Our/Luthra/Lim):")
+            for mm in args.fewshot_dir_m:
+                c = dir_curves[int(mm)]
+                print(f"  m={int(mm):4d}  emp={c['empirical']:.4f}  our={c['our_thm41']:.4f}  "
+                      f"luthra={c['luthra2025']:.4f}  lim={c['lim']:.4f}")
+                fewshot_dir_rows.append({
+                    "method": run_method, "attribute": run_attr, "tag": run_tag,
+                    "epoch": epoch, "m": int(mm), "empirical_nccc": c["empirical"],
+                    "our_thm41": c["our_thm41"], "our_c2": c["our_c2"],
+                    "lim_bound": c["lim"], "luthra2025": c["luthra2025"],
+                })
 
         per_cap_results = {}
         caps = [None] if len(args.k_caps) == 0 else [None if x < 0 else int(x) for x in args.k_caps]
@@ -385,6 +412,17 @@ def main(args):
         )
         print(f"Saved few-shot CSV: {fs_csv}")
 
+    if fewshot_dir_rows:
+        suffix = f"_{slug(run_tag)}" if run_tag else ""
+        fsd_csv = write_table(
+            os.path.join(metrics_dir,
+                         f"metrics_fewshot_dir_{slug(run_method)}_{slug(run_attr)}{suffix}.csv"),
+            ["method", "attribute", "tag", "epoch", "m", "empirical_nccc",
+             "our_thm41", "our_c2", "lim_bound", "luthra2025"],
+            fewshot_dir_rows,
+        )
+        print(f"Saved directional few-shot CSV: {fsd_csv}")
+
     print("\nFinished.")
     print(f"Evaluated epochs: {sorted(all_results.keys())}")
 
@@ -492,6 +530,25 @@ if __name__ == "__main__":
         type=int,
         default=100,
         help="Number of support/query resamples per (r, m)",
+    )
+    parser.add_argument(
+        "--fewshot_dir",
+        action="store_true",
+        help="Directional-CDNV few-shot comparison on raw features (paper Fig. 3): "
+             "empirical NCC vs Our (Thm 4.1) / Luthra 2025 / Lim bounds",
+    )
+    parser.add_argument(
+        "--fewshot_dir_m",
+        nargs="+",
+        type=int,
+        default=[1, 5, 10, 20, 50, 100, 200, 500],
+        help="Shot counts m for the directional few-shot comparison",
+    )
+    parser.add_argument(
+        "--fewshot_dir_trials",
+        type=int,
+        default=100,
+        help="Support/query resamples per m for the directional few-shot comparison",
     )
 
     main(parser.parse_args())
