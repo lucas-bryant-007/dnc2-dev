@@ -11,7 +11,7 @@ Train first (one short run, ~30-60 min on a GPU):
 Then render the box:
     python -u analysis/dsprites_hyperrect.py \
         --config configs/vicreg/dsprites.yaml \
-        --ckpt_dir checkpoints/resnet18_vicreg_dsprites/checkpoints \
+        --ckpt_dir checkpoints/vicreg_dsprites \
         --device cuda:0 --epoch 80 --tag twoview --whiten
 """
 import argparse

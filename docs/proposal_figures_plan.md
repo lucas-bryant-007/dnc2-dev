@@ -87,7 +87,7 @@ export DSPRITES_NPZ=$PWD/data/dsprites/dsprites.npz
 $PY training/train.py --config configs/vicreg/dsprites.yaml
 # render the hero box (epoch 80; try a few late epochs and pick the cleanest)
 $PY -u analysis/dsprites_hyperrect.py --config configs/vicreg/dsprites.yaml \
-  --ckpt_dir checkpoints/resnet18_vicreg_dsprites/checkpoints \
+  --ckpt_dir checkpoints/vicreg_dsprites \
   --device cuda:0 --epoch 80 --tag twoview --whiten
 git add figures/ metrics/ && git commit -m "DSprites hero hyperrectangle" && git push
 ```
