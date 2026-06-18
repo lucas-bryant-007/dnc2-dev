@@ -218,6 +218,38 @@ def directional_fewshot_curves(
 
 
 @torch.no_grad()
+def combined_fewshot_curves(
+    psi: torch.Tensor, labels: torch.Tensor, B_by_r: dict, r_values, m_values,
+    pairwise_by_r: dict, n_trials: int = 100, seed: int = 0, max_query: int = 5000,
+) -> dict:
+    """New-vs-old few-shot comparison on the whitened representation psi.
+
+    For each rank r, on psi[:, :r]: empirical NCC error, the NEW bound
+    (Thm 4.5 via B = B_by_r[r]), and the OLD bounds (Thm 4.1 directional + Luthra
+    2025 + the 4*Vtilde limit) from ``pairwise_by_r[r]`` (the directional metrics
+    of psi[:, :r]). Returns {r: {"B": B, "curves": {m: {...}}}}.
+    """
+    out = {}
+    for r in r_values:
+        r = int(r)
+        psir = psi[:, :r]
+        B = float(B_by_r[r])
+        pw = pairwise_by_r[r]
+        curves = {}
+        for m in m_values:
+            m = int(m)
+            curves[m] = {
+                "empirical": empirical_nccc_error(psir, labels, m, n_trials, seed, max_query),
+                "thm45_B": nccc_error_bound(B, r, m),                  # NEW (draft)
+                "thm41_dir": directional_nccc_bound(pw, m, "thm41"),   # OLD (published)
+                "luthra2025": luthra2025_nccc_bound(pw, m),            # oldest
+                "lim": directional_nccc_bound(pw, m, "lim"),           # 4*Vtilde
+            }
+        out[r] = {"B": B, "curves": curves}
+    return out
+
+
+@torch.no_grad()
 def empirical_nccc_error(
     features: torch.Tensor, labels: torch.Tensor, m: int,
     n_trials: int = 200, seed: int = 0, max_query: int = None,

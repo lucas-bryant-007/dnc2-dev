@@ -34,6 +34,36 @@ def plot_fewshot(fs, save_path=None, title="Few-shot NCC error"):
     plt.close()
 
 
+def plot_fewshot_compare(curves_for_r, save_path=None, title="Few-shot NCC: new vs old bounds"):
+    """New (Thm 4.5, B(F)) vs old (Thm 4.1 directional, Luthra 2025) bounds on psi.
+
+    ``curves_for_r`` = {"B": float, "curves": {m: {empirical, thm45_B, thm41_dir,
+    luthra2025, lim}}}.
+    """
+    cv = curves_for_r["curves"]
+    ms = sorted(cv.keys())
+    col = lambda k: [cv[m][k] for m in ms]
+    plt.figure(figsize=(7.5, 5.5))
+    plt.plot(ms, col("empirical"), marker="o", color="black", label="empirical NCC")
+    plt.plot(ms, col("thm45_B"), marker="s", color="tab:red",
+             label=r"NEW: $B(F)$ (Thm 4.5)")
+    plt.plot(ms, col("thm41_dir"), marker="^", linestyle="--", color="tab:blue",
+             label=r"OLD: dir-CDNV (Thm 4.1)")
+    plt.plot(ms, col("luthra2025"), marker="x", linestyle=":", color="tab:purple",
+             label="Luthra 2025")
+    plt.plot(ms, col("lim"), linestyle=":", color="tab:green", label=r"$4\tilde{V}$ (lim)")
+    plt.axhline(0.5, color="gray", linewidth=0.8, alpha=0.6)
+    plt.xscale("log"); plt.yscale("log")
+    plt.xlabel("shots per class (m)"); plt.ylabel("NCC error")
+    plt.title(title + f"  (B={curves_for_r['B']:.3f})")
+    plt.grid(True, which="both", alpha=0.3)
+    plt.legend(fontsize=8)
+    plt.tight_layout()
+    if save_path is not None:
+        plt.savefig(save_path, dpi=200, bbox_inches="tight")
+    plt.close()
+
+
 def plot_directional_fewshot(curves, save_path=None,
                              title="Few-shot NCC: directional bounds vs empirical"):
     """Figure-3 style: empirical NCC error + Our (Thm 4.1) / Luthra 2025 / Lim bounds.

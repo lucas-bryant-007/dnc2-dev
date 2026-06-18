@@ -22,9 +22,9 @@ from br.ssl_subspace import SSLSubspaceEstimator, fit_ssl_subspace
 from br.br_estimators import estimate_B_r, estimate_B_r_raw, estimate_B_r_projection
 from br.geometric_estimators import estimate_tilde_V, estimate_V, predict_tilde_V_from_B, predict_V_from_B
 from br.plotting import (
-    plot_Br_vs_r, plot_tildeV_scatter_pretty, plot_fewshot, plot_directional_fewshot,
+    plot_Br_vs_r, plot_tildeV_scatter_pretty, plot_fewshot_compare, plot_directional_fewshot,
 )
-from bounds import fewshot_curves, directional_fewshot_curves
+from bounds import combined_fewshot_curves, directional_fewshot_curves
 from metrics_io import (
     run_stem,
     csv_name,
@@ -324,18 +324,26 @@ def main(args):
             if args.fewshot:
                 fs_r = [r for r in (args.fewshot_r or results.r_values)
                         if r in results.B_r]
-                fs = fewshot_curves(
+                y01 = (train_labels_b > 0).long()
+                pairwise_by_r = {
+                    r: geometric_evaluator.compute_pairwise_metrics(
+                        results.psi_lab[:, :r], y01)
+                    for r in fs_r
+                }
+                fs = combined_fewshot_curves(
                     results.psi_lab, train_labels_b, results.B_r,
                     r_values=fs_r, m_values=args.fewshot_m,
-                    n_trials=args.fewshot_trials,
+                    pairwise_by_r=pairwise_by_r, n_trials=args.fewshot_trials,
                 )
                 per_cap_results[key]["fewshot"] = fs
-                print("\nFew-shot NCC (empirical vs Thm 4.5 bound):")
+                print("\nFew-shot NCC (empirical vs NEW B(F) [Thm 4.5] vs OLD dir-CDNV [Thm 4.1] / Luthra):")
                 for r in fs_r:
                     print(f"  r={r:4d}  B={fs[r]['B']:.4f}")
                     for m in args.fewshot_m:
-                        print(f"    m={int(m):4d}  emp={fs[r]['empirical'][int(m)]:.4f}  "
-                              f"bound={fs[r]['bound'][int(m)]:.4f}")
+                        c = fs[r]["curves"][int(m)]
+                        print(f"    m={int(m):4d}  emp={c['empirical']:.4f}  "
+                              f"new={c['thm45_B']:.4f}  old={c['thm41_dir']:.4f}  "
+                              f"luthra={c['luthra2025']:.4f}")
 
         all_results[epoch] = per_cap_results
 
@@ -362,25 +370,27 @@ def main(args):
         })
         print(f"Saved metrics JSON: {json_path}")
 
-        # Few-shot figures + rows (one per cap that produced a curve).
+        # Few-shot figures + rows (one figure per cap x r: new vs old bounds).
         if args.fewshot:
             for cap_key, cap in per_cap_results.items():
                 if "fewshot" not in cap:
                     continue
                 fs = cap["fewshot"]
                 cap_suffix = "" if cap_key == "adaptive" else f"_{cap_key}"
-                plot_fewshot(
-                    fs,
-                    os.path.join(fig_dir, f"fewshot_{stem}{cap_suffix}.png"),
-                    title=f"{run_method} {run_attr} epoch {epoch}: few-shot NCC",
-                )
                 for r, d in fs.items():
+                    plot_fewshot_compare(
+                        d,
+                        os.path.join(fig_dir, f"fewshot_{stem}_r{r}{cap_suffix}.png"),
+                        title=f"{run_method} {run_attr} epoch {epoch}, r={r}",
+                    )
                     for m in args.fewshot_m:
+                        c = d["curves"][int(m)]
                         fewshot_rows.append({
                             "method": run_method, "attribute": run_attr, "tag": run_tag,
                             "epoch": epoch, "k_cap": cap_key, "r": r, "B": d["B"],
-                            "m": int(m), "empirical_nccc": d["empirical"][int(m)],
-                            "bound_nccc": d["bound"][int(m)],
+                            "m": int(m), "empirical_nccc": c["empirical"],
+                            "new_thm45_B": c["thm45_B"], "old_thm41_dir": c["thm41_dir"],
+                            "luthra2025": c["luthra2025"], "lim": c["lim"],
                         })
 
         csv_rows.extend(build_csv_rows(
@@ -407,7 +417,7 @@ def main(args):
             os.path.join(metrics_dir,
                          f"metrics_fewshot_{slug(run_method)}_{slug(run_attr)}{suffix}.csv"),
             ["method", "attribute", "tag", "epoch", "k_cap", "r", "B", "m",
-             "empirical_nccc", "bound_nccc"],
+             "empirical_nccc", "new_thm45_B", "old_thm41_dir", "luthra2025", "lim"],
             fewshot_rows,
         )
         print(f"Saved few-shot CSV: {fs_csv}")
