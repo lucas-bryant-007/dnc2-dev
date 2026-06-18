@@ -270,6 +270,12 @@ def main(args):
 
     # Geometry on GPU if available (40 attributes x ~160k x D).
     feats_dev = features.to(args.device)
+    if args.whiten:
+        # Rewhiten psi by its OWN covariance (Mahalanobis metric, App. A): the
+        # SSL map isn't white on the eval distribution, so without this the
+        # capture B can exceed 1 and the box is a skewed parallelepiped.
+        feats_dev = H.rewhiten(feats_dev)
+        print("Re-whitened psi by its own covariance (Cov ~ I; B(F) <= 1).")
     attrs_dev = attr_matrix.to(args.device)
     res = H.analyze(
         feats_dev, attrs_dev, attr_names,

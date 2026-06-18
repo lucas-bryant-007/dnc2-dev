@@ -42,6 +42,26 @@ def capture_proxy(m: Dict) -> float:
     return 1.0 / (1.0 + 2.0 * dv)
 
 
+def rewhiten(features: torch.Tensor, ridge_rel: float = 1e-3) -> torch.Tensor:
+    """ZCA-whiten features by their OWN covariance so E[F]=0, Cov(F)=I.
+
+    The SSL-subspace map whitens w.r.t. the augmented-train distribution, not the
+    labeled-eval distribution, so E[psi psi^T] != I and the raw capture
+    ||E[Y psi]||^2 can exceed 1. Rewhitening (the Mahalanobis metric of App. A /
+    the Thm 4.5 remark) restores Cov=I, so B(F) <= 1, directional CDNV obeys
+    Prop 4.1, and the multitask box is axis-aligned rather than a parallelepiped.
+    """
+    mu = features.mean(dim=0, keepdim=True)
+    fc = features - mu
+    cov = (fc.T @ fc) / fc.shape[0]
+    evals, evecs = torch.linalg.eigh(cov)
+    evals = evals.clamp_min(0.0)
+    ridge = ridge_rel * float(evals.max().item())
+    inv_sqrt = (evals + ridge).rsqrt()
+    zca = (evecs * inv_sqrt) @ evecs.T  # Cov^{-1/2}
+    return fc @ zca
+
+
 def to_binary01(labels: torch.Tensor) -> torch.Tensor:
     """Map raw attribute labels to {0,1}; positive = (label > 0).
 
