@@ -23,7 +23,12 @@ from torch.utils.data import DataLoader, Dataset
 
 # Column order of DSprites ``latents_classes``.
 COL_COLOR, COL_SHAPE, COL_SCALE, COL_ORIENT, COL_POSX, COL_POSY = range(6)
-TASK_NAMES = ["shape", "scale", "posX"]
+FACTOR_COL = {"shape": COL_SHAPE, "scale": COL_SCALE, "orientation": COL_ORIENT,
+              "posX": COL_POSX, "posY": COL_POSY}
+# Default tasks: the three salient geometric factors (all well-captured -> a clean
+# hyper-rectangle). 'shape' is subtle (square vs ellipse) and the encoder tends to
+# ignore it, so it's left as nuisance by default. Override via cfg.task_factors.
+TASK_NAMES = ["scale", "posX", "posY"]
 
 
 @dataclass
@@ -41,9 +46,12 @@ class DSpritesCfg:
     num_views: int = 2
 
     # Task definition.
+    task_factors: Sequence[str] = ("scale", "posX", "posY")  # the 3 binary tasks (content); rest = nuisance
     shapes: Sequence[int] = (0, 1)          # which DSprites shapes to keep (0=sq,1=ell,2=heart)
     scale_threshold: int = 3                # scale index >= this -> "large"
     posx_threshold: int = 16                # posX index >= this -> "right"
+    posy_threshold: int = 16                # posY index >= this -> "bottom"
+    orient_threshold: int = 20              # orientation index >= this (only if used as a task)
 
     # Two-view pairing.
     #   "granular": pair shares the 3 task *bits* (tightest clusters, cleanest box)
@@ -81,30 +89,37 @@ def load_dsprites(npz_path: str, shapes: Sequence[int], max_samples: Optional[in
     return imgs_sel, latents_sel
 
 
+def _factor_bit(latents: np.ndarray, name: str, cfg: DSpritesCfg) -> np.ndarray:
+    """Binary {0,1} label for one named factor."""
+    if name == "shape":
+        return (latents[:, COL_SHAPE] == list(cfg.shapes)[-1]).astype(np.int64)
+    thresh = {"scale": cfg.scale_threshold, "posX": cfg.posx_threshold,
+              "posY": cfg.posy_threshold, "orientation": cfg.orient_threshold}[name]
+    return (latents[:, FACTOR_COL[name]] >= thresh).astype(np.int64)
+
+
 def derive_task_bits(latents: np.ndarray, cfg: DSpritesCfg) -> np.ndarray:
-    """[N,6] latents -> [N,3] binary task labels (shape, scale, posX) in {0,1}."""
-    shapes = list(cfg.shapes)
-    pos_shape = shapes[-1]  # last listed shape is the "positive" class
-    shape_bit = (latents[:, COL_SHAPE] == pos_shape).astype(np.int64)
-    scale_bit = (latents[:, COL_SCALE] >= cfg.scale_threshold).astype(np.int64)
-    posx_bit = (latents[:, COL_POSX] >= cfg.posx_threshold).astype(np.int64)
-    return np.stack([shape_bit, scale_bit, posx_bit], axis=1)
+    """[N,6] latents -> [N,3] binary task labels for cfg.task_factors, in {0,1}."""
+    if len(cfg.task_factors) != 3:
+        raise ValueError(f"task_factors must name exactly 3 factors, got {cfg.task_factors}")
+    return np.stack([_factor_bit(latents, f, cfg) for f in cfg.task_factors], axis=1)
 
 
-def build_groups(latents: np.ndarray, bits: np.ndarray, pair_mode: str
+def build_groups(latents: np.ndarray, bits: np.ndarray, cfg: DSpritesCfg
                  ) -> Tuple[np.ndarray, List[np.ndarray]]:
     """Return (group_of[N], groups) where groups[g] = indices sharing the key.
 
     ``granular`` keys on the 3 task bits (8 groups); ``exact`` keys on the exact
-    (shape, scale, posX) tuple. The nuisance factors (orientation, posY, and --
-    in granular mode -- within-bin scale/posX) vary freely within a group.
+    values of the task factors. Every factor *not* in ``cfg.task_factors`` (plus,
+    in granular mode, within-bin variation of the task factors) is nuisance and
+    varies freely within a group.
     """
-    if pair_mode == "granular":
+    if cfg.pair_mode == "granular":
         key = bits
-    elif pair_mode == "exact":
-        key = latents[:, [COL_SHAPE, COL_SCALE, COL_POSX]]
+    elif cfg.pair_mode == "exact":
+        key = latents[:, [FACTOR_COL[f] for f in cfg.task_factors]]
     else:
-        raise ValueError(f"Unknown pair_mode={pair_mode!r} (use 'granular' or 'exact')")
+        raise ValueError(f"Unknown pair_mode={cfg.pair_mode!r} (use 'granular' or 'exact')")
     _, group_of = np.unique(key, axis=0, return_inverse=True)
     group_of = group_of.astype(np.int64).reshape(-1)
     n_groups = int(group_of.max()) + 1 if group_of.size else 0
@@ -195,7 +210,7 @@ def collate_eval(batch):
 def build_arrays(cfg: DSpritesCfg):
     imgs, latents = load_dsprites(cfg.npz_path, cfg.shapes, cfg.max_samples, cfg.seed)
     bits = derive_task_bits(latents, cfg)
-    group_of, groups = build_groups(latents, bits, cfg.pair_mode)
+    group_of, groups = build_groups(latents, bits, cfg)
     return imgs, latents, bits, group_of, groups
 
 

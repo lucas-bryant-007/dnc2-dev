@@ -34,7 +34,8 @@ class DSpritesDataModule(pl.LightningDataModule):
         self.ds_train = DSpritesPairDataset(imgs, bits, group_of, groups, self.cfg)
         self.ds_eval = DSpritesEvalDataset(imgs, bits, self.cfg)
         print(f"DSprites: {imgs.shape[0]} images, {len(groups)} pair-groups "
-              f"(pair_mode={self.cfg.pair_mode}, shapes={list(self.cfg.shapes)})")
+              f"(pair_mode={self.cfg.pair_mode}, tasks={list(self.cfg.task_factors)}, "
+              f"shapes={list(self.cfg.shapes)})")
 
     def _make_loader(self, ds, train: bool, collate_fn, shuffle: bool,
                      num_workers: int):

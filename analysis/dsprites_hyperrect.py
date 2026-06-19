@@ -77,7 +77,8 @@ def main(args):
     print(f"DSprites cfg: npz={data_cfg.npz_path} shapes={list(data_cfg.shapes)} "
           f"pair_mode={data_cfg.pair_mode} max_samples={data_cfg.max_samples}")
 
-    task_names = list(TASK_NAMES)
+    task_names = list(data_cfg.task_factors)
+    print(f"Tasks: {task_names}")
 
     # Locate the requested epoch checkpoint.
     ckpt_files = {e: p for e, p in find_checkpoint_files(args.ckpt_dir)}
