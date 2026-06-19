@@ -17,7 +17,9 @@ data:
   shapes: [0, 1]            # keep square(0) + ellipse(1); drop heart for a balanced binary shape task
   scale_threshold: 3        # scale index >= 3 -> "large"
   posx_threshold: 16        # posX index >= 16 -> "right"
-  pair_mode: granular       # positives share the 3 task bits; nuisance (orientation/posY) resampled
+  pair_mode: exact          # positives share EXACT shape/scale/posX; only orientation/posY resampled
+                            # (well-posed match -> encoder must encode all 3 factors -> full cube + swarms.
+                            #  'granular' shares only the 3 task bits, which lets the net grab one easy factor.)
   max_samples: 150000       # subsample for a fast train (null = use all)
 
 # Model configuration
