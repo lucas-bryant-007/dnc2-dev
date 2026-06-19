@@ -203,7 +203,7 @@ if __name__ == "__main__":
                         help="Override two-view pairing mode")
     parser.add_argument("--max_samples", type=int, default=None,
                         help="Cap on eval samples (also caps the array build)")
-    parser.add_argument("--per_task", type=int, default=500,
+    parser.add_argument("--per_task", type=int, default=700,
                         help="Samples plotted per granular task in the swarm")
     parser.add_argument("--show_predicted_box", action="store_true",
                         help="Overlay the Thm 4.4 sqrt(B_t) predicted corners")

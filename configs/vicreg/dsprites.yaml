@@ -20,6 +20,12 @@ data:
   scale_threshold: 3        # scale index >= 3 -> "large"
   posx_threshold: 16        # posX index >= 16 -> "right"
   posy_threshold: 16        # posY index >= 16 -> "bottom"
+  # Keep only the extreme levels per task (drop the ambiguous middle) so each
+  # binary task is crisply separated -> tight, clearly-separated 8 clusters.
+  keep_levels:
+    scale: [0, 1, 4, 5]
+    posX: [0, 1, 2, 3, 28, 29, 30, 31]
+    posY: [0, 1, 2, 3, 28, 29, 30, 31]
   pair_mode: exact          # positives share EXACT scale/posX/posY; shape+orientation resampled
                             # (well-posed match -> encoder must encode all 3 task factors -> full box + swarms)
   max_samples: 200000       # subsample for a fast train (null = use all)

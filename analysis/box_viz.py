@@ -59,8 +59,9 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
             continue
         if sel.size > per_task:
             sel = np.random.choice(sel, per_task, replace=False)
-        ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2], s=7, alpha=0.30,
-                   color=cmap(idx), edgecolors="none", label=combo_label(combo))
+        ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2], s=10, alpha=0.55,
+                   color=cmap(idx), edgecolors="none", depthshade=True,
+                   label=combo_label(combo))
 
     # The 8 granular-task centroids (box corners) in matching colors.
     centers = {tuple(e["combo"]): e["center"] for e in box if e["center"] is not None}
@@ -106,8 +107,14 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     # Zoom so the box fills the frame; drop distracting tick numbers.
     lim = max(0.8, cext * zoom)
     ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_zlim(-lim, lim)
-    ax.view_init(elev=18, azim=-58)
+    ax.view_init(elev=20, azim=-55)
     ax.set_xticks([]); ax.set_yticks([]); ax.set_zticks([])
+    # Clean white background panes, no grid -- keeps focus on the box + swarms.
+    ax.grid(False)
+    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+        axis.pane.set_facecolor("white")
+        axis.pane.set_alpha(1.0)
+        axis.pane.set_edgecolor("0.88")
     style.maybe_title(ax, title)
     leg = ax.legend(loc="upper left", fontsize=10, markerscale=2.2,
                     framealpha=0.95, title="granular task")

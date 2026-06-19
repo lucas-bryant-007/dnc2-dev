@@ -52,6 +52,10 @@ class DSpritesCfg:
     posx_threshold: int = 16                # posX index >= this -> "right"
     posy_threshold: int = 16                # posY index >= this -> "bottom"
     orient_threshold: int = 20              # orientation index >= this (only if used as a task)
+    # Optionally keep only specific level indices per factor (drop the ambiguous
+    # middle) so each binary task is crisply separated -> tight, well-separated
+    # clusters and a clean box. e.g. {"scale": [0,1,4,5], "posX": [0..3,28..31]}.
+    keep_levels: Optional[dict] = None
 
     # Two-view pairing.
     #   "granular": pair shares the 3 task *bits* (tightest clusters, cleanest box)
@@ -72,13 +76,17 @@ class DSpritesCfg:
 # Loading / task derivation / grouping
 # ---------------------------------------------------------------------------
 def load_dsprites(npz_path: str, shapes: Sequence[int], max_samples: Optional[int],
-                  seed: int) -> Tuple[np.ndarray, np.ndarray]:
+                  seed: int, keep_levels: Optional[dict] = None
+                  ) -> Tuple[np.ndarray, np.ndarray]:
     """Return (imgs[N,64,64] uint8, latents_classes[N,6] int) filtered + subsampled."""
     with np.load(npz_path, allow_pickle=True, mmap_mode="r") as data:
         imgs = data["imgs"]            # [737280, 64, 64] uint8
         latents = np.asarray(data["latents_classes"])  # [737280, 6] int
 
     keep = np.isin(latents[:, COL_SHAPE], np.asarray(list(shapes)))
+    if keep_levels:
+        for fname, levels in keep_levels.items():
+            keep &= np.isin(latents[:, FACTOR_COL[fname]], np.asarray(list(levels)))
     idx = np.where(keep)[0]
     if max_samples is not None and idx.size > max_samples:
         rng = np.random.default_rng(seed)
@@ -208,7 +216,8 @@ def collate_eval(batch):
 # Convenience builders (used by the analysis driver; no Lightning needed)
 # ---------------------------------------------------------------------------
 def build_arrays(cfg: DSpritesCfg):
-    imgs, latents = load_dsprites(cfg.npz_path, cfg.shapes, cfg.max_samples, cfg.seed)
+    imgs, latents = load_dsprites(cfg.npz_path, cfg.shapes, cfg.max_samples, cfg.seed,
+                                  keep_levels=cfg.keep_levels)
     bits = derive_task_bits(latents, cfg)
     group_of, groups = build_groups(latents, bits, cfg)
     return imgs, latents, bits, group_of, groups
