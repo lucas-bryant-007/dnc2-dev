@@ -127,7 +127,7 @@ the *published* Fig. 2, so it supports rather than headlines the new contributio
 |---|---|
 | Clean box code (per call) | ✅ done, verified |
 | CelebA clean box (run) | ▶ run Phase 1 |
-| DSprites hero box | 🔧 code built + smoke-tested — run train + box |
+| DSprites hero box | ✅ DONE — clean orthogonal cube, B=0.99/0.99/0.93, max\|cos\|=0.004 (`figures/hyperrect_box_vicreg_dsprites_epoch_80_twoview.png`) |
 | Directional CDNV / Prop 4.1 | ✅ have |
 | Epoch sweep (VICReg) | ▶ running |
 | Few-shot bound figure | ⏳ needs mini-ImageNet |
