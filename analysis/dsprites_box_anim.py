@@ -93,7 +93,7 @@ def main(args):
     keyframes, bits, names = compute_keyframes(args, data_cfg, all_epochs)
 
     # fixed plotted subset (same sample indices at every epoch -> smooth morph)
-    bits_np = bits.numpy()
+    bits_np = np.asarray(bits)
     gt = bits_np[:, 0] * 4 + bits_np[:, 1] * 2 + bits_np[:, 2]
     rng = np.random.default_rng(0)
     idx_parts = []
