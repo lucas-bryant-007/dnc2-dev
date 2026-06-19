@@ -31,8 +31,11 @@ def render_box_frame(pts, pts_task, centroids, triple_names, lim, arrow_len,
     pts = np.asarray(pts)
     pts_task = np.asarray(pts_task)
 
+    # Drop points outside the (fixed) frame so the random-epoch blob doesn't
+    # spill past the box; as training organizes them they migrate inside.
+    inb = (np.abs(pts[:, 0]) <= lim) & (np.abs(pts[:, 1]) <= lim) & (np.abs(pts[:, 2]) <= lim)
     for idx in range(8):
-        sel = np.where(pts_task == idx)[0]
+        sel = np.where((pts_task == idx) & inb)[0]
         if sel.size == 0:
             continue
         combo = ((idx >> 2) & 1, (idx >> 1) & 1, idx & 1)
@@ -85,41 +88,64 @@ def _interp_centroids(ca, cb, t):
 
 
 def build_gif(keyframes, plot_idx, plot_task, names, out_path,
-              hold=5, steps=6, fps=12, rot_speed=0.7, per_point=10,
-              point_alpha=0.55, dpi=110, lim=None, arrow_len=None):
+              hold=2, steps=14, fps=12, rot_speed=0.0, per_point=10,
+              point_alpha=0.55, dpi=110, lim=None, arrow_len=None,
+              elev=20, azim=-55, min_steps=2):
     """Morph the box across epochs and save a looping GIF (model-free).
 
     ``keyframes`` is a list of {epoch, coords[N,3], centroids} ordered by epoch;
-    ``plot_idx`` selects the (fixed) samples to draw so each point morphs smoothly.
-    ``lim``/``arrow_len`` are held constant so the camera doesn't jump.
+    ``plot_idx`` selects the (fixed) samples so each point morphs smoothly.
+
+    The motion is *adaptively paced*: each epoch->epoch segment gets a number of
+    interpolation frames proportional to how much the box moves (so the early,
+    fast-organizing epochs get many smooth frames and the converged tail goes
+    quickly), with smoothstep easing. The camera is fixed by default
+    (``rot_speed=0``) and the frame fits the final cube so it stays put.
     """
+    import os
     import numpy as np
     from PIL import Image
 
     pts_by_epoch = [np.asarray(k["coords"])[plot_idx] for k in keyframes]
-    if lim is None:
-        allpts = np.concatenate(pts_by_epoch, axis=0)
-        lim = float(max(1.0, np.percentile(np.abs(allpts), 99.0) * 1.15))
+    if lim is None:  # fit the converged cube; the early blob just clips into frame
+        fp = pts_by_epoch[-1]
+        lim = float(max(1.5, np.percentile(np.abs(fp), 97.0) * 1.25))
     if arrow_len is None:
         fc = np.array(list(keyframes[-1]["centroids"].values()))
         arrow_len = float(np.abs(fc).max()) if fc.size else 0.9
 
-    frames, gi = [], 0
+    # Per-segment frame budget ~ how far the centroids move (where the action is).
+    dists = []
+    for i in range(len(keyframes) - 1):
+        ca, cb = keyframes[i]["centroids"], keyframes[i + 1]["centroids"]
+        d = (np.mean([np.linalg.norm(np.array(cb[c]) - np.array(ca[c]))
+                      for c in ca if c in cb]) if ca else 0.0)
+        dists.append(d)
+    maxd = max(dists) if dists and max(dists) > 0 else 1.0
+    seg_steps = [int(round(min_steps + (steps - min_steps) * (d / maxd))) for d in dists]
+
+    frames = []
+    counter = {"i": 0}
 
     def emit(pts, cents, label):
-        nonlocal gi
         img = render_box_frame(pts, plot_task, cents, names, lim, arrow_len,
-                               azim=-55 + rot_speed * gi, epoch_label=label,
-                               point_size=per_point, point_alpha=point_alpha, dpi=dpi)
-        frames.append(Image.fromarray(img)); gi += 1
+                               elev=elev, azim=azim + rot_speed * counter["i"],
+                               epoch_label=label, point_size=per_point,
+                               point_alpha=point_alpha, dpi=dpi)
+        frames.append(Image.fromarray(img)); counter["i"] += 1
+
+    def ease(t):  # smoothstep ease-in-out
+        return t * t * (3.0 - 2.0 * t)
 
     for i, kf in enumerate(keyframes):
-        for _ in range(hold):
+        h = hold + (fps // 2 if i == 0 else 0)  # linger on the random start
+        for _ in range(h):
             emit(pts_by_epoch[i], kf["centroids"], f"epoch {kf['epoch']}")
-        if i < len(keyframes) - 1 and steps > 0:
+        if i < len(keyframes) - 1:
             nxt = keyframes[i + 1]
-            for s in range(1, steps + 1):
-                t = s / (steps + 1)
+            ns = max(1, seg_steps[i])
+            for s in range(1, ns + 1):
+                t = ease(s / (ns + 1))
                 pts_i = (1 - t) * pts_by_epoch[i] + t * pts_by_epoch[i + 1]
                 emit(pts_i, _interp_centroids(kf["centroids"], nxt["centroids"], t),
                      f"epoch {kf['epoch']}→{nxt['epoch']}")
@@ -127,11 +153,11 @@ def build_gif(keyframes, plot_idx, plot_task, names, out_path,
         emit(pts_by_epoch[-1], keyframes[-1]["centroids"],
              f"epoch {keyframes[-1]['epoch']}")
 
-    import os
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
     frames[0].save(out_path, save_all=True, append_images=frames[1:],
                    duration=int(1000 / fps), loop=0, optimize=True)
-    print(f"Saved GIF: {out_path}  ({len(frames)} frames @ {fps} fps, lim={lim:.2f})")
+    print(f"Saved GIF: {out_path}  ({len(frames)} frames @ {fps} fps, lim={lim:.2f}, "
+          f"seg_steps={seg_steps})")
     return out_path
 
 

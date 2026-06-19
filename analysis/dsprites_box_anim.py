@@ -108,7 +108,8 @@ def main(args):
     build_gif(keyframes, plot_idx, plot_task, names, args.out,
               hold=args.hold, steps=args.steps, fps=args.fps,
               rot_speed=args.rot_speed, per_point=args.point_size,
-              point_alpha=args.point_alpha, dpi=args.dpi)
+              point_alpha=args.point_alpha, dpi=args.dpi,
+              elev=args.elev, azim=args.azim, min_steps=args.min_steps)
 
 
 if __name__ == "__main__":
@@ -128,10 +129,16 @@ if __name__ == "__main__":
     ap.add_argument("--out", default="figures/dsprites_box_evolution.gif")
     ap.add_argument("--per_task", type=int, default=250,
                     help="Samples plotted per granular task")
-    ap.add_argument("--hold", type=int, default=5, help="Frames held at each epoch")
-    ap.add_argument("--steps", type=int, default=6, help="Morph frames between epochs")
+    ap.add_argument("--hold", type=int, default=2, help="Frames held at each epoch")
+    ap.add_argument("--steps", type=int, default=14,
+                    help="Max morph frames for the biggest-change segment (adaptive)")
+    ap.add_argument("--min_steps", type=int, default=2,
+                    help="Min morph frames for converged segments")
     ap.add_argument("--fps", type=int, default=12)
-    ap.add_argument("--rot_speed", type=float, default=0.7, help="Degrees azimuth/frame")
+    ap.add_argument("--rot_speed", type=float, default=0.0,
+                    help="Degrees azimuth/frame (0 = fixed camera)")
+    ap.add_argument("--elev", type=float, default=20.0, help="Fixed camera elevation")
+    ap.add_argument("--azim", type=float, default=-55.0, help="Fixed camera azimuth")
     ap.add_argument("--point_size", type=int, default=10)
     ap.add_argument("--point_alpha", type=float, default=0.55)
     ap.add_argument("--dpi", type=int, default=110)
