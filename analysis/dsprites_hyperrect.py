@@ -46,7 +46,7 @@ import metrics_io as mio
 DISPLAY = {
     "scale": ("size", ("small", "large")),
     "posX": ("x-position", ("left", "right")),
-    "posY": ("y-position", ("bottom", "top")),
+    "posY": ("y-position", ("top", "bottom")),  # dSprites posY increases downward
     "shape": ("shape", ("square", "ellipse")),
 }
 
