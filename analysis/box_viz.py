@@ -183,7 +183,8 @@ def plot_cosine_heatmap(cos_abs, names, save_path, title=None):
 
 
 def plot_box_3d(coords, box, granular_task, triple_names, save_path,
-                predicted_box=None, per_task=500, title=None, zoom=1.5):
+                predicted_box=None, per_task=500, title=None, zoom=1.3,
+                axis_labels=None, level_labels=None):
     """Clean 3D hyper-rectangle for the proposal: a swarm of samples colored by
     granular task clustered around each of the 8 centroids, a bold box through
     the centroids, and labeled arrows along the three task axes (orthogonality).
@@ -197,13 +198,17 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     from br import style
     style.apply_style()
 
-    fig = plt.figure(figsize=(9, 7.5))
+    fig = plt.figure(figsize=(8.0, 6.6))
     ax = fig.add_subplot(111, projection="3d")
     cmap = plt.cm.tab10
     p = coords.numpy() if hasattr(coords, "numpy") else np.asarray(coords)
     g = granular_task.numpy() if hasattr(granular_task, "numpy") else np.asarray(granular_task)
 
+    alabels = axis_labels if axis_labels is not None else triple_names
+
     def combo_label(combo):
+        if level_labels is not None:
+            return " · ".join(level_labels[k][b] for k, b in enumerate(combo))
         return " ".join((("+" if b else "-") + n) for n, b in zip(triple_names, combo))
 
     # Random samples from each granular task, colored by task.
@@ -259,36 +264,29 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     for k, vec in enumerate([(L, 0, 0), (0, L, 0), (0, 0, L)]):
         ax.quiver(0, 0, 0, vec[0], vec[1], vec[2], color="black",
                   linewidth=2.0, arrow_length_ratio=0.12)
-        ax.text(vec[0] * 1.16, vec[1] * 1.16, vec[2] * 1.16, triple_names[k],
+        ax.text(vec[0] * 1.1, vec[1] * 1.1, vec[2] * 1.1, alabels[k],
                 fontsize=12, fontweight="bold", ha="center", va="center")
 
-    # Zoom so the box fills the frame; drop distracting tick numbers.
+    # Zoom so the box fills the frame; drop the axis frame entirely so the figure
+    # crops tight to the box (no empty 3D floor pane / whitespace).
     lim = max(0.8, cext * zoom)
     ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_zlim(-lim, lim)
-    ax.view_init(elev=20, azim=-55)
-    ax.set_xticks([]); ax.set_yticks([]); ax.set_zticks([])
-    # Clean white background panes, no grid -- keeps focus on the box + swarms.
-    ax.grid(False)
-    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
-        axis.pane.set_facecolor("white")
-        axis.pane.set_alpha(1.0)
-        axis.pane.set_edgecolor("0.88")
+    ax.view_init(elev=18, azim=-55)
+    ax.set_box_aspect((1, 1, 1))  # equal aspect (undistorted cube)
+    ax.set_axis_off()             # drop the frame -> tight crop, no floor whitespace
     style.maybe_title(ax, title)
-    # Two separate legends: the color key (granular tasks) and -- when shown -- a
-    # small key distinguishing the observed vs predicted boxes.
+    # Compact color key (granular tasks): two columns, small, tucked low-left.
     gt_handles, gt_labels = ax.get_legend_handles_labels()  # the 8 swarm scatters
-    leg1 = ax.legend(gt_handles, gt_labels, loc="upper left", fontsize=8.5,
-                     markerscale=2.0, framealpha=0.95, title="granular task")
-    leg1.get_title().set_fontsize(9.5)
+    leg1 = ax.legend(gt_handles, gt_labels, loc="lower left", ncol=2, fontsize=7,
+                     markerscale=1.2, framealpha=0.9, handletextpad=0.3,
+                     columnspacing=0.8, labelspacing=0.3, borderpad=0.3)
     ax.add_artist(leg1)
     if has_pred:
         from matplotlib.lines import Line2D
         box_handles = [Line2D([0], [0], color="black", lw=1.8),
                        Line2D([0], [0], color=pred_color, lw=1.8, linestyle=(0, (5, 4)))]
-        leg2 = ax.legend(box_handles, ["observed", r"predicted $\sqrt{B_t}$ (Thm 4.4)"],
-                         loc="upper right", fontsize=9, framealpha=0.95,
-                         title="hyper-rectangle")
-        leg2.get_title().set_fontsize(9.5)
+        leg2 = ax.legend(box_handles, ["observed", r"predicted $\sqrt{B_t}$"],
+                         loc="upper right", fontsize=8, framealpha=0.9)
     fig.tight_layout()
     for pth in (save_path if isinstance(save_path, (list, tuple)) else [save_path]):
         fig.savefig(pth)

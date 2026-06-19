@@ -41,6 +41,15 @@ from box_viz import plot_box_3d, plot_cosine_heatmap
 import hyperrect as H
 import metrics_io as mio
 
+# Human-readable presentation names for the dSprites factors:
+# (axis label, (low-half name, high-half name)).
+DISPLAY = {
+    "scale": ("size", ("small", "large")),
+    "posX": ("x-position", ("left", "right")),
+    "posY": ("y-position", ("bottom", "top")),
+    "shape": ("shape", ("square", "ellipse")),
+}
+
 
 @torch.no_grad()
 def extract_features_and_bits(loader, backbone, device, max_samples=None):
@@ -175,11 +184,16 @@ def main(args):
             box_png = os.path.join(fig_dir, f"hyperrect_box_{stem}.png")
             box_pdf = os.path.join(fig_dir, f"hyperrect_box_{stem}.pdf")
             space = "whitened psi" if args.whiten else "raw features"
+            tnames = res["triple_names"]
+            axis_labels = [DISPLAY.get(n, (n, None))[0] for n in tnames]
+            level_labels = ([DISPLAY[n][1] for n in tnames]
+                            if all(n in DISPLAY for n in tnames) else None)
             plot_box_3d(coords.cpu(), res["box"], granular_task.cpu(),
-                        res["triple_names"], [box_png, box_pdf],
+                        tnames, [box_png, box_pdf],
                         predicted_box=(res.get("predicted_box")
                                        if args.show_predicted_box else None),
                         per_task=args.per_task,
+                        axis_labels=axis_labels, level_labels=level_labels,
                         title=f"DSprites VICReg epoch {args.epoch} ({space}): "
                               f"{' / '.join(res['triple_names'])}")
             print(f"Saved 3D box: {box_png} (+ .pdf)")
