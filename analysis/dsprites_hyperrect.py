@@ -172,16 +172,17 @@ def main(args):
     # --- figures ---
     try:
         if res["box"] is not None and coords is not None and granular_task is not None:
-            box_path = os.path.join(fig_dir, f"hyperrect_box_{stem}.png")
+            box_png = os.path.join(fig_dir, f"hyperrect_box_{stem}.png")
+            box_pdf = os.path.join(fig_dir, f"hyperrect_box_{stem}.pdf")
             space = "whitened psi" if args.whiten else "raw features"
             plot_box_3d(coords.cpu(), res["box"], granular_task.cpu(),
-                        res["triple_names"], box_path,
+                        res["triple_names"], [box_png, box_pdf],
                         predicted_box=(res.get("predicted_box")
                                        if args.show_predicted_box else None),
                         per_task=args.per_task,
                         title=f"DSprites VICReg epoch {args.epoch} ({space}): "
                               f"{' / '.join(res['triple_names'])}")
-            print(f"Saved 3D box: {box_path}")
+            print(f"Saved 3D box: {box_png} (+ .pdf)")
     except Exception as e:  # noqa: BLE001 - never lose metrics over a plotting error
         print(f"WARNING: plotting failed ({type(e).__name__}: {e}); metrics were saved.")
 

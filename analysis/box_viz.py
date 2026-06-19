@@ -233,21 +233,25 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                 ax.plot([ctr[0], q[0]], [ctr[1], q[1]], [ctr[2], q[2]],
                         color="black", linewidth=2.2, alpha=0.85, zorder=4)
 
-    # Predicted Thm 4.4 corners (hollow diamonds + dashed wireframe).
+    # Predicted Thm 4.4 corners (hollow diamonds + dashed wireframe), drawn in a
+    # distinct color so it's traceable over the observed box (they should overlap
+    # when B is high). ``pred_color`` chosen to read against the bold black box.
+    pred_color = "#d62728"
     if predicted_box is not None:
         pcent = {tuple(e["combo"]): e["center"] for e in predicted_box
                  if e["center"] is not None}
         for combo, ctr in pcent.items():
-            ax.scatter(ctr[0], ctr[1], ctr[2], s=120, marker="D",
-                       facecolors="none", edgecolors="black", linewidth=1.4,
-                       depthshade=False)
+            ax.scatter(ctr[0], ctr[1], ctr[2], s=130, marker="D",
+                       facecolors="none", edgecolors=pred_color, linewidth=1.6,
+                       depthshade=False, zorder=6)
         for combo, ctr in pcent.items():
             for axis in range(3):
                 nbr = list(combo); nbr[axis] ^= 1; nbr = tuple(nbr)
                 if nbr in pcent and nbr > combo:
                     q = pcent[nbr]
                     ax.plot([ctr[0], q[0]], [ctr[1], q[1]], [ctr[2], q[2]],
-                            color="black", linewidth=1.0, alpha=0.4, linestyle="--")
+                            color=pred_color, linewidth=1.5, alpha=0.9,
+                            linestyle=(0, (5, 4)), zorder=6)
 
     # Labeled arrows along the three task axes (shows orthogonality).
     allc = np.array(list(centers.values())) if centers else np.array([[1.0, 1.0, 1.0]])
@@ -271,9 +275,17 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
         axis.pane.set_alpha(1.0)
         axis.pane.set_edgecolor("0.88")
     style.maybe_title(ax, title)
-    leg = ax.legend(loc="upper left", fontsize=10, markerscale=2.2,
+    handles, labels = ax.get_legend_handles_labels()
+    if predicted_box is not None:
+        from matplotlib.lines import Line2D
+        handles.append(Line2D([0], [0], color=pred_color, lw=1.6,
+                              linestyle=(0, (5, 4)), marker="D",
+                              markerfacecolor="none", markeredgecolor=pred_color))
+        labels.append(r"predicted $\sqrt{B_t}$ corners")
+    leg = ax.legend(handles, labels, loc="upper left", fontsize=9, markerscale=2.0,
                     framealpha=0.95, title="granular task")
-    leg.get_title().set_fontsize(11)
+    leg.get_title().set_fontsize(10)
     fig.tight_layout()
-    fig.savefig(save_path)
+    for pth in (save_path if isinstance(save_path, (list, tuple)) else [save_path]):
+        fig.savefig(pth)
     plt.close(fig)
