@@ -263,12 +263,18 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     allc = np.array(list(centers.values())) if centers else np.array([[1.0, 1.0, 1.0]])
     cext = float(np.abs(allc).max())
     L = cext * 0.92
-    aligns = [("left", "top"), ("left", "bottom"), ("center", "bottom")]
+    # Per-axis label position + alignment; the y-position (z) label is nudged in
+    # +x so it sits to the right of the vertical arrow rather than on top of it.
+    labelspec = [
+        ((L * 1.14, 0.0, 0.0), "left", "top"),         # size
+        ((0.0, L * 1.14, 0.0), "left", "bottom"),      # x-position
+        ((L * 0.32, 0.0, L * 1.10), "left", "bottom"),  # y-position (moved right)
+    ]
     for k, vec in enumerate([(L, 0, 0), (0, L, 0), (0, 0, L)]):
         ax.quiver(0, 0, 0, vec[0], vec[1], vec[2], color="black",
                   linewidth=1.8, arrow_length_ratio=0.1)
-        ha, va = aligns[k]
-        ax.text(vec[0] * 1.14, vec[1] * 1.14, vec[2] * 1.14, alabels[k],
+        pos, ha, va = labelspec[k]
+        ax.text(pos[0], pos[1], pos[2], alabels[k],
                 fontsize=12, fontweight="bold", ha=ha, va=va)
 
     # Zoom so the box fills the frame; drop the axis frame entirely so the figure
@@ -281,9 +287,9 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     style.maybe_title(ax, title)
     # Compact color key (granular tasks): two columns, small, tucked low-left.
     gt_handles, gt_labels = ax.get_legend_handles_labels()  # the 8 swarm scatters
-    leg1 = ax.legend(gt_handles, gt_labels, loc="lower center", ncol=4, fontsize=8.5,
-                     markerscale=1.3, framealpha=0.9, handletextpad=0.35,
-                     columnspacing=0.9, labelspacing=0.3, borderpad=0.35,
+    leg1 = ax.legend(gt_handles, gt_labels, loc="lower center", ncol=2, fontsize=11.5,
+                     markerscale=1.4, framealpha=0.9, handletextpad=0.4,
+                     columnspacing=1.4, labelspacing=0.3, borderpad=0.4,
                      borderaxespad=0.0, bbox_to_anchor=(0.5, 0.0))
     ax.add_artist(leg1)
     if has_pred:
