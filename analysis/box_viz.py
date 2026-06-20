@@ -268,7 +268,7 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     labelspec = [
         ((L * 1.14, 0.0, 0.0), "left", "top"),         # size
         ((0.0, L * 1.14, 0.0), "left", "bottom"),      # x-position
-        ((L * 0.32, 0.0, L * 1.10), "left", "bottom"),  # y-position (moved right)
+        ((L * 0.22, 0.0, L * 1.10), "left", "bottom"),  # y-position (slightly right of arrow)
     ]
     for k, vec in enumerate([(L, 0, 0), (0, L, 0), (0, 0, L)]):
         ax.quiver(0, 0, 0, vec[0], vec[1], vec[2], color="black",
@@ -285,20 +285,21 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     ax.set_box_aspect((1, 1, 1))  # equal aspect (undistorted cube)
     ax.set_axis_off()             # drop the frame -> tight crop, no floor whitespace
     style.maybe_title(ax, title)
-    # Compact color key (granular tasks): two columns, small, tucked low-left.
+    # Lift the cube into the top whitespace (shrink the axes upward) and hang the
+    # color key in the reserved strip below it, so the legend can't clip the
+    # bottom corner. tight-crop then trims the freed top margin.
     gt_handles, gt_labels = ax.get_legend_handles_labels()  # the 8 swarm scatters
-    leg1 = ax.legend(gt_handles, gt_labels, loc="lower center", ncol=2, fontsize=11.5,
-                     markerscale=1.4, framealpha=0.9, handletextpad=0.4,
-                     columnspacing=1.4, labelspacing=0.3, borderpad=0.4,
-                     borderaxespad=0.0, bbox_to_anchor=(0.5, 0.0))
-    ax.add_artist(leg1)
+    ax.set_position([0.0, 0.13, 1.0, 0.87])
+    fig.legend(gt_handles, gt_labels, loc="lower center", ncol=2, fontsize=11.5,
+               markerscale=1.4, framealpha=0.9, handletextpad=0.4,
+               columnspacing=1.4, labelspacing=0.3, borderpad=0.4,
+               bbox_to_anchor=(0.5, 0.0))
     if has_pred:
         from matplotlib.lines import Line2D
         box_handles = [Line2D([0], [0], color="black", lw=1.8),
                        Line2D([0], [0], color=pred_color, lw=1.8, linestyle=(0, (5, 4)))]
-        leg2 = ax.legend(box_handles, ["observed", r"predicted $\sqrt{B_t}$"],
-                         loc="upper right", fontsize=8, framealpha=0.9)
-    fig.tight_layout()
+        ax.legend(box_handles, ["observed", r"predicted $\sqrt{B_t}$"],
+                  loc="upper right", fontsize=9, framealpha=0.9)
     for pth in (save_path if isinstance(save_path, (list, tuple)) else [save_path]):
         fig.savefig(pth, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
