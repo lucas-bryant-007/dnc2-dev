@@ -183,7 +183,7 @@ def plot_cosine_heatmap(cos_abs, names, save_path, title=None):
 
 
 def plot_box_3d(coords, box, granular_task, triple_names, save_path,
-                predicted_box=None, per_task=500, title=None, zoom=1.3,
+                predicted_box=None, per_task=500, title=None, zoom=1.12,
                 axis_labels=None, level_labels=None):
     """Clean 3D hyper-rectangle for the proposal: a swarm of samples colored by
     granular task clustered around each of the 8 centroids, a bold box through
@@ -198,7 +198,7 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     from br import style
     style.apply_style()
 
-    fig = plt.figure(figsize=(8.0, 6.6))
+    fig = plt.figure(figsize=(7.0, 6.4))
     ax = fig.add_subplot(111, projection="3d")
     cmap = plt.cm.tab10
     p = coords.numpy() if hasattr(coords, "numpy") else np.asarray(coords)
@@ -268,7 +268,7 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
         ax.quiver(0, 0, 0, vec[0], vec[1], vec[2], color="black",
                   linewidth=1.8, arrow_length_ratio=0.1)
         ha, va = aligns[k]
-        ax.text(vec[0] * 1.22, vec[1] * 1.22, vec[2] * 1.22, alabels[k],
+        ax.text(vec[0] * 1.14, vec[1] * 1.14, vec[2] * 1.14, alabels[k],
                 fontsize=12, fontweight="bold", ha=ha, va=va)
 
     # Zoom so the box fills the frame; drop the axis frame entirely so the figure
@@ -281,9 +281,10 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     style.maybe_title(ax, title)
     # Compact color key (granular tasks): two columns, small, tucked low-left.
     gt_handles, gt_labels = ax.get_legend_handles_labels()  # the 8 swarm scatters
-    leg1 = ax.legend(gt_handles, gt_labels, loc="lower left", ncol=2, fontsize=9.5,
-                     markerscale=1.5, framealpha=0.9, handletextpad=0.4,
-                     columnspacing=1.0, labelspacing=0.35, borderpad=0.4)
+    leg1 = ax.legend(gt_handles, gt_labels, loc="lower center", ncol=4, fontsize=8.5,
+                     markerscale=1.3, framealpha=0.9, handletextpad=0.35,
+                     columnspacing=0.9, labelspacing=0.3, borderpad=0.35,
+                     borderaxespad=0.0, bbox_to_anchor=(0.5, 0.0))
     ax.add_artist(leg1)
     if has_pred:
         from matplotlib.lines import Line2D
@@ -293,5 +294,5 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                          loc="upper right", fontsize=8, framealpha=0.9)
     fig.tight_layout()
     for pth in (save_path if isinstance(save_path, (list, tuple)) else [save_path]):
-        fig.savefig(pth)
+        fig.savefig(pth, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
