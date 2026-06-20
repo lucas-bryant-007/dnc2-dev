@@ -221,7 +221,7 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
             sel = np.random.choice(sel, per_task, replace=False)
         ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2], s=10, alpha=0.55,
                    color=cmap(idx), edgecolors="none", depthshade=True,
-                   label=combo_label(combo))
+                   rasterized=True, label=combo_label(combo))
 
     pred_color = "#d62728"
     has_pred = predicted_box is not None
@@ -257,15 +257,19 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                        facecolors="none", edgecolors=pred_color, linewidth=2.0,
                        depthshade=False)
 
-    # Labeled arrows along the three task axes (shows orthogonality).
+    # Labeled arrows along the three task axes (shows orthogonality). Labels are
+    # pushed beyond the arrow tips and aligned to grow *outward* (for this fixed
+    # view) so they don't sit on top of the arrows.
     allc = np.array(list(centers.values())) if centers else np.array([[1.0, 1.0, 1.0]])
     cext = float(np.abs(allc).max())
-    L = cext * 1.1
+    L = cext * 0.92
+    aligns = [("left", "top"), ("left", "bottom"), ("center", "bottom")]
     for k, vec in enumerate([(L, 0, 0), (0, L, 0), (0, 0, L)]):
         ax.quiver(0, 0, 0, vec[0], vec[1], vec[2], color="black",
-                  linewidth=2.0, arrow_length_ratio=0.12)
-        ax.text(vec[0] * 1.1, vec[1] * 1.1, vec[2] * 1.1, alabels[k],
-                fontsize=12, fontweight="bold", ha="center", va="center")
+                  linewidth=1.8, arrow_length_ratio=0.1)
+        ha, va = aligns[k]
+        ax.text(vec[0] * 1.22, vec[1] * 1.22, vec[2] * 1.22, alabels[k],
+                fontsize=12, fontweight="bold", ha=ha, va=va)
 
     # Zoom so the box fills the frame; drop the axis frame entirely so the figure
     # crops tight to the box (no empty 3D floor pane / whitespace).
@@ -277,9 +281,9 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     style.maybe_title(ax, title)
     # Compact color key (granular tasks): two columns, small, tucked low-left.
     gt_handles, gt_labels = ax.get_legend_handles_labels()  # the 8 swarm scatters
-    leg1 = ax.legend(gt_handles, gt_labels, loc="lower left", ncol=2, fontsize=7,
-                     markerscale=1.2, framealpha=0.9, handletextpad=0.3,
-                     columnspacing=0.8, labelspacing=0.3, borderpad=0.3)
+    leg1 = ax.legend(gt_handles, gt_labels, loc="lower left", ncol=2, fontsize=9.5,
+                     markerscale=1.5, framealpha=0.9, handletextpad=0.4,
+                     columnspacing=1.0, labelspacing=0.35, borderpad=0.4)
     ax.add_artist(leg1)
     if has_pred:
         from matplotlib.lines import Line2D
