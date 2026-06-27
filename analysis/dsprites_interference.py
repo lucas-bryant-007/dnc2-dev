@@ -39,10 +39,12 @@ from eval_utils import (
 )
 from dsprites_taskfamily_spectrum import (
     whiten_features, _task_labels, ALIGNED_TASKS, DIVERSE_TASKS,
-    ALIGNED_NAME, DIVERSE_NAME, DISPLAY,
+    ALIGNED_NAME, DIVERSE_NAME,
 )
 import metrics_io as mio
 
+DISPLAY = {"scale": "size", "posX": "x-position", "posY": "y-position",
+           "shape": "shape", "orientation": "orientation"}
 R_LIST = list(range(1, 9))
 
 
