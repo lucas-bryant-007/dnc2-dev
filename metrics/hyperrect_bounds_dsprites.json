@@ -1,0 +1,55 @@
+{
+  "source_json": "metrics/hyperrect_vicreg_dsprites_epoch_80_twoview.json",
+  "tasks": [
+    "scale",
+    "posX",
+    "posY"
+  ],
+  "B": [
+    0.9342893362045288,
+    0.9937548637390137,
+    0.9933016300201416
+  ],
+  "sqrtB_predicted": [
+    0.9665864349371601,
+    0.9968725413707681,
+    0.9966451876270419
+  ],
+  "observed_side": [
+    0.9665863811969757,
+    0.9968715906143188,
+    0.9966371282935143
+  ],
+  "eps_assumed": 0.0,
+  "rho_assumed": 0.0,
+  "bound1_orthogonality": [
+    {
+      "pair": [
+        "scale",
+        "posX"
+      ],
+      "lhs_abs_cos": 0.0013037199387326837,
+      "rhs_bound": 0.021023671253651413
+    },
+    {
+      "pair": [
+        "scale",
+        "posY"
+      ],
+      "lhs_abs_cos": 0.0039711566641926765,
+      "rhs_bound": 0.021778161950350854
+    },
+    {
+      "pair": [
+        "posX",
+        "posY"
+      ],
+      "lhs_abs_cos": 0.0006126787629909813,
+      "rhs_bound": 0.006509914992212078
+    }
+  ],
+  "bound2_centroid": {
+    "observed": 5.896302000460821e-05,
+    "bound_sum_1_minus_B": 0.07865417003631592
+  }
+}

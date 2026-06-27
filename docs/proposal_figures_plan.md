@@ -1,123 +1,140 @@
-# Proposal Figures — Plan (after Tomer's call, 2026-06-18)
+# Proposal Figures — Plan & Status (updated 2026-06-27)
 
-**Mandate:** get a few clean figures for the grant proposal, fast. Grant is the
-priority. Favor *observation over prediction*. Keep it easy on Tomer's side. We
-need *something* solid, not the perfect dataset.
-
----
-
-## The figures we're committing to (in priority order)
-
-1. **Clean 3D hyper-rectangle — THE hero figure.** A single bold box through the
-   8 granular-task centroids, with a tight, colored swarm of samples around each
-   centroid, three labeled arrows for the task axes (orthogonality), no tick
-   numbers, readable legend, and **no predicted overlay** (observation only).
-2. **Directional CDNV.** Predicted-vs-observed `Ṽ` (Prop 4.1 holds) and, from the
-   running sweep, **directional CDNV collapsing over training while classical CDNV
-   stays large.** Already produced; keep.
-3. **(Stretch) Few-shot bound.** New `B(F)` vs old directional bound vs empirical
-   — only on a recoverable dataset (mini-ImageNet), since CelebA is vacuous.
-
-**Dropped / deprioritized:** the 40×40 interference heatmap (Tomer: "too
-overwhelming"), the predicted √Bₜ box overlay (Tomer: "remove estimate"), and
-forcing the few-shot bound onto CelebA.
+**Mandate:** clean figures for Tomer's NSF CAREER proposal, fast. Grant is the
+priority. Favor *observation over prediction*. Keep it easy on Tomer's side.
 
 ---
 
-## Box spec from the call → already in code (`plot_box_3d`)
+## ✅ Delivered & approved (shipped to Tomer on Slack)
 
-- Bigger box: axes zoom to the centroids so the box fills the frame.
-- Tick numbers removed.
-- Sample swarm per granular task, colored to match its centroid, clustered around
-  it.
-- Bold box edges through the 8 centroids.
-- Three labeled arrows along the task axes (shows orthogonality).
-- Predicted √Bₜ corners are **off by default** (`--show_predicted_box` to re-enable).
+1. **Hero 3D hyper-rectangle — DONE, approved 2026-06-27.** VICReg ResNet-18 on
+   dSprites, two-view-by-resampling sharing three independent factors
+   **(size, x-position, y-position)**. In the whitened SSL representation the 8
+   granular-task centroids sit at the corners of an axis-aligned box; axes
+   orthogonal (max |cos| = 0.004), side ≈ √Bₜ with **B = 0.99 / 0.99 / 0.93**.
+   File: `figures/hyperrect_box_vicreg_dsprites_epoch_80_twoview.{pdf,png}`.
+   Final form after Tomer's rounds: PDF saved direct from python, predicted box
+   removed (kept for the paper, not the proposal), friendly axis/level names
+   (size / x-position / y-position; small-left-top …), two-column bottom legend,
+   tight crop, larger legend font, no "Thm 4.4" text.
+2. **Training GIF — DONE.** `figures/dsprites_box_evolution.gif`: the cube
+   sharpening over epochs 0→80, fixed camera, epoch in corner.
+3. **Directional CDNV / Prop 4.1 — have.** Predicted-vs-observed `Ṽ=(1−B)/2B`
+   on real CelebA SSL (~6–10% error); directional CDNV collapsing over training
+   (epoch sweep `metrics/metrics_vicreg_male_epoch_*`) while classical CDNV stays
+   large — reproduces the published Fig. 2.
 
-Verified by rendering on synthetic independent-factor data — it's crisp. On
-CelebA the swarms overlap (poor separation), so it's a decent stopgap, not the
-hero; the hero needs independent factors → **DSprites**.
+### Note for the record — "why is epoch 0 already organized?" (Achleshwar's Q)
+The cube is roughly in place even at epoch 0 because (a) **random conv features**
+already separate such salient, global geometric factors (size/position), and
+(b) **whitening orthogonalizes** whatever signal exists, so on a disentangled
+dataset the corners are essentially pre-determined. Training only **collapses the
+within-task variance** (B↑ toward 1, directional CDNV↓ toward 0) — directional
+neural collapse, not reorganization. Clean way to show this: B(F) & directional
+CDNV vs epoch for dSprites (cheap; `compute_keyframes` already computes capture).
 
 ---
 
-## Phases
+## 🔴 ACTIVE — Tomer's new tasks (assigned 2026-06-27)
 
-### Phase 0 — DONE
-Two-view I-JEPA fix; `B_r`/CDNV pipeline; Prop 4.1 validation; rewhitened
-hyper-rectangle (heatmap + box) for VICReg & I-JEPA; both bounds implemented;
-epoch-sweep tooling; seaborn styling; box redesign above.
+### Task A — RO2 preliminary figure: **task-family spectrum → bottleneck interference**
+*Driver built: `analysis/dsprites_taskfamily_spectrum.py`.* Frozen pretrained
+dSprites encoder → center+whiten features to `X` (so `n⁻¹XᵀX≈I`). Two binary-task
+families:
+- **Aligned/redundant:** many tasks from ONE factor (x-position thresholds).
+- **Diverse/interfering:** one+ task from EACH factor (shape, scale, orientation,
+  posX, posY).
 
-### Phase 1 — Clean CelebA box NOW (code only, ~10 min, no training)
-Immediate "something" for Tomer.
+For each task `sₜ∈{−1,+1}` (centered, unit-variance): `aₜ = (1/n) Xᵀ sₜ`; per
+family `M_w^F = (1/M) Σ aₜaₜᵀ`; eigenvalues `λ₁≥λ₂≥…`; plot **normalized cumulative
+spectral mass `(Σ_{j≤r}λⱼ)/(Σλⱼ)` vs bottleneck dim `r`**, two curves. Expected:
+aligned saturates fast at small `r`; diverse climbs slowly → aligned tasks share a
+low-dim bottleneck, diverse tasks need independent directions and interfere.
+Deliverables: **proposal-ready figure (clean labels, large fonts, no inner title),
+raw eigenvalues, and the script.** Whitening rotation is irrelevant — the M_w
+spectrum is rotation-invariant, so PCA- and ZCA-whitening give identical curves.
+
+Run (server):
 ```bash
 git pull
-python -u analysis/celeba_hyperrect.py --config configs/vicreg/celeba.yaml \
-  --ckpt_dir /home/lucas_bryant1/dnc2_s2/hf_models/vicreg-resnet50-celeba/converted_checkpoints \
-  --device cuda:0 --epoch 1000 --tag twoview --whiten
-git add figures/ && git commit -m "clean CelebA hyperrectangle box" && git push
+$PY -u analysis/dsprites_taskfamily_spectrum.py \
+  --config configs/vicreg/dsprites.yaml \
+  --ckpt_dir checkpoints/vicreg_dsprites --epoch 80 \
+  --device cuda:0 --tag ro2
+git add figures/spectrum_* metrics/spectrum_* && git commit -m "RO2 task-family spectrum" && git push
 ```
-Expect: a clean box, but overlapping swarms (CelebA attributes aren't well
-separated). Send it as the stopgap.
 
-### Phase 2 — DSprites clean box (THE hero) — **CODE BUILT, ready to train**
-DSprites = 64×64 shapes with **independent, balanced factors** (shape, scale,
-orientation, posX, posY) → exactly the regime that yields a crisp, axis-aligned
-hyper-rectangle (the published Fig. 5 idea on a standard dataset).
+### Task B — **More hyper-rectangles across models & datasets**
+"repeat that for multiple models and datasets." Same hero-box pipeline, varied:
+- **Models:** VICReg ResNet-18 (have) → ResNet-50, I-JEPA (ViT), SimCLR.
+- **Datasets:** dSprites (have) → 3DShapes / Shapes3D, MPI3D, smallNORB, CelebA
+  (already a stopgap). Each needs an independent-factor structure to get a clean
+  box (CelebA swarms overlap — expected).
+- Output: a small grid of boxes (or per-(model,dataset) panels) + a table of
+  B(F) per axis and max|cos|.
 
-What's in the repo now:
-- `data_utils/dsprites_core.py` — pure-torch loader/pairing/datasets. Tasks =
-  {shape (square vs ellipse), scale (small vs large), posX (left vs right)};
-  nuisance = orientation + posY. A positive **pair shares the 3 task bits and
-  resamples the nuisance** (`pair_mode: granular`) — the pairing *is* the
-  two-view augmentation, so no fragile pixel-crop that would destroy posX.
-- `data_utils/dsprites_datamodule.py` + `training/train.py` branch + `configs/vicreg/dsprites.yaml`
-  (ResNet-18, 64px, CSV logger, 81 epochs, checkpoints every 5).
-- `analysis/dsprites_hyperrect.py` — the box driver (shared `analysis/box_viz.py`).
-- Smoke-tested end-to-end on a synthetic npz (CPU): pairing, geometry, and the
-  box render all verified.
+### Task C — **Validate the new-paper bounds** (call notes, 2026-06-27; draft = `dirCDNV_is_low.pdf`)
+Empirically validate the two theorems and "show they're tight." Key formulas
+(balanced binary tasks, centered+whitened `F`; `εₜ=E[Var(Yₜ|X)]=1−‖ηₜ‖²`,
+`uₜ=E[YₜF]/‖·‖`, `Bₜ=‖E[YₜF]‖²`):
+- **Thm 4.4 Bound 1 (orthogonality):**
+  `|uᵢᵀuⱼ| ≤ (|ρᵢⱼ| + √(εᵢεⱼ) + √((‖ηᵢ‖²−Bᵢ)(‖ηⱼ‖²−Bⱼ))) / √(BᵢBⱼ)`.
+- **Thm 4.4 Bound 2 (centroid):** `E‖m_Y−(√B₁Y₁,…,√B_kY_k)‖² ≤ Σₜ(1−Bₜ)`.
+- **Thm 4.5 (few-shot NCC):** `errₘ ≤ 1−B + (r−B)/m + (1−B)/(1−B+2mB)`, `r=dim F`.
 
-Run it (server, ~30–60 min total):
+Decoded call notes → actions:
+- "2 bounds, measure left & right, show tight" → `analysis/hyperrect_bounds.py`
+  (LHS vs RHS bars). **DONE on epoch-80 dSprites (ε=0):** predicted √Bₜ = observed
+  side to **0.00%**; Bound 1 holds 5–16× slack (rep is *more* orthogonal than
+  required); Bound 2 obs 6e-5 ≤ 0.079 (centroids sit on the corners).
+  `figures/hyperrect_bounds_dsprites.{pdf,png}`.
+- "est. ε empirically / assume ε=0" → dSprites factors are deterministic so ε=0 is
+  *exact*; the empirical-ε path matters on noisy data (CelebA).
+- "Ij estimate" → repeat for **I-JEPA** (2nd model). [interpretation — confirm]
+- "bound in 4.5 / start by estimations" → `analysis/dsprites_validate.py` computes
+  measured `Bₜ, |uᵢᵀuⱼ|, ρᵢⱼ` and **empirical m-shot NCC error vs the Thm 4.5
+  bound** per task. NB with `r=k_eff≈255` the bound is vacuous until `m≳r`; on
+  dSprites empirical err≈0, so it shows "bound ≥ empirical, non-vacuous at large m."
+  The stress test is a harder task (CelebA, B≈0.5).
+- "aug bound / dot product, pairs begin→end" → track positive-pair alignment
+  `E⟨F(x¹),F(x²)⟩` vs epoch alongside Bₜ (the augmentation→recoverability mechanism).
+- "hypercube / right-left=color…", "Fourier of SSL", "read Hilbert space" →
+  framing: `L²(Pₓ)` Hilbert space, two-view operator `T` self-adjoint, eigenfns
+  ψⱼ = basis, `B_r=Σⱼ≤r⟨η,ψⱼ⟩²` = spectral mass (the RO2 figure *is* this view).
+
+---
+
+## ⏳ Stretch / supporting
+
+- **Few-shot bound (Thm 4.5)** on **mini-ImageNet** — the one untested validation
+  piece (vacuous on CelebA). Needs recoverable SSL checkpoints; pipeline already
+  supports the bound.
+- **dSprites B-vs-epoch / dirCDNV-vs-epoch curve** (supports Achleshwar's Q and
+  the RO2/collapse story).
+
+---
+
+## Reproduce the delivered figures
+
 ```bash
-git pull
-# one-time: fetch the standard dsprites npz
-mkdir -p data/dsprites && wget -O data/dsprites/dsprites.npz \
-  https://github.com/google-deepmind/dsprites-dataset/raw/master/dsprites_ndarray_co1sh3sc6or40x32y32_64x64.npz
-export DSPRITES_NPZ=$PWD/data/dsprites/dsprites.npz
-# train the small SSL encoder
-$PY training/train.py --config configs/vicreg/dsprites.yaml
-# render the hero box (epoch 80; try a few late epochs and pick the cleanest)
+# Hero box (epoch 80, whitened SSL subspace)
 $PY -u analysis/dsprites_hyperrect.py --config configs/vicreg/dsprites.yaml \
-  --ckpt_dir checkpoints/vicreg_dsprites \
-  --device cuda:0 --epoch 80 --tag twoview --whiten
-git add figures/ metrics/ && git commit -m "DSprites hero hyperrectangle" && git push
+  --ckpt_dir checkpoints/vicreg_dsprites --device cuda:0 --epoch 80 --tag twoview --whiten
+# Training GIF
+$PY -u analysis/dsprites_box_anim.py --config configs/vicreg/dsprites.yaml \
+  --ckpt_dir checkpoints/vicreg_dsprites --device cuda:0 --whiten \
+  --out figures/dsprites_box_evolution.gif
 ```
-Bonus, almost free: rendering the box at several saved epochs gives the
-**orthogonalization-over-training** story (axes start tangled, separate into a
-clean box) for the same proposal.
+The clean cube comes from: **exact** pairing + **keep_levels** extreme-level
+filtering on size/posX/posY (config `configs/vicreg/dsprites.yaml`).
 
-### Phase 3 — Few-shot bound on mini-ImageNet (stretch)
-Only needed if Tomer wants the bound figure for the proposal. Needs mini-ImageNet
-SSL checkpoints (off-the-shelf or trained). Pipeline already supports the bound;
-just point it at a recoverable representation.
-
----
-
-## What we still need from Tomer / open questions
-
-- **mini-ImageNet checkpoints:** do we already have SSL checkpoints, or train?
-- **Box color/style nits:** current box is bold black on white; trivially
-  changeable if he wants a specific look ("yellow").
-- **DSprites factor/augmentation choice:** the {shape, scale, posX} + orientation
-  nuisance choice above is a sensible default — confirm or swap.
-
----
-
-## Framing note (novelty)
-
-Lead the write-up with **`B(F)` / "which tasks survive"** (the *new* paper):
-the capture spectrum + the `Ṽ=(1−B)/2B` law + the hyper-rectangle. The
-directional-collapse-vs-epoch curve is great motivation but largely reproduces
-the *published* Fig. 2, so it supports rather than headlines the new contribution.
+## Standing constraints (do not break)
+- **Never** stage/commit `configs/vicreg/celebA.yaml` — it's Lucas's pre-existing
+  uncommitted local edit. Always `git add` specific files, never `git add -A`.
+- Server `csce-galanti-s2`; `export PY=/home/lucas_bryant1/dnc2_s2/dnc2_env/bin/python`
+  (re-export each login or via `.bashrc`). Now allocated **2 GPUs** (cuda:0, cuda:1).
+- Workflow: edit + CPU smoke-test on laptop → push → Lucas runs on server → push
+  figures → laptop pulls + inspects.
 
 ---
 
@@ -125,10 +142,32 @@ the *published* Fig. 2, so it supports rather than headlines the new contributio
 
 | Item | State |
 |---|---|
-| Clean box code (per call) | ✅ done, verified |
-| CelebA clean box (run) | ▶ run Phase 1 |
-| DSprites hero box | ✅ DONE — clean orthogonal cube, B=0.99/0.99/0.93, max\|cos\|=0.004 (`figures/hyperrect_box_vicreg_dsprites_epoch_80_twoview.png`) |
+| Hero dSprites box | ✅ DONE & approved (B=0.99/0.99/0.93, max\|cos\|=0.004) |
+| Training GIF | ✅ DONE |
 | Directional CDNV / Prop 4.1 | ✅ have |
-| Epoch sweep (VICReg) | ▶ running |
-| Few-shot bound figure | ⏳ needs mini-ImageNet |
+| Epoch sweep (VICReg CelebA) | ✅ have |
+| **RO2 task-family spectrum** | ✅ built + CPU-smoke-tested → run on server |
+| **Thm 4.4 bounds (ε=0) bar plot** | ✅ DONE on epoch-80 dSprites (0.00% side err) |
+| **Thm 4.5 few-shot validate driver** | ✅ built + CPU-smoke-tested → run on server |
+| **More hyperrects (models×datasets)** | 🔴 R50 config added; I-JEPA + 3DShapes next |
+| Aug/dot-product over training | ⏳ supporting |
+| dSprites B-vs-epoch curve | ⏳ supporting |
 | Heatmap | ❌ dropped (too busy) |
+
+## 2-GPU runbook (pull, then run)
+```bash
+git pull
+# GPU 0 — quick analyses on the EXISTING epoch-80 ResNet-18 checkpoint (no training):
+$PY -u analysis/dsprites_taskfamily_spectrum.py -c configs/vicreg/dsprites.yaml \
+  --ckpt_dir checkpoints/vicreg_dsprites --epoch 80 --device cuda:0 --tag ro2
+$PY -u analysis/dsprites_validate.py -c configs/vicreg/dsprites.yaml \
+  --ckpt_dir checkpoints/vicreg_dsprites --epoch 80 --device cuda:0 --tag twoview
+$PY -u analysis/hyperrect_bounds.py \
+  --json metrics/hyperrect_vicreg_dsprites_epoch_80_twoview.json --tag dsprites
+# GPU 1 — multi-model: train ResNet-50 (keeps a GPU busy ~30-60 min):
+CUDA_VISIBLE_DEVICES=1 $PY training/train.py --config configs/vicreg/dsprites_r50.yaml
+# when R50 finishes, render its box + bounds + spectrum (same drivers, r50 ckpt dir):
+$PY -u analysis/dsprites_hyperrect.py -c configs/vicreg/dsprites_r50.yaml \
+  --ckpt_dir checkpoints/vicreg_dsprites_r50 --epoch 80 --device cuda:1 --tag twoview --whiten
+git add figures/ metrics/ && git commit -m "RO2 + Thm 4.4/4.5 validation + R50 box" && git push
+```
