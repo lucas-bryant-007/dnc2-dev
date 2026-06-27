@@ -55,15 +55,19 @@ import metrics_io as mio
 # --- Task families -----------------------------------------------------------
 # Each task is (factor, threshold): label = (latents[:, col] >= threshold).
 # "shape" is special (binary square vs ellipse), threshold ignored.
-# Aligned: nine x-position thresholds -> all (nearly) the same direction.
-ALIGNED_TASKS = [("posX", t) for t in (4, 7, 10, 13, 16, 19, 22, 25, 28)]
-# Diverse: one+ task per distinct varying factor (shape/scale/orient/posX/posY).
+# Aligned/redundant: a TIGHT, balanced band of x-position thresholds -> the tasks
+# are nearly the same binary cut, so their directions collapse to ~1 dimension
+# (concentrated spectrum). A spread-out band would instead spread across many
+# dims because the encoder represents posX nonlinearly -> a misleading long tail.
+ALIGNED_TASKS = [("posX", t) for t in (13, 14, 15, 16, 17, 18, 19)]
+# Diverse/interfering: one balanced task per distinct varying factor -> the
+# directions are near-orthogonal, so the spectrum is flat (interference).
 DIVERSE_TASKS = [
     ("shape", None),
-    ("scale", 1), ("scale", 4),
-    ("orientation", 13), ("orientation", 26),
+    ("scale", 3),
+    ("orientation", 20),
     ("posX", 16),
-    ("posY", 10), ("posY", 22),
+    ("posY", 16),
 ]
 
 ALIGNED_NAME = "Aligned (x-position thresholds)"
@@ -108,14 +112,23 @@ def _normalize_label(s: np.ndarray) -> np.ndarray:
     return s / sd if sd > 0 else s
 
 
-def family_spectrum(X: torch.Tensor, label_vectors):
-    """M_w = (1/M) sum_t a_t a_t^T with a_t = (1/n) X^T s_t. Returns desc eigenvalues."""
+def family_spectrum(X: torch.Tensor, label_vectors, normalize=False):
+    """M_w = (1/M) sum_t a_t a_t^T with a_t = (1/n) X^T s_t. Returns desc eigenvalues.
+
+    normalize=True renormalizes each a_t to unit length, i.e. uses the unit task
+    direction u_t = a_t/||a_t|| -- the feature-side realization of the proposal's
+    normalized posterior eta_bar_t (RO2: M_w = sum_t w_t eta_bar_t (x) eta_bar_t).
+    normalize=False (default) is Tomer's Slack recipe (a_t un-normalized).
+    """
     n = X.shape[0]
     a_list = []
     for s in label_vectors:
         s_t = torch.as_tensor(_normalize_label(np.asarray(s, dtype=np.float64)),
                               dtype=X.dtype, device=X.device)
-        a_list.append((X.t() @ s_t) / n)            # k-vector
+        a = (X.t() @ s_t) / n                       # k-vector
+        if normalize:
+            a = a / a.norm().clamp_min(1e-12)
+        a_list.append(a)
     A = torch.stack(a_list, dim=0)                  # M x k
     M_w = (A.t() @ A) / A.shape[0]                  # k x k
     evals = torch.linalg.eigvalsh(M_w)              # ascending, >= 0
@@ -151,7 +164,7 @@ def plot_spectrum(curves, save_paths, rmax):
         ax.plot(r, cms, ls, marker=mk, color=color, lw=2.6, markersize=7,
                 label=label, zorder=3)
     ax.set_xlabel("Bottleneck dimension  $r$", fontsize=16)
-    ax.set_ylabel("Cumulative recoverability", fontsize=16)
+    ax.set_ylabel("Cumulative spectral mass", fontsize=16)
     ax.set_xlim(0.7, rmax + 0.3)
     ax.set_ylim(0.0, 1.02)
     ax.set_xticks(range(1, rmax + 1))
@@ -209,7 +222,7 @@ def main(args):
         for (f, thr), s in zip(tasks, labels):
             pos = float((s > 0).mean())
             print(f"  [{fname[:8]}] {f}>={thr}  pos_frac={pos:.3f}")
-        evals = family_spectrum(X, labels)
+        evals = family_spectrum(X, labels, normalize=args.normalize)
         cms = cumulative_mass(evals)
         results[fname] = {
             "tasks": [[f, (None if thr is None else int(thr))] for f, thr in tasks],
@@ -258,6 +271,9 @@ if __name__ == "__main__":
                     help="DSprites shapes to keep (0=square,1=ellipse,2=heart)")
     ap.add_argument("--max_samples", type=int, default=50000)
     ap.add_argument("--rel_eig_threshold", type=float, default=1e-3)
+    ap.add_argument("--normalize", action="store_true",
+                    help="Renormalize a_t to unit length (proposal's M_w on eta_bar_t); "
+                         "default off = Tomer's Slack recipe (un-normalized a_t)")
     ap.add_argument("--out_dir", default=".")
     ap.add_argument("--tag", default="ro2")
     main(ap.parse_args())
