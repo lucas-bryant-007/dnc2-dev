@@ -44,8 +44,14 @@ def main(cfg):
         data_cfg = DSpritesCfg(**namespace_to_dict(cfg.data))
         data_cfg.method = cfg.method.name
         data_module = DSpritesDataModule(data_cfg)
+    elif cfg.data.name.lower() in ("shapes3d", "3dshapes"):
+        from data_utils.shapes3d_datamodule import Shapes3DDataModule, Shapes3DCfg
+        data_cfg = Shapes3DCfg(**namespace_to_dict(cfg.data))
+        data_cfg.method = cfg.method.name
+        data_module = Shapes3DDataModule(data_cfg)
     else:
-        raise ValueError(f"Unknown dataset: {cfg.data.name}. Supported: 'mini_imagenet', 'celeba', 'dsprites'")
+        raise ValueError(f"Unknown dataset: {cfg.data.name}. Supported: "
+                         f"'mini_imagenet', 'celeba', 'dsprites', 'shapes3d'")
 
     # build model based on method
     if cfg.method.name.lower() == "vicreg":
