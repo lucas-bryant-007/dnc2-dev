@@ -104,6 +104,43 @@ Decoded call notes → actions:
 
 ---
 
+## Honest audit — what's real vs illustrative (read before defending any figure)
+
+The unifying quantity is **B(F) = R² of the best linear decoder of a task** from the
+representation (how much of the task survived SSL). Verdicts:
+
+| Piece | Verdict |
+|---|---|
+| Box side lengths = √Bₜ ("0.00% match") | **Nearly trivial / algebraic** — centroid along a task's own axis ≡ √Bₜ by definition. Don't lead with this. |
+| Box axes orthogonal (max\|cos\|=0.004) | **Real, emergent** — SSL could have entangled the factors; it didn't. |
+| 8 corners form a product/box | **Real, emergent** — factors don't interfere; the joint structure is the content. |
+| Clean dSprites setup (size/posX/posY, dropped shape, `keep_levels`) | **Curated (legitimately)** — best-case sandbox to *show the mechanism*, not a claim about arbitrary tasks. |
+| RO2 spectrum (concentrated vs flat) | **Semi-trivial + partly engineered** — largely re-expresses label correlations, and the tight aligned band was chosen to collapse to 1-D. OK as a proposal *illustration*; NOT load-bearing alone. |
+| Thm 4.5 few-shot | **Real but loose** — bound holds at every m; on dSprites it only bites at large m (r=255). |
+| Directional collapse over training | **Real**, but reproduces the *published* result. |
+| CelebA ~6–10% predicted-vs-observed | **Real result on real data** — the actual out-of-sandbox evidence. |
+
+**Meta:** dSprites is a sandbox (independent factors by construction) chosen so the
+theory's preconditions hold and the geometry is visible. That's a standard controlled
+illustration, *not* fraud — and the proposal text is hedged ("preliminary evidence").
+Lead claims with **orthogonality + factorization**, not the √B bookkeeping.
+
+**Path from illustrative → load-bearing:**
+- Box: second dataset + second model (3DShapes, I-JEPA), and *report the failure* (shape, low B).
+- RO2: **the shared-bottleneck interference experiment** (below) — real held-out accuracy, not eigenvalues.
+- Thm 4.5: evaluate at the *effective* r (~3 captured dims) or on CelebA so the bound bites.
+
+### 🔴 Task C2 — Shared-bottleneck interference (the load-bearing RO2 result)
+`analysis/dsprites_interference.py`. Force all tasks in a family through ONE shared
+r-dim linear bottleneck (the family-optimal top-r of M_w, via reduced-rank regression
+on the frozen whitened rep), fit a per-task head, measure **held-out classification
+accuracy vs r**. Aligned (redundant) → high accuracy at r=1; diverse (independent
+factors) → tasks compete at r<#factors, accuracy climbs in steps. Interference =
+measured accuracy loss on held-out data, not a spectrum. Per-task panel shows *which*
+task dies at which r (transparent, not hidden in an average).
+
+---
+
 ## ⏳ Stretch / supporting
 
 - **Few-shot bound (Thm 4.5)** on **mini-ImageNet** — the one untested validation
