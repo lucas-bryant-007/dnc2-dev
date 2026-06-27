@@ -25,9 +25,7 @@ from tqdm import tqdm
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from training.config_loader import load_config, dict_to_namespace, namespace_to_dict
-from data_utils.dsprites_core import (
-    DSpritesCfg, TASK_NAMES, build_arrays, make_eval_loader, make_paired_loader,
-)
+from factor_data import build_data
 from eval_utils import (
     find_checkpoint_files,
     load_model_from_checkpoint,
@@ -40,15 +38,6 @@ from br.ssl_subspace import fit_ssl_subspace
 from box_viz import plot_box_3d, plot_cosine_heatmap
 import hyperrect as H
 import metrics_io as mio
-
-# Human-readable presentation names for the dSprites factors:
-# (axis label, (low-half name, high-half name)).
-DISPLAY = {
-    "scale": ("size", ("small", "large")),
-    "posX": ("x-position", ("left", "right")),
-    "posY": ("y-position", ("top", "bottom")),  # dSprites posY increases downward
-    "shape": ("shape", ("square", "ellipse")),
-}
 
 
 @torch.no_grad()
@@ -76,14 +65,15 @@ def main(args):
     set_seed(args.seed)
     cfg = dict_to_namespace(load_config(args.config))
 
-    data_cfg = DSpritesCfg(**namespace_to_dict(cfg.data))
-    if args.npz_path:
+    core, data_cfg, DISPLAY = build_data(cfg)
+    if args.npz_path and hasattr(data_cfg, "npz_path"):
         data_cfg.npz_path = args.npz_path
     if args.pair_mode:
         data_cfg.pair_mode = args.pair_mode
     if args.max_samples is not None:
         data_cfg.max_samples = args.max_samples
-    print(f"DSprites cfg: npz={data_cfg.npz_path} shapes={list(data_cfg.shapes)} "
+    src = getattr(data_cfg, "npz_path", None) or getattr(data_cfg, "h5_path", "?")
+    print(f"{cfg.data.name} cfg: src={src} shapes={list(data_cfg.shapes)} "
           f"pair_mode={data_cfg.pair_mode} max_samples={data_cfg.max_samples}")
 
     task_names = list(data_cfg.task_factors)
@@ -103,15 +93,15 @@ def main(args):
     freeze_model(model)
 
     # Build the arrays once and share them across the eval + paired loaders.
-    imgs, _, bits, group_of, groups = build_arrays(data_cfg)
-    eval_loader = make_eval_loader(data_cfg, imgs=imgs, bits=bits, shuffle=False)
+    imgs, _, bits, group_of, groups = core.build_arrays(data_cfg)
+    eval_loader = core.make_eval_loader(data_cfg, imgs=imgs, bits=bits, shuffle=False)
 
     features, bit_matrix = extract_features_and_bits(
         eval_loader, model.backbone, args.device, max_samples=args.max_samples)
     print(f"Extracted features {tuple(features.shape)}, bits {tuple(bit_matrix.shape)}")
 
     if args.whiten:
-        paired_loader = make_paired_loader(
+        paired_loader = core.make_paired_loader(
             data_cfg, imgs=imgs, bits=bits, group_of=group_of, groups=groups)
         z1, z2, _ = extract_features(
             paired_loader, model.backbone, device=args.device, both_views=True,
@@ -135,9 +125,10 @@ def main(args):
     )
 
     method = "vicreg"
+    dataset = cfg.data.name.lower()
     tag = (args.tag or "").strip()
     suffix = f"_{mio.slug(tag)}" if tag else ""
-    stem = f"{method}_dsprites_epoch_{args.epoch}{suffix}"
+    stem = f"{method}_{dataset}_epoch_{args.epoch}{suffix}"
     fig_dir = os.path.join(args.out_dir, "figures")
     metrics_dir = os.path.join(args.out_dir, "metrics")
     os.makedirs(fig_dir, exist_ok=True)
@@ -166,7 +157,7 @@ def main(args):
     coords = res.pop("coords")
     granular_task = res.pop("granular_task")
     payload = {
-        "method": method, "dataset": "dsprites", "tag": tag or None,
+        "method": method, "dataset": dataset, "tag": tag or None,
         "epoch": args.epoch, "config": args.config, "ckpt_path": ckpt_path,
         "pair_mode": data_cfg.pair_mode, "shapes": list(data_cfg.shapes),
         "n_samples": res["n_samples"], "feature_dim": res["feature_dim"],

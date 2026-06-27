@@ -30,7 +30,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 DISPLAY = {"scale": "size", "posX": "x-position", "posY": "y-position",
-           "shape": "shape", "orientation": "orientation"}
+           "shape": "shape", "orientation": "orientation",
+           "object_hue": "object color", "floor_hue": "floor color",
+           "wall_hue": "wall color"}
 
 
 def load(json_path):
