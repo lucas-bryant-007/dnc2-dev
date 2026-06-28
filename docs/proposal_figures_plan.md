@@ -198,9 +198,10 @@ not failures to hide. Summary figure: `figures/box_summary_multimodel.{png,pdf}`
 | Item | State |
 |---|---|
 | Hero dSprites box (R18) | ✅ DONE & approved (B=0.93/0.99/0.99, max\|cos\|=0.004) |
-| **3DShapes box (2nd dataset)** | ✅ DONE — orthogonal, √B≤0.01%; color soft (B=0.55) |
-| **R50 dSprites box (2nd model)** | ✅ DONE (ep200) — orthogonal; size B=0.49 (arch/HP effect, honest) |
-| **Multi-model/dataset summary** | ✅ DONE — `box_summary.py` bar chart + table |
+| **3DShapes box (2nd dataset)** | ✅ DONE — clean cube `shapes3d_clean.yaml` (color 0.80 w/ backgrounds fixed); soft-color version (0.55) kept as the honest "capture varies" point |
+| **R50 dSprites box (2nd model)** | ✅ DONE (ep200) — orthogonal; size B=0.49 (arch/HP effect, honest; epochs don't fix it) |
+| **Multi-model/dataset summary** | ✅ DONE — `box_summary.py` (uses clean 3DShapes) |
+| **Shared chart style** | ✅ DONE — `analysis/plot_style.py` (`apply_style()`) wired into summary/bounds/spectrum/interference/validate; boxes already at hero standard |
 | Thm 4.4 bounds (ε=0) | ✅ DONE on dSprites R18 + 3DShapes + R50 (all hold) |
 | RO2 task-family spectrum | ✅ DONE (illustrative) |
 | RO2 interference (load-bearing) | ✅ DONE on dSprites R18 (real held-out accuracy) |
