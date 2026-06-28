@@ -175,20 +175,36 @@ filtering on size/posX/posY (config `configs/vicreg/dsprites.yaml`).
 
 ---
 
+## Multi-model / multi-dataset hyper-rectangle results (2026-06-27, honest)
+
+Thm 4.4 is robust: **axes stay orthogonal and √Bₜ predicts every side to ≤0.01%**
+across a new model AND a new dataset. The boxes are hyper-*rectangles* (one short
+axis), which is a stronger result than a cube — side length = how much survived.
+
+| run | axis B values | max\|cos\| | read |
+|---|---|---|---|
+| **R18 dSprites** (hero) | size 0.93 / posX 0.99 / posY 0.99 | 0.004 | clean cube (approved) |
+| **3DShapes** R18 (color/shape/size) | shape 0.99 / size 0.98 / **color 0.55** | 0.012 | good box; color is the soft axis (object colour entangles with resampled background hues) |
+| **R50 dSprites** | posX 0.99 / posY 0.99 / **size 0.41** | 0.010 | **undertrained** (loss 8.7 vs R18 ~4); size axis squashed + swarms streak. Retrain longer for a fair model comparison. |
+
+Honest caveats: (1) R50 is not a fair model comparison yet — it's undertrained, not
+"R50 is worse"; (2) 3DShapes color B=0.55 is real, not a bug — it's what survives.
+
 ## Status snapshot
 
 | Item | State |
 |---|---|
-| Hero dSprites box | ✅ DONE & approved (B=0.99/0.99/0.93, max\|cos\|=0.004) |
-| Training GIF | ✅ DONE |
-| Directional CDNV / Prop 4.1 | ✅ have |
-| Epoch sweep (VICReg CelebA) | ✅ have |
-| **RO2 task-family spectrum** | ✅ built + CPU-smoke-tested → run on server |
-| **Thm 4.4 bounds (ε=0) bar plot** | ✅ DONE on epoch-80 dSprites (0.00% side err) |
-| **Thm 4.5 few-shot validate driver** | ✅ built + CPU-smoke-tested → run on server |
-| **More hyperrects (models×datasets)** | 🔴 R50 config added; I-JEPA + 3DShapes next |
-| Aug/dot-product over training | ⏳ supporting |
-| dSprites B-vs-epoch curve | ⏳ supporting |
+| Hero dSprites box (R18) | ✅ DONE & approved (B=0.93/0.99/0.99, max\|cos\|=0.004) |
+| **3DShapes box (2nd dataset)** | ✅ DONE — orthogonal, √B≤0.01%; color soft (B=0.55) |
+| **R50 dSprites box (2nd model)** | ⚠️ DONE but **undertrained** (size B=0.41) → retrain longer |
+| Thm 4.4 bounds (ε=0) | ✅ DONE on dSprites R18 + 3DShapes + R50 (all hold) |
+| RO2 task-family spectrum | ✅ DONE (illustrative) |
+| RO2 interference (load-bearing) | ✅ DONE on dSprites R18 (real held-out accuracy) |
+| Thm 4.5 few-shot | ✅ DONE — bound holds, but **loose** (r=255); needs effective-r or CelebA |
+| Training GIF / Prop 4.1 / CelebA sweep | ✅ have |
+| RO2 interference/spectrum on 3DShapes | 🔴 need dataset-specific task families |
+| I-JEPA (2nd *architecture*) | 🔴 not wired for these 64px datasets |
+| Aug/dot-product over training; B-vs-epoch | ⏳ supporting (not done) |
 | Heatmap | ❌ dropped (too busy) |
 
 ## 2-GPU runbook (pull, then run)
