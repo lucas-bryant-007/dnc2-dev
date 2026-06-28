@@ -42,11 +42,13 @@ trainer:
   devices: 1
   accelerator: gpu
   strategy: auto
-  max_epochs: 81
+  max_epochs: 201
   accumulate_grad_batches: 1
   use_distributed_sampler: false
   num_sanity_val_steps: 0
   log_every_n_steps: 50
+  # ResNet-50 converges slower than ResNet-18 here; 81 epochs undertrains (size
+  # axis B~0.41). Longer run for a fair model comparison; pick the cleanest late ckpt.
 
 method:
   name: "vicreg"
