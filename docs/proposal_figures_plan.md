@@ -185,10 +185,13 @@ axis), which is a stronger result than a cube — side length = how much survive
 |---|---|---|---|
 | **R18 dSprites** (hero) | size 0.93 / posX 0.99 / posY 0.99 | 0.004 | clean cube (approved) |
 | **3DShapes** R18 (color/shape/size) | shape 0.99 / size 0.98 / **color 0.55** | 0.012 | good box; color is the soft axis (object colour entangles with resampled background hues) |
-| **R50 dSprites** | posX 0.99 / posY 0.99 / **size 0.41** | 0.010 | **undertrained** (loss 8.7 vs R18 ~4); size axis squashed + swarms streak. Retrain longer for a fair model comparison. |
+| **R50 dSprites** (ep200) | posX 0.99 / posY 1.00 / **size 0.49** | 0.024 | retraining 80→200 epochs barely moved size (0.41→0.49) → **architecture/HP effect, not undertraining** (identical data+VICReg HPs; only the backbone differs, yet R18 gets size 0.93). R50's 2048-d features likely need re-tuned VICReg weights; the bigger model shortcuts on position. |
 
-Honest caveats: (1) R50 is not a fair model comparison yet — it's undertrained, not
-"R50 is worse"; (2) 3DShapes color B=0.55 is real, not a bug — it's what survives.
+Honest reading: orthogonality + √B are **architecture-robust** (every run, max|cos|≤0.024,
+√B≤0.01%). *Which* factor is captured varies — that variation IS the "which tasks
+survive" thesis, not a bug. 3DShapes color B=0.55 and R50 size B=0.49 are real results,
+not failures to hide. Summary figure: `figures/box_summary_multimodel.{png,pdf}`
+(`analysis/box_summary.py`). **Do not HP-fish R50 into a pretty cube.**
 
 ## Status snapshot
 
@@ -196,7 +199,8 @@ Honest caveats: (1) R50 is not a fair model comparison yet — it's undertrained
 |---|---|
 | Hero dSprites box (R18) | ✅ DONE & approved (B=0.93/0.99/0.99, max\|cos\|=0.004) |
 | **3DShapes box (2nd dataset)** | ✅ DONE — orthogonal, √B≤0.01%; color soft (B=0.55) |
-| **R50 dSprites box (2nd model)** | ⚠️ DONE but **undertrained** (size B=0.41) → retrain longer |
+| **R50 dSprites box (2nd model)** | ✅ DONE (ep200) — orthogonal; size B=0.49 (arch/HP effect, honest) |
+| **Multi-model/dataset summary** | ✅ DONE — `box_summary.py` bar chart + table |
 | Thm 4.4 bounds (ε=0) | ✅ DONE on dSprites R18 + 3DShapes + R50 (all hold) |
 | RO2 task-family spectrum | ✅ DONE (illustrative) |
 | RO2 interference (load-bearing) | ✅ DONE on dSprites R18 (real held-out accuracy) |
