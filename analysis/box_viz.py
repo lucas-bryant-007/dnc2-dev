@@ -212,7 +212,7 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     # so each of the 8 corners visibly reads off its own factor combination
     # (the "differentiate the corners by shape/pattern" style).
     CH_COLORS = ["#1f77b4", "#ff7f0e"]   # axis0: low / high
-    CH_MARKERS = ["o", "s"]              # axis1: low / high
+    CH_MARKERS = ["s", "o"]              # axis1: low / high (square=angular, circle=round)
 
     def corner_style(combo):
         return CH_COLORS[combo[0]], CH_MARKERS[combo[1]], (combo[2] == 0)
