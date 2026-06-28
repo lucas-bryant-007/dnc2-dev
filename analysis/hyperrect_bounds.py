@@ -28,6 +28,8 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from plot_style import apply_style
+apply_style()
 
 DISPLAY = {"scale": "size", "posX": "x-position", "posY": "y-position",
            "shape": "shape", "orientation": "orientation",

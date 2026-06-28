@@ -18,6 +18,9 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from plot_style import apply_style, PALETTE
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 MET = os.path.join(ROOT, "metrics")
@@ -28,7 +31,7 @@ DISP = {"scale": "size", "posX": "x-pos", "posY": "y-pos", "shape": "shape",
 # (run label, metrics json) -- order = display order.
 RUNS = [
     ("ResNet-18 · dSprites", "hyperrect_vicreg_dsprites_epoch_80_twoview.json"),
-    ("ResNet-18 · 3DShapes", "hyperrect_vicreg_shapes3d_epoch_80_twoview.json"),
+    ("ResNet-18 · 3DShapes", "hyperrect_vicreg_shapes3d_epoch_200_clean.json"),
     ("ResNet-50 · dSprites", "hyperrect_vicreg_dsprites_epoch_200_r50.json"),
 ]
 
@@ -61,30 +64,28 @@ def main():
         print(f"| {label} | {axes} | {mcos:.3f} | {sides} |")
 
     # --- grouped bar chart: B per axis per run ---
-    fig, ax = plt.subplots(figsize=(9.5, 4.6))
+    apply_style()
+    fig, ax = plt.subplots(figsize=(10.0, 5.0))
     n_runs = len(runs)
-    group_w = 0.8
-    bar_w = group_w / 3.0
-    colors = ["#1f77b4", "#2ca02c", "#d62728"]
+    bar_w = 0.8 / 3.0
     for gi, (label, names, B, mcos) in enumerate(runs):
         # sort axes within group descending so the weak axis is always rightmost
         order = np.argsort(B)[::-1]
         for k, idx in enumerate(order):
             x = gi + (k - 1) * bar_w
-            ax.bar(x, B[idx], bar_w * 0.95, color=colors[k], zorder=3)
-            ax.text(x, B[idx] + 0.015, DISP.get(names[idx], names[idx]),
-                    ha="center", va="bottom", fontsize=8.5, rotation=0)
-        ax.text(gi, 1.07, f"max|cos|={mcos:.3f}", ha="center", va="bottom",
-                fontsize=9.5, color="#444")
-    ax.axhline(1.0, color="gray", ls=":", lw=1)
+            ax.bar(x, B[idx], bar_w * 0.92, color=PALETTE[k], zorder=3)
+            ax.text(x, B[idx] + 0.018, DISP.get(names[idx], names[idx]),
+                    ha="center", va="bottom", fontsize=11.5)
+        ax.text(gi, 1.10, f"max$|\\cos|$={mcos:.3f}", ha="center", va="bottom",
+                fontsize=12, color="#444")
+    ax.axhline(1.0, color="0.5", ls=":", lw=1.2, zorder=1)
     ax.set_xticks(range(n_runs))
-    ax.set_xticklabels([r[0] for r in runs], fontsize=11)
-    ax.set_ylabel("Captured energy  $B(F)$", fontsize=13)
-    ax.set_ylim(0, 1.18)
+    ax.set_xticklabels([r[0] for r in runs])
+    ax.set_ylabel("Captured energy  $B(F)$")
+    ax.set_ylim(0, 1.2)
     ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
-    ax.grid(axis="y", alpha=0.3, zorder=0)
-    ax.tick_params(labelsize=10)
-    fig.tight_layout(pad=0.5)
+    ax.grid(axis="x", visible=False)
+    fig.tight_layout(pad=0.6)
 
     fig_dir = os.path.join(ROOT, "figures")
     os.makedirs(fig_dir, exist_ok=True)

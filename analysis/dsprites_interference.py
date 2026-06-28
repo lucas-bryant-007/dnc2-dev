@@ -29,6 +29,8 @@ import torch
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from plot_style import apply_style
+apply_style()
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from training.config_loader import load_config, dict_to_namespace, namespace_to_dict
