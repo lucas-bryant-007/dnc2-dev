@@ -28,13 +28,21 @@ from dsprites_taskfamily_spectrum import whiten_features
 from dsprites_interference import shared_bottleneck_accuracy, extract_feats
 import metrics_io as mio
 
-# Diverse family: one balanced task per preserved factor (needs ~5 dimensions).
-DIVERSE = [("floor_hue", 5), ("wall_hue", 5), ("object_hue", 5),
-           ("scale", 4), ("shape", 2)]
-# Aligned family: several object-colour thresholds (redundant -> ~1 dimension).
-ALIGNED = [("object_hue", t) for t in (2, 3, 4, 5, 6, 7)]
+# Task families per --variant. Aligned = redundant object-colour thresholds (~1 dim).
+VARIANTS = {
+    # 5 factors, but 3 are colours -> they share one colour subspace (entangled).
+    "colors5": dict(
+        diverse=[("floor_hue", 5), ("wall_hue", 5), ("object_hue", 5),
+                 ("scale", 4), ("shape", 2)],
+        aligned=[("object_hue", t) for t in (2, 3, 4, 5, 6, 7)]),
+    # 4 DISTINCT modalities (colour / size / shape / pose) -> cleaner, ~4 dims.
+    "distinct4": dict(
+        diverse=[("object_hue", 5), ("scale", 4), ("shape", 2), ("orientation", 7)],
+        aligned=[("object_hue", t) for t in (2, 3, 4, 5, 6, 7)]),
+}
 DISP = {"floor_hue": "floor color", "wall_hue": "wall color",
-        "object_hue": "object color", "scale": "size", "shape": "shape"}
+        "object_hue": "object color", "scale": "size", "shape": "shape",
+        "orientation": "pose"}
 R_LIST = list(range(1, 9))
 
 
@@ -47,6 +55,8 @@ def main(args):
     set_seed(args.seed)
     cfg = dict_to_namespace(load_config(args.config))
     core, data_cfg, _ = build_data(cfg)
+    diverse = VARIANTS[args.variant]["diverse"]
+    aligned = VARIANTS[args.variant]["aligned"]
 
     ckpts = {e: p for e, p in find_checkpoint_files(args.ckpt_dir)}
     if args.epoch not in ckpts:
@@ -64,18 +74,18 @@ def main(args):
     print(f"Whitened X {X.shape} (k_eff={k_eff})")
 
     # Cleanliness report: captured energy B per factor + worst-case orthogonality.
-    Ydiv = _labels(latents, DIVERSE, core)
-    W = (X.T @ (Ydiv - Ydiv.mean(0))) / X.shape[0]          # [k, 5]
+    Ydiv = _labels(latents, diverse, core)
+    W = (X.T @ (Ydiv - Ydiv.mean(0))) / X.shape[0]
     Bvec = (W ** 2).sum(0)
     U = W / (np.linalg.norm(W, axis=0, keepdims=True) + 1e-12)
-    offdiag = (U.T @ U) - np.eye(len(DIVERSE))
+    offdiag = (U.T @ U) - np.eye(len(diverse))
     print("Per-factor capture B + orthogonality (want high B, tiny |cos|):")
-    for (f, _t), b in zip(DIVERSE, Bvec):
+    for (f, _t), b in zip(diverse, Bvec):
         print(f"  {DISP.get(f, f):>12s}  B={b:.3f}  sqrtB={np.sqrt(max(b, 0)):.3f}")
-    print(f"  max|cos| among the 5 task axes = {np.abs(offdiag).max():.4f}")
+    print(f"  max|cos| among the {len(diverse)} task axes = {np.abs(offdiag).max():.4f}")
 
-    fams = [("aligned", "Aligned (object-color thresholds)", ALIGNED),
-            ("diverse", "Diverse (floor/wall/object color, size, shape)", DIVERSE)]
+    fams = [("aligned", "Aligned (object-color thresholds)", aligned),
+            ("diverse", f"Diverse ({len(diverse)} distinct factors)", diverse)]
     out = {"epoch": args.epoch, "ckpt": ckpts[args.epoch], "k_eff": int(k_eff),
            "r_list": R_LIST, "families": {}}
     curves = {}
@@ -96,7 +106,7 @@ def main(args):
     ax1.plot(R_LIST, curves["aligned"]["mean"], "o-", color="#1f77b4", lw=2.6,
              ms=7, label="aligned (one factor)")
     ax1.plot(R_LIST, curves["diverse"]["mean"], "s--", color="#d62728", lw=2.6,
-             ms=7, label="diverse (five factors)")
+             ms=7, label=f"diverse ({len(diverse)} factors)")
     ax1.axhline(0.5, color="gray", ls=":", lw=1, label="chance")
     ax1.set_xlabel("Shared bottleneck dimension  $r$")
     ax1.set_ylabel("Mean held-out accuracy")
@@ -104,7 +114,7 @@ def main(args):
     ax1.legend(fontsize=11, loc="lower right")
 
     per = curves["diverse"]["per"]
-    for t, (f, _thr) in enumerate(DIVERSE):
+    for t, (f, _thr) in enumerate(diverse):
         ax2.plot(R_LIST, per[:, t], "o-", lw=2, ms=5, label=DISP.get(f, f))
     ax2.axhline(0.5, color="gray", ls=":", lw=1)
     ax2.set_xlabel("Shared bottleneck dimension  $r$")
@@ -114,7 +124,7 @@ def main(args):
     ax2.legend(fontsize=9, loc="lower right")
     fig.tight_layout(pad=0.6)
 
-    stem = f"wide_interference_vicreg_shapes3d_epoch_{args.epoch}"
+    stem = f"wide_interference_{args.variant}_vicreg_shapes3d_epoch_{args.epoch}"
     fig_dir = os.path.join(args.out_dir, "figures")
     met_dir = os.path.join(args.out_dir, "metrics")
     os.makedirs(fig_dir, exist_ok=True); os.makedirs(met_dir, exist_ok=True)
@@ -133,6 +143,9 @@ if __name__ == "__main__":
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--seed", type=int, default=6)
     ap.add_argument("--epoch", type=int, default=120)
+    ap.add_argument("--variant", choices=["colors5", "distinct4"], default="colors5",
+                    help="colors5 = 5 factors (3 colours entangle); "
+                         "distinct4 = colour/size/shape/pose (cleaner)")
     ap.add_argument("--train_frac", type=float, default=0.6)
     ap.add_argument("--rel_eig_threshold", type=float, default=1e-3)
     ap.add_argument("--out_dir", default=".")
