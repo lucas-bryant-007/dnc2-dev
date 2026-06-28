@@ -205,13 +205,20 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     g = granular_task.numpy() if hasattr(granular_task, "numpy") else np.asarray(granular_task)
 
     alabels = axis_labels if axis_labels is not None else triple_names
+    llab = level_labels if level_labels is not None else [("-", "+")] * 3
 
-    def combo_label(combo):
-        if level_labels is not None:
-            return " · ".join(level_labels[k][b] for k, b in enumerate(combo))
-        return " ".join((("+" if b else "-") + n) for n, b in zip(triple_names, combo))
+    # Self-identifying corners: encode the 3 binary factors as 3 visual channels
+    #   axis0 -> marker colour,  axis1 -> marker shape,  axis2 -> solid / open fill
+    # so each of the 8 corners visibly reads off its own factor combination
+    # (the "differentiate the corners by shape/pattern" style).
+    CH_COLORS = ["#1f77b4", "#ff7f0e"]   # axis0: low / high
+    CH_MARKERS = ["o", "s"]              # axis1: low / high
 
-    # Random samples from each granular task, colored by task.
+    def corner_style(combo):
+        return CH_COLORS[combo[0]], CH_MARKERS[combo[1]], (combo[2] == 0)
+
+    # Sample swarm around each corner, tinted by the axis-0 colour channel so each
+    # cloud matches its corner's colour.
     for idx in range(8):
         combo = ((idx >> 2) & 1, (idx >> 1) & 1, idx & 1)
         sel = np.where(g == idx)[0]
@@ -219,9 +226,9 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
             continue
         if sel.size > per_task:
             sel = np.random.choice(sel, per_task, replace=False)
-        ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2], s=10, alpha=0.55,
-                   color=cmap(idx), edgecolors="none", depthshade=True,
-                   rasterized=True, label=combo_label(combo))
+        ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2], s=9, alpha=0.38,
+                   color=CH_COLORS[combo[0]], edgecolors="none", depthshade=True,
+                   rasterized=True)
 
     pred_color = "#d62728"
     has_pred = predicted_box is not None
@@ -246,11 +253,16 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     if has_pred:
         _edges(pcent, color=pred_color, linewidth=1.7, alpha=0.95, linestyle=(0, (5, 4)))
 
-    cs = 165 if has_pred else 240
+    cs = 170 if has_pred else 240
     for combo, ctr in centers.items():
-        idx = combo[0] * 4 + combo[1] * 2 + combo[2]
-        ax.scatter(ctr[0], ctr[1], ctr[2], s=cs, color=cmap(idx),
-                   edgecolor="black", linewidth=1.4, depthshade=False)
+        color, marker, filled = corner_style(combo)
+        if filled:
+            ax.scatter(ctr[0], ctr[1], ctr[2], s=cs, marker=marker, color=color,
+                       edgecolor="black", linewidth=1.3, depthshade=False)
+        else:
+            ax.scatter(ctr[0], ctr[1], ctr[2], s=cs * 1.05, marker=marker,
+                       facecolors="white", edgecolors=color, linewidth=2.6,
+                       depthshade=False)
     if has_pred:  # open red diamonds framing each observed centroid
         for combo, ctr in pcent.items():
             ax.scatter(ctr[0], ctr[1], ctr[2], s=310, marker="D",
@@ -288,11 +300,26 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     # Lift the cube into the top whitespace (shrink the axes upward) and hang the
     # color key in the reserved strip below it, so the legend can't clip the
     # bottom corner. tight-crop then trims the freed top margin.
-    gt_handles, gt_labels = ax.get_legend_handles_labels()  # the 8 swarm scatters
     ax.set_position([0.0, 0.13, 1.0, 0.87])
-    fig.legend(gt_handles, gt_labels, loc="lower center", ncol=2, fontsize=11.5,
-               markerscale=1.4, framealpha=0.9, handletextpad=0.4,
-               columnspacing=1.4, labelspacing=0.3, borderpad=0.4,
+    from matplotlib.lines import Line2D
+
+    def _key(marker, fc, ec, lw, label):
+        return Line2D([0], [0], marker=marker, color="none", markersize=12,
+                      markerfacecolor=fc, markeredgecolor=ec, markeredgewidth=lw,
+                      label=label)
+    # Channel key: 3 channels x 2 states; ncol=2 puts one channel per row, so it
+    # reads "colour = axis0, shape = axis1, fill = axis2".
+    key = [
+        _key("o", CH_COLORS[0], "black", 1.0, f"{alabels[0]}: {llab[0][0]}"),
+        _key("o", CH_COLORS[1], "black", 1.0, llab[0][1]),
+        _key(CH_MARKERS[0], "0.6", "black", 1.0, f"{alabels[1]}: {llab[1][0]}"),
+        _key(CH_MARKERS[1], "0.6", "black", 1.0, llab[1][1]),
+        _key("o", "0.6", "black", 1.0, f"{alabels[2]}: {llab[2][0]}"),
+        _key("o", "white", "0.45", 2.2, llab[2][1]),
+    ]
+    fig.legend(key, [h.get_label() for h in key], loc="lower center", ncol=3,
+               fontsize=11, framealpha=0.9, handletextpad=0.5,
+               columnspacing=1.3, labelspacing=0.6, borderpad=0.5,
                bbox_to_anchor=(0.5, 0.0))
     if has_pred:
         from matplotlib.lines import Line2D
