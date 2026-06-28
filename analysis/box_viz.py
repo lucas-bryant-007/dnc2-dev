@@ -300,26 +300,31 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     # Lift the cube into the top whitespace (shrink the axes upward) and hang the
     # color key in the reserved strip below it, so the legend can't clip the
     # bottom corner. tight-crop then trims the freed top margin.
-    ax.set_position([0.0, 0.13, 1.0, 0.87])
+    ax.set_position([0.0, 0.16, 1.0, 0.84])
     from matplotlib.lines import Line2D
 
     def _key(marker, fc, ec, lw, label):
         return Line2D([0], [0], marker=marker, color="none", markersize=12,
                       markerfacecolor=fc, markeredgecolor=ec, markeredgewidth=lw,
                       label=label)
-    # Channel key: 3 channels x 2 states; ncol=2 puts one channel per row, so it
-    # reads "colour = axis0, shape = axis1, fill = axis2".
+    def _hdr(label):  # column header: blank handle, just the channel name
+        return Line2D([0], [0], marker="None", linestyle="None", label=label)
+    # One column per channel: a header (the factor) then its two states below, so
+    # it reads  "size:        x-position:    y-position:" with the markers under each.
     key = [
-        _key("o", CH_COLORS[0], "black", 1.0, f"{alabels[0]}: {llab[0][0]}"),
+        _hdr(f"{alabels[0]}:"),
+        _key("o", CH_COLORS[0], "black", 1.0, llab[0][0]),
         _key("o", CH_COLORS[1], "black", 1.0, llab[0][1]),
-        _key(CH_MARKERS[0], "0.6", "black", 1.0, f"{alabels[1]}: {llab[1][0]}"),
+        _hdr(f"{alabels[1]}:"),
+        _key(CH_MARKERS[0], "0.6", "black", 1.0, llab[1][0]),
         _key(CH_MARKERS[1], "0.6", "black", 1.0, llab[1][1]),
-        _key("o", "0.6", "black", 1.0, f"{alabels[2]}: {llab[2][0]}"),
+        _hdr(f"{alabels[2]}:"),
+        _key("o", "0.6", "black", 1.0, llab[2][0]),
         _key("o", "white", "0.45", 2.2, llab[2][1]),
     ]
     fig.legend(key, [h.get_label() for h in key], loc="lower center", ncol=3,
                fontsize=11, framealpha=0.9, handletextpad=0.5,
-               columnspacing=1.3, labelspacing=0.6, borderpad=0.5,
+               columnspacing=1.6, labelspacing=0.55, borderpad=0.6,
                bbox_to_anchor=(0.5, 0.0))
     if has_pred:
         from matplotlib.lines import Line2D
