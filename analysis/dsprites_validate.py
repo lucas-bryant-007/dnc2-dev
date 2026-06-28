@@ -136,24 +136,39 @@ def main(args):
               f"rho={rho[i,j]:+.4f}")
 
     # Thm 4.5: empirical few-shot NCC vs bound, per task.
+    #  - full rep (r = k_eff): the bound HOLDS but is loose (the (r-B)/m term needs
+    #    huge m to estimate centroids in r=k_eff dims).
+    #  - effective rep (r = 1, NCC in the task's own captured direction u_t): same
+    #    theorem, but applied to the representation you'd actually use -> TIGHT and
+    #    non-vacuous even at small m. (B is unchanged: B(<u_t,.>) = B_t exactly.)
     results = {}
-    fig, axes = plt.subplots(1, k, figsize=(4.6 * k, 4.2), squeeze=False)
+    fig, axes = plt.subplots(1, k, figsize=(4.6 * k, 4.2), squeeze=False)     # loose
+    fig2, axes2 = plt.subplots(1, k, figsize=(4.6 * k, 4.2), squeeze=False)   # tight
     for t in range(k):
         emp = few_shot_ncc_error(feats, Y[:, t], M_LIST, n_query=args.n_query,
                                  reps=args.reps, seed=args.seed)
+        Z1 = (feats @ u[t]).unsqueeze(1)                 # [N,1] effective r=1 rep
+        emp1 = few_shot_ncc_error(Z1, Y[:, t], M_LIST, n_query=args.n_query,
+                                  reps=args.reps, seed=args.seed)
         ms = sorted(emp.keys())
         emp_e = [emp[m] for m in ms]
-        bnd = [float(ncc_bound(Bf[t], r_dim, m)) for m in ms]
-        results[task_names[t]] = {"B": float(Bf[t]), "r": int(r_dim), "m": ms,
-                                  "empirical_err": emp_e, "bound": bnd}
-        print(f"\n[{task_names[t]}] m-shot NCC (empirical vs bound):")
-        for m, e, b in zip(ms, emp_e, bnd):
-            print(f"  m={m:>4d}  emp={e:.4f}  bound={b:.4f}  "
-                  f"{'OK' if e <= b + 1e-6 else 'VIOLATED'}")
+        emp1_e = [emp1[m] for m in ms]
+        bnd = [float(ncc_bound(Bf[t], r_dim, m)) for m in ms]    # r = k_eff (loose)
+        bnd1 = [float(ncc_bound(Bf[t], 1, m)) for m in ms]       # r = 1 (tight)
+        results[task_names[t]] = {
+            "B": float(Bf[t]), "r_full": int(r_dim), "m": ms,
+            "empirical_err_full": emp_e, "bound_full": bnd,
+            "empirical_err_r1": emp1_e, "bound_r1": bnd1}
+        print(f"\n[{task_names[t]}] m-shot NCC  (full r={r_dim} | effective r=1):")
+        for m, e, b, e1, b1 in zip(ms, emp_e, bnd, emp1_e, bnd1):
+            print(f"  m={m:>4d}  full emp={e:.3f} bnd={b:7.3f} | "
+                  f"r1 emp={e1:.3f} bnd={b1:.3f} "
+                  f"{'OK' if e1 <= b1 + 1e-6 else 'VIOLATED'}")
+
         ax = axes[0][t]
         ax.plot(ms, emp_e, "o-", color="#1f77b4", lw=2.2, label="empirical NCC error")
         ax.plot(ms, np.clip(bnd, 0, 1.05), "s--", color="#d62728", lw=2.2,
-                label="Thm 4.5 bound")
+                label=f"Thm 4.5 bound (r={r_dim})")
         ax.axhline(0.5, color="gray", ls=":", lw=1, label="chance")
         ax.set_xscale("log"); ax.set_ylim(-0.02, 1.05)
         ax.set_xlabel("shots per class  $m$", fontsize=13)
@@ -162,7 +177,24 @@ def main(args):
         ax.set_title(f"{DISPLAY.get(task_names[t], task_names[t])}  (B={Bf[t]:.2f})",
                      fontsize=13)
         ax.grid(True, alpha=0.3); ax.legend(fontsize=10)
+
+        a2 = axes2[0][t]
+        a2.plot(ms, emp1_e, "o-", color="#1f77b4", lw=2.2,
+                label="empirical NCC error")
+        a2.plot(ms, bnd1, "s-", color="#2ca02c", lw=2.4,
+                label="Thm 4.5 bound (effective $r=1$)")
+        a2.plot(ms, np.clip(bnd, 0, 1.05), ":", color="#d62728", lw=1.6,
+                label=f"loose bound (r={r_dim})")
+        a2.axhline(0.5, color="gray", ls=":", lw=1)
+        a2.set_xscale("log"); a2.set_ylim(-0.02, 1.05)
+        a2.set_xlabel("shots per class  $m$", fontsize=13)
+        if t == 0:
+            a2.set_ylabel("NCC error", fontsize=13)
+        a2.set_title(f"{DISPLAY.get(task_names[t], task_names[t])}  (B={Bf[t]:.2f})",
+                     fontsize=13)
+        a2.grid(True, alpha=0.3); a2.legend(fontsize=9)
     fig.tight_layout(pad=0.6)
+    fig2.tight_layout(pad=0.6)
 
     method = "vicreg"
     tag = (args.tag or "").strip()
@@ -171,12 +203,14 @@ def main(args):
     fig_dir = os.path.join(args.out_dir, "figures")
     metrics_dir = os.path.join(args.out_dir, "metrics")
     os.makedirs(fig_dir, exist_ok=True); os.makedirs(metrics_dir, exist_ok=True)
-    png = os.path.join(fig_dir, f"fewshot_thm45_{stem}.png")
-    pdf = os.path.join(fig_dir, f"fewshot_thm45_{stem}.pdf")
-    for p in (png, pdf):
-        fig.savefig(p, bbox_inches="tight", pad_inches=0.04)
-    plt.close(fig)
-    print(f"\nSaved few-shot figure: {png} (+ .pdf)")
+    for ext in ("png", "pdf"):
+        fig.savefig(os.path.join(fig_dir, f"fewshot_thm45_{stem}.{ext}"),
+                    bbox_inches="tight", pad_inches=0.04)
+        fig2.savefig(os.path.join(fig_dir, f"fewshot_thm45_tight_{stem}.{ext}"),
+                     bbox_inches="tight", pad_inches=0.04)
+    plt.close(fig); plt.close(fig2)
+    print(f"\nSaved few-shot figures: fewshot_thm45_{stem} (loose) + "
+          f"fewshot_thm45_tight_{stem} (effective r=1)")
 
     payload = {
         "method": method, "dataset": "dsprites", "epoch": args.epoch,
