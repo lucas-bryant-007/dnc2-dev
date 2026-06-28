@@ -44,6 +44,10 @@ class Shapes3DCfg:
 
     # Task definition: 3 binary tasks (content); the rest is nuisance.
     task_factors: Sequence[str] = ("object_hue", "shape", "scale")
+    # Factors SHARED by a positive pair (exact mode). Defaults to task_factors;
+    # set to MORE factors to force the encoder to preserve them all (so a diverse
+    # task family then needs more independent dimensions -> richer interference).
+    content_factors: Optional[Sequence[str]] = None
     shapes: Sequence[int] = (0, 1, 2, 3)        # which shape categories to keep
     # ">= threshold" splits per factor (indices, not raw values).
     floor_hue_threshold: int = 5
@@ -120,7 +124,8 @@ def build_groups(latents: np.ndarray, bits: np.ndarray, cfg: Shapes3DCfg
     if cfg.pair_mode == "granular":
         key = bits
     elif cfg.pair_mode == "exact":
-        key = latents[:, [FACTOR_COL[f] for f in cfg.task_factors]]
+        factors = cfg.content_factors if cfg.content_factors else cfg.task_factors
+        key = latents[:, [FACTOR_COL[f] for f in factors]]
     else:
         raise ValueError(f"Unknown pair_mode={cfg.pair_mode!r} (use 'granular' or 'exact')")
     _, group_of = np.unique(key, axis=0, return_inverse=True)
