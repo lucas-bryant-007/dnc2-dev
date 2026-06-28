@@ -63,6 +63,17 @@ def main(args):
     X = X.cpu().numpy()
     print(f"Whitened X {X.shape} (k_eff={k_eff})")
 
+    # Cleanliness report: captured energy B per factor + worst-case orthogonality.
+    Ydiv = _labels(latents, DIVERSE, core)
+    W = (X.T @ (Ydiv - Ydiv.mean(0))) / X.shape[0]          # [k, 5]
+    Bvec = (W ** 2).sum(0)
+    U = W / (np.linalg.norm(W, axis=0, keepdims=True) + 1e-12)
+    offdiag = (U.T @ U) - np.eye(len(DIVERSE))
+    print("Per-factor capture B + orthogonality (want high B, tiny |cos|):")
+    for (f, _t), b in zip(DIVERSE, Bvec):
+        print(f"  {DISP.get(f, f):>12s}  B={b:.3f}  sqrtB={np.sqrt(max(b, 0)):.3f}")
+    print(f"  max|cos| among the 5 task axes = {np.abs(offdiag).max():.4f}")
+
     fams = [("aligned", "Aligned (object-color thresholds)", ALIGNED),
             ("diverse", "Diverse (floor/wall/object color, size, shape)", DIVERSE)]
     out = {"epoch": args.epoch, "ckpt": ckpts[args.epoch], "k_eff": int(k_eff),

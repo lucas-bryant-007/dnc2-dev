@@ -51,7 +51,7 @@ trainer:
   devices: 1
   accelerator: gpu
   strategy: auto
-  max_epochs: 121
+  max_epochs: 400          # long run: push all 5 factors to high B + tight orthogonality
   accumulate_grad_batches: 1
   use_distributed_sampler: false
   num_sanity_val_steps: 0
@@ -80,7 +80,7 @@ ckpt_schedule:
   dirpath: "checkpoints/vicreg_shapes3d_wide"
   early_every: 5
   early_until: 40
-  late_every: 20
+  late_every: 50         # save 50,100,...,400 -> pick the cleanest late epoch
   save_last: true
 
 probe:
