@@ -101,39 +101,50 @@ def main(args):
     out = {"epoch": args.epoch, "ckpt": ckpts[args.epoch], "k_eff": int(k_eff),
            "r_list": R_LIST, "families": {}}
     curves = {}
+    ridx = np.array(R_LIST) - 1
     for key, name, fam in fams:
         Y = _labels(latents, fam, core)
-        mean_acc, per_task, evals = shared_bottleneck_accuracy(
-            X, Y, R_LIST, train_frac=args.train_frac, seed=args.seed)
-        curves[key] = {"name": name, "fam": fam, "mean": mean_acc, "per": per_task}
+        res = shared_bottleneck_accuracy(X, Y, R_LIST, train_frac=args.train_frac,
+                                         seed=args.seed)
+        ev = res["eigvals"]
+        cap = (np.cumsum(ev) / ev.sum())[ridx]               # predicted capacity
+        recov_n = res["mean_recov"] / (res["mean_recov"][-1] + 1e-12)
+        curves[key] = {"name": name, "fam": fam, "per": res["per_task_bal_acc"],
+                       "recov_n": recov_n, "cap": cap}
         out["families"][key] = {
             "name": name, "tasks": [[f, int(t)] for f, t in fam],
-            "mean_acc": mean_acc.tolist(), "per_task_acc": per_task.tolist(),
-            "eigvals": evals[:R_LIST[-1]].tolist()}
+            "mean_bal_acc": res["mean_bal_acc"].tolist(),
+            "per_task_bal_acc": res["per_task_bal_acc"].tolist(),
+            "mean_recov": res["mean_recov"].tolist(), "capacity": cap.tolist(),
+            "eigvals": ev[:R_LIST[-1]].tolist()}
         print(f"\n{name}")
-        for r, a in zip(R_LIST, mean_acc):
-            print(f"  r={r}  mean held-out acc={a:.3f}")
+        for r, a in zip(R_LIST, res["mean_bal_acc"]):
+            print(f"  r={r}  mean balanced held-out acc={a:.3f}")
 
+    # LEFT: empirical aggregate recoverability vs predicted capacity (RO2 Task 2.1)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.5, 4.6))
-    ax1.plot(R_LIST, curves["aligned"]["mean"], "o-", color="#1f77b4", lw=2.6,
-             ms=7, label="aligned (one factor)")
-    ax1.plot(R_LIST, curves["diverse"]["mean"], "s--", color="#d62728", lw=2.6,
-             ms=7, label=f"diverse ({len(diverse)} factors)")
-    ax1.axhline(0.5, color="gray", ls=":", lw=1, label="chance")
-    ax1.set_xlabel("Shared bottleneck dimension  $r$")
-    ax1.set_ylabel("Mean held-out accuracy")
-    ax1.set_ylim(0.45, 1.02); ax1.set_xticks(R_LIST)
-    ax1.legend(fontsize=11, loc="lower right")
+    ax1.plot(R_LIST, curves["diverse"]["recov_n"], "s-", color="#d62728", lw=2.6,
+             ms=7, label="diverse: empirical recoverability")
+    ax1.plot(R_LIST, curves["diverse"]["cap"], "--", color="#444", lw=1.7,
+             label=r"diverse: capacity $\sum_{j\le r}\lambda_j(M_w)$")
+    ax1.plot(R_LIST, curves["aligned"]["recov_n"], "o-", color="#1f77b4", lw=2.6,
+             ms=7, label="aligned: empirical recoverability")
+    ax1.set_xlabel("Bottleneck dimension  $r$")
+    ax1.set_ylabel("Normalized aggregate recoverability")
+    ax1.set_ylim(0, 1.05); ax1.set_xticks(R_LIST)
+    ax1.legend(fontsize=9, loc="lower right")
 
+    # RIGHT: which diverse tasks survive (balanced accuracy); legend below
     per = curves["diverse"]["per"]
     for t, (f, _thr) in enumerate(diverse):
         ax2.plot(R_LIST, per[:, t], "o-", lw=2, ms=5, label=DISP.get(f, f))
     ax2.axhline(0.5, color="gray", ls=":", lw=1)
-    ax2.set_xlabel("Shared bottleneck dimension  $r$")
-    ax2.set_ylabel("Held-out accuracy")
-    ax2.set_title("Diverse family: each factor switches on at its own $r$")
+    ax2.set_xlabel("Bottleneck dimension  $r$")
+    ax2.set_ylabel("Balanced held-out accuracy")
+    ax2.set_title("Which diverse tasks survive?")
     ax2.set_ylim(0.45, 1.02); ax2.set_xticks(R_LIST)
-    ax2.legend(fontsize=9, loc="lower right")
+    ax2.legend(fontsize=9, loc="upper center", bbox_to_anchor=(0.5, -0.18),
+               ncol=len(diverse), frameon=False, handletextpad=0.3, columnspacing=1.0)
     fig.tight_layout(pad=0.6)
 
     stem = f"wide_interference_{args.variant}_vicreg_shapes3d_epoch_{args.epoch}"
