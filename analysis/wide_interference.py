@@ -39,11 +39,18 @@ VARIANTS = {
     "distinct4": dict(
         diverse=[("object_hue", 5), ("scale", 4), ("shape", 2), ("orientation", 7)],
         aligned=[("object_hue", t) for t in (2, 3, 4, 5, 6, 7)]),
+    # MPI3D: 6 distinct factors incl. TWO position axes -> shot at 5-6 clean dims.
+    "mpi3d6": dict(
+        diverse=[("posX", 20), ("posY", 20), ("obj_size", 1), ("camera", 2),
+                 ("obj_shape", 3), ("obj_color", 3)],
+        aligned=[("posX", t) for t in (8, 12, 16, 20, 24, 28)]),
 }
 DISP = {"floor_hue": "floor color", "wall_hue": "wall color",
         "object_hue": "object color", "scale": "size", "shape": "shape",
-        "orientation": "pose"}
-R_LIST = list(range(1, 9))
+        "orientation": "pose",
+        "posX": "x-position", "posY": "y-position", "obj_size": "size",
+        "camera": "camera", "obj_shape": "shape", "obj_color": "object color"}
+R_LIST = list(range(1, 11))
 
 
 def _labels(latents, family, core):
@@ -143,9 +150,10 @@ if __name__ == "__main__":
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--seed", type=int, default=6)
     ap.add_argument("--epoch", type=int, default=120)
-    ap.add_argument("--variant", choices=["colors5", "distinct4"], default="colors5",
-                    help="colors5 = 5 factors (3 colours entangle); "
-                         "distinct4 = colour/size/shape/pose (cleaner)")
+    ap.add_argument("--variant", choices=["colors5", "distinct4", "mpi3d6"],
+                    default="colors5",
+                    help="colors5/distinct4 = 3DShapes; mpi3d6 = MPI3D 6 distinct "
+                         "factors incl. two position axes")
     ap.add_argument("--train_frac", type=float, default=0.6)
     ap.add_argument("--rel_eig_threshold", type=float, default=1e-3)
     ap.add_argument("--out_dir", default=".")

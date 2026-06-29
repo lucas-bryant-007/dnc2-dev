@@ -26,6 +26,15 @@ _DISPLAY = {
         "wall_hue": ("wall color", ("cool", "warm")),
         "orientation": ("orientation", ("left", "right")),
     },
+    "mpi3d": {
+        "posX": ("x-position", ("left", "right")),
+        "posY": ("y-position", ("low", "high")),
+        "obj_size": ("size", ("small", "large")),
+        "camera": ("camera", ("low", "high")),
+        "obj_shape": ("shape", ("a", "b")),
+        "obj_color": ("object color", ("cool", "warm")),
+        "bg_color": ("background", ("cool", "warm")),
+    },
 }
 
 
@@ -44,6 +53,9 @@ def build_data(cfg):
     elif name == "shapes3d":
         from data_utils import shapes3d_core as core
         data_cfg = core.Shapes3DCfg(**d)
+    elif name == "mpi3d":
+        from data_utils import mpi3d_core as core
+        data_cfg = core.Mpi3dCfg(**d)
     else:
         raise ValueError(f"Unknown dataset {cfg.data.name!r} "
                          f"(supported: dsprites, shapes3d)")

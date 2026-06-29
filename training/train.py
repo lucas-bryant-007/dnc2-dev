@@ -49,9 +49,14 @@ def main(cfg):
         data_cfg = Shapes3DCfg(**namespace_to_dict(cfg.data))
         data_cfg.method = cfg.method.name
         data_module = Shapes3DDataModule(data_cfg)
+    elif cfg.data.name.lower() == "mpi3d":
+        from data_utils.mpi3d_datamodule import Mpi3dDataModule, Mpi3dCfg
+        data_cfg = Mpi3dCfg(**namespace_to_dict(cfg.data))
+        data_cfg.method = cfg.method.name
+        data_module = Mpi3dDataModule(data_cfg)
     else:
         raise ValueError(f"Unknown dataset: {cfg.data.name}. Supported: "
-                         f"'mini_imagenet', 'celeba', 'dsprites', 'shapes3d'")
+                         f"'mini_imagenet', 'celeba', 'dsprites', 'shapes3d', 'mpi3d'")
 
     # build model based on method
     if cfg.method.name.lower() == "vicreg":
