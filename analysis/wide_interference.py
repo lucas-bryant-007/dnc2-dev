@@ -126,7 +126,7 @@ def main(args):
     ax1.plot(R_LIST, curves["diverse"]["recov_n"], "s-", color="#d62728", lw=2.6,
              ms=7, label="diverse: empirical recoverability")
     ax1.plot(R_LIST, curves["diverse"]["cap"], "--", color="#444", lw=1.7,
-             label=r"diverse: capacity $\sum_{j\le r}\lambda_j(M_w)$")
+             label=r"diverse: capacity $\sum_{j\leq r}\lambda_j(M_w)$")
     ax1.plot(R_LIST, curves["aligned"]["recov_n"], "o-", color="#1f77b4", lw=2.6,
              ms=7, label="aligned: empirical recoverability")
     ax1.set_xlabel("Bottleneck dimension  $r$")
