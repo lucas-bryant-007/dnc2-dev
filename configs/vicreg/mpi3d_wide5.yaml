@@ -1,0 +1,89 @@
+# MPI3D WIDE-5 (the safer GPU-1 hedge): share FIVE likely-clean factors -- object
+# colour, object shape, object size, and the two position axes -- and resample BOTH
+# the background colour AND the camera height as nuisance. Dropping camera (the
+# wildcard) removes the riskiest factor and gives richer augmentation (camera x bg
+# = 6 views per group vs 3), so this should land a clean ~5-dim result even if the
+# 6-factor run's camera axis flops.
+exp_name: resnet18_vicreg_mpi3d_wide5
+seed: 6
+
+data:
+  name: mpi3d
+  npz_path: ${oc.env:MPI3D_NPZ,./data/mpi3d/mpi3d_toy.npz}
+  img_size: 64
+  batch_size: 512
+  num_workers: 16
+  num_views: 2
+  task_factors: ["posX", "posY", "obj_size"]
+  content_factors: ["obj_color", "obj_shape", "obj_size", "posX", "posY"]  # camera -> nuisance
+  keep_levels:
+    obj_color: [0, 1, 4, 5]
+    obj_shape: [0, 1, 4, 5]
+    camera: [0, 2]            # 2 camera values, resampled (nuisance)
+    posX: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38]
+    posY: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38]
+  pair_mode: exact            # shares 5 content factors; camera + bg_color resampled
+  max_samples: null           # ~76.8k images, 6 nuisance views / group
+
+model:
+  resnet_name: "resnet18"
+  pretrained: false
+  lr: 3.0e-4
+  weight_decay: 1e-6
+  warmup_epochs: 5
+  min_lr: 0.0002
+  lambda_param: 25.0
+  mu_param: 25.0
+  nu_param: 1.0
+  hidden_dim: 1024
+  output_dim: 1024
+  num_layers: 2
+
+trainer:
+  devices: 1
+  accelerator: gpu
+  strategy: auto
+  max_epochs: 1500
+  accumulate_grad_batches: 1
+  use_distributed_sampler: false
+  num_sanity_val_steps: 0
+  log_every_n_steps: 50
+
+method:
+  name: "vicreg"
+
+logging:
+  backend: csv
+  project: dnc
+  entity: null
+  run_name: vicreg_mpi3d_wide5
+  tags: ["vicreg", "mpi3d", "wide5"]
+  log_model: false
+  log_every_n_steps: 50
+
+precision: bf16-mixed
+
+paths:
+  output_root: ${oc.env:OUTPUT_ROOT,./checkpoints}
+  exp_dir: ${oc.env:EXP_DIR,null}
+  resume_from_checkpoint: ${oc.env:RESUME_FROM_CHECKPOINT,null}
+
+ckpt_schedule:
+  dirpath: "checkpoints/vicreg_mpi3d_wide5"
+  early_every: 20
+  early_until: 100
+  late_every: 100
+  save_last: true
+
+probe:
+  enabled: False
+  every_n_epochs: 500
+  max_epochs: 100
+  lr: 0.1
+  weight_decay: 1e-6
+  batch_size: 256
+
+cdnv:
+  every_n_epochs: 20
+  num_classes: 2
+  enabled: False

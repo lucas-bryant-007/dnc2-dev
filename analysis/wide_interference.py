@@ -44,6 +44,11 @@ VARIANTS = {
         diverse=[("posX", 20), ("posY", 20), ("obj_size", 1), ("camera", 2),
                  ("obj_shape", 3), ("obj_color", 3)],
         aligned=[("posX", t) for t in (8, 12, 16, 20, 24, 28)]),
+    # MPI3D safer: drop the wildcard camera (-> nuisance); 5 likely-clean factors.
+    "mpi3d5": dict(
+        diverse=[("posX", 20), ("posY", 20), ("obj_size", 1),
+                 ("obj_shape", 3), ("obj_color", 3)],
+        aligned=[("posX", t) for t in (8, 12, 16, 20, 24, 28)]),
 }
 DISP = {"floor_hue": "floor color", "wall_hue": "wall color",
         "object_hue": "object color", "scale": "size", "shape": "shape",
