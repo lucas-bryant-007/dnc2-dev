@@ -122,7 +122,7 @@ def main(args):
             print(f"  r={r}  mean balanced held-out acc={a:.3f}")
 
     # LEFT: empirical aggregate recoverability vs predicted capacity (RO2 Task 2.1)
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.5, 4.6))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.5, 5.0))
     ax1.plot(R_LIST, curves["diverse"]["recov_n"], "s-", color="#d62728", lw=2.6,
              ms=7, label="diverse: empirical recoverability")
     ax1.plot(R_LIST, curves["diverse"]["cap"], "--", color="#444", lw=1.7,
@@ -130,7 +130,7 @@ def main(args):
     ax1.plot(R_LIST, curves["aligned"]["recov_n"], "o-", color="#1f77b4", lw=2.6,
              ms=7, label="aligned: empirical recoverability")
     ax1.set_xlabel("Bottleneck dimension  $r$")
-    ax1.set_ylabel("Normalized aggregate recoverability")
+    ax1.set_ylabel("Normalized aggregate recoverability", fontsize=13)
     ax1.set_ylim(0, 1.05); ax1.set_xticks(R_LIST)
     ax1.legend(fontsize=9, loc="lower right")
 
