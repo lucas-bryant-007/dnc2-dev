@@ -193,6 +193,23 @@ survive" thesis, not a bug. 3DShapes color B=0.55 and R50 size B=0.49 are real r
 not failures to hide. Summary figure: `figures/box_summary_multimodel.{png,pdf}`
 (`analysis/box_summary.py`). **Do not HP-fish R50 into a pretty cube.**
 
+## RO2 "more dimensions" campaign — final (2026-06-29)
+
+Tomer asked for a task family needing **more than 3 dimensions**. Key lesson:
+**#dimensions = #factors the encoder cleanly separates** (set by the dataset, not
+epochs). A factor is cleanly captured only if it's (a) a *distinct modality* and
+(b) *globally readable*.
+
+| run | outcome |
+|---|---|
+| 3DShapes **colors5** (5 factors, 3 hues) | ❌ messy — the 3 regional colours collapse into one colour subspace (B≈0.3, max\|cos\|=0.15); global pooling can't localise floor/wall/object colour. |
+| 3DShapes **distinct4** (color/size/shape/pose) | ✅ **THE RESULT** — clean 4-dim climb 0.62→0.92, B 0.41–0.83, max\|cos\|=0.065. Each factor switches on at its own r. `figures/wide_interference_distinct4_vicreg_shapes3d_epoch_300.*` |
+| **MPI3D** wide6 / wide5 | ❌ failed — object size/shape/colour ≈0 (small object in a cluttered scene is unreadable for the frozen encoder); only weak position (~0.5). MPI3D is intrinsically too hard. |
+
+**Clean ceiling for these datasets ≈ 4 (distinct4).** To go higher would need a
+dataset with 5–6 *large, clear, distinct, independent* factors — a research effort,
+not needed for the proposal. **distinct4 is the shippable "more dimensions" result.**
+
 ## Status snapshot
 
 | Item | State |
