@@ -15,7 +15,7 @@ def apply_style():
     """Apply the shared seaborn 'paper' theme + larger fonts. Idempotent."""
     try:
         import seaborn as sns
-        sns.set_theme(style="whitegrid", context="paper", font_scale=1.4)
+        sns.set_theme(style="whitegrid", context="paper", font_scale=1.8)
     except Exception:
         for cand in ("seaborn-v0_8-whitegrid", "seaborn-whitegrid"):
             if cand in plt.style.available:
@@ -24,15 +24,15 @@ def apply_style():
     plt.rcParams.update({
         "savefig.dpi": 300,
         "savefig.bbox": "tight",
-        "axes.labelsize": 15,
-        "axes.titlesize": 15,
-        "xtick.labelsize": 12,
-        "ytick.labelsize": 12,
-        "legend.fontsize": 11,
+        "axes.labelsize": 19,
+        "axes.titlesize": 19,
+        "xtick.labelsize": 16,
+        "ytick.labelsize": 16,
+        "legend.fontsize": 15,
         "legend.frameon": True,
         "legend.framealpha": 0.9,
-        "lines.linewidth": 2.2,
-        "lines.markersize": 6,
+        "lines.linewidth": 2.6,
+        "lines.markersize": 7.5,
         "grid.alpha": 0.3,
     })
 

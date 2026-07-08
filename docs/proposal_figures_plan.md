@@ -1,11 +1,11 @@
 # Proposal Figures — Plan & Status (updated 2026-06-27)
 
-**Mandate:** clean figures for Tomer's NSF CAREER proposal, fast. Grant is the
-priority. Favor *observation over prediction*. Keep it easy on Tomer's side.
+**Mandate:** clean figures for the NSF CAREER proposal, fast. Grant is the
+priority. Favor *observation over prediction*. Keep figures drop-in ready.
 
 ---
 
-## ✅ Delivered & approved (shipped to Tomer on Slack)
+## ✅ Delivered & approved
 
 1. **Hero 3D hyper-rectangle — DONE, approved 2026-06-27.** VICReg ResNet-18 on
    dSprites, two-view-by-resampling sharing three independent factors
@@ -13,7 +13,7 @@ priority. Favor *observation over prediction*. Keep it easy on Tomer's side.
    granular-task centroids sit at the corners of an axis-aligned box; axes
    orthogonal (max |cos| = 0.004), side ≈ √Bₜ with **B = 0.99 / 0.99 / 0.93**.
    File: `figures/hyperrect_box_vicreg_dsprites_epoch_80_twoview.{pdf,png}`.
-   Final form after Tomer's rounds: PDF saved direct from python, predicted box
+   Final form after review rounds: PDF saved direct from python, predicted box
    removed (kept for the paper, not the proposal), friendly axis/level names
    (size / x-position / y-position; small-left-top …), two-column bottom legend,
    tight crop, larger legend font, no "Thm 4.4" text.
@@ -24,7 +24,7 @@ priority. Favor *observation over prediction*. Keep it easy on Tomer's side.
    (epoch sweep `metrics/metrics_vicreg_male_epoch_*`) while classical CDNV stays
    large — reproduces the published Fig. 2.
 
-### Note for the record — "why is epoch 0 already organized?" (Achleshwar's Q)
+### Note for the record — "why is epoch 0 already organized?"
 The cube is roughly in place even at epoch 0 because (a) **random conv features**
 already separate such salient, global geometric factors (size/position), and
 (b) **whitening orthogonalizes** whatever signal exists, so on a disentangled
@@ -35,7 +35,7 @@ CDNV vs epoch for dSprites (cheap; `compute_keyframes` already computes capture)
 
 ---
 
-## 🔴 ACTIVE — Tomer's new tasks (assigned 2026-06-27)
+## 🔴 ACTIVE — new tasks (assigned 2026-06-27)
 
 ### Task A — RO2 preliminary figure: **task-family spectrum → bottleneck interference**
 *Driver built: `analysis/dsprites_taskfamily_spectrum.py`.* Frozen pretrained
@@ -73,7 +73,7 @@ git add figures/spectrum_* metrics/spectrum_* && git commit -m "RO2 task-family 
 - Output: a small grid of boxes (or per-(model,dataset) panels) + a table of
   B(F) per axis and max|cos|.
 
-### Task C — **Validate the new-paper bounds** (call notes, 2026-06-27; draft = `dirCDNV_is_low.pdf`)
+### Task C — **Validate the new-paper bounds** (assigned 2026-06-27; draft = `dirCDNV_is_low.pdf`)
 Empirically validate the two theorems and "show they're tight." Key formulas
 (balanced binary tasks, centered+whitened `F`; `εₜ=E[Var(Yₜ|X)]=1−‖ηₜ‖²`,
 `uₜ=E[YₜF]/‖·‖`, `Bₜ=‖E[YₜF]‖²`):
@@ -82,7 +82,7 @@ Empirically validate the two theorems and "show they're tight." Key formulas
 - **Thm 4.4 Bound 2 (centroid):** `E‖m_Y−(√B₁Y₁,…,√B_kY_k)‖² ≤ Σₜ(1−Bₜ)`.
 - **Thm 4.5 (few-shot NCC):** `errₘ ≤ 1−B + (r−B)/m + (1−B)/(1−B+2mB)`, `r=dim F`.
 
-Decoded call notes → actions:
+Spec → actions:
 - "2 bounds, measure left & right, show tight" → `analysis/hyperrect_bounds.py`
   (LHS vs RHS bars). **DONE on epoch-80 dSprites (ε=0):** predicted √Bₜ = observed
   side to **0.00%**; Bound 1 holds 5–16× slack (rep is *more* orthogonal than
@@ -146,8 +146,8 @@ task dies at which r (transparent, not hidden in an average).
 - **Few-shot bound (Thm 4.5)** on **mini-ImageNet** — the one untested validation
   piece (vacuous on CelebA). Needs recoverable SSL checkpoints; pipeline already
   supports the bound.
-- **dSprites B-vs-epoch / dirCDNV-vs-epoch curve** (supports Achleshwar's Q and
-  the RO2/collapse story).
+- **dSprites B-vs-epoch / dirCDNV-vs-epoch curve** (supports the epoch-0
+  question and the RO2/collapse story).
 
 ---
 
@@ -195,7 +195,7 @@ not failures to hide. Summary figure: `figures/box_summary_multimodel.{png,pdf}`
 
 ## RO2 "more dimensions" campaign — final (2026-06-29)
 
-Tomer asked for a task family needing **more than 3 dimensions**. Key lesson:
+The ask: a task family needing **more than 3 dimensions**. Key lesson:
 **#dimensions = #factors the encoder cleanly separates** (set by the dataset, not
 epochs). A factor is cleanly captured only if it's (a) a *distinct modality* and
 (b) *globally readable*.

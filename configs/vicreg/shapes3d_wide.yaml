@@ -2,7 +2,7 @@
 # scale, shape) and differ only in orientation. The encoder must preserve all five
 # to spread samples, so a diverse task family of those five factors needs ~5
 # independent bottleneck dimensions -> a richer interference curve than the 3-factor
-# runs (Tomer: "can we do something that requires a bit more dimensions?").
+# runs (a task family that needs a few more independent dimensions).
 exp_name: resnet18_vicreg_shapes3d_wide
 seed: 6
 

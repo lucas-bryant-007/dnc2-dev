@@ -157,7 +157,7 @@ def fit_ssl_subspace(
     # inv_sqrt = (eigvals + eps).rsqrt()                # [k]
     # whiten_ = eigvecs @ torch.diag(inv_sqrt)          # [d, k]
 
-    # Tomer's suggestion
+    # Full-spectrum eigendecomposition with relative-threshold truncation
     eigvals_full, eigvecs_full = torch.linalg.eigh(cov)
     idx = torch.argsort(eigvals_full, descending=True)
     eigvals_full = eigvals_full[idx]

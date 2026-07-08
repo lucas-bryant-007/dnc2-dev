@@ -1,6 +1,6 @@
 """Measure Theorem 4.4's two bounds (near-orthogonality + centroid) from a saved
 hyper-rectangle metrics JSON and show they hold / are tight ("measure left and
-right"). Also emits the predicted-vs-observed bar plot Tomer asked for.
+right"). Also emits the predicted-vs-observed bar plot.
 
 Thm 4.4 (balanced binary tasks, centered+whitened F), per task t:
   B_t = captured posterior energy; sqrt(B_t) = predicted box half-side along axis t.
@@ -96,27 +96,36 @@ def main(args):
     print(f"  -> centroids sit essentially ON the predicted corners "
           f"(per-corner RMS = {np.sqrt(dev):.4f}).")
 
-    # --- Figure: predicted vs observed (the bar plot Tomer asked for). 2 panels.
+    # --- Figure: predicted vs observed. 2 panels.
     disp = [DISPLAY.get(n, n) for n in names]
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10.5, 4.4))
     x = np.arange(k); w = 0.38
     ax1.bar(x - w / 2, sqrtB, w, label="predicted  $\\sqrt{B_t}$", color="#d62728")
     ax1.bar(x + w / 2, obs_side, w, label="observed", color="#1f77b4")
-    ax1.set_xticks(x); ax1.set_xticklabels(disp, fontsize=12)
-    ax1.set_ylabel("Hyper-rectangle side length", fontsize=14)
-    ax1.set_ylim(0, 1.08); ax1.legend(fontsize=12); ax1.grid(axis="y", alpha=0.3)
-    ax1.tick_params(labelsize=11)
+    ax1.set_xticks(x); ax1.set_xticklabels(disp, fontsize=16)
+    ax1.set_ylabel("Hyper-rectangle side length", fontsize=18)
+    ax1.set_ylim(0, 1.08)
+    ax1.legend(fontsize=14.5, ncol=2, loc="lower center",
+               bbox_to_anchor=(0.5, 1.01), frameon=False,
+               columnspacing=1.2, handlelength=1.4)
+    ax1.grid(axis="y", alpha=0.3)
+    ax1.tick_params(labelsize=15)
 
-    pair_lbl = [f"{DISPLAY.get(p['pair'][0], p['pair'][0])[:4]}·"
-                f"{DISPLAY.get(p['pair'][1], p['pair'][1])[:4]}" for p in b1]
+    SHORT = {"scale": "size", "posX": "x-pos", "posY": "y-pos",
+             "shape": "shape", "object_hue": "color"}
+    pair_lbl = [f"{SHORT.get(p['pair'][0], p['pair'][0][:5])} · "
+                f"{SHORT.get(p['pair'][1], p['pair'][1][:5])}" for p in b1]
     xp = np.arange(len(b1))
     ax2.bar(xp - w / 2, [p["lhs_abs_cos"] for p in b1], w,
             label="observed $|u_i^\\top u_j|$", color="#1f77b4")
     ax2.bar(xp + w / 2, [p["rhs_bound"] for p in b1], w,
             label="Thm 4.4 bound", color="#d62728")
-    ax2.set_xticks(xp); ax2.set_xticklabels(pair_lbl, fontsize=11)
-    ax2.set_ylabel("Task-axis non-orthogonality", fontsize=14)
-    ax2.legend(fontsize=12); ax2.grid(axis="y", alpha=0.3); ax2.tick_params(labelsize=11)
+    ax2.set_xticks(xp); ax2.set_xticklabels(pair_lbl, fontsize=15)
+    ax2.set_ylabel("Task-axis non-orthogonality", fontsize=18)
+    ax2.legend(fontsize=14.5, ncol=2, loc="lower center",
+               bbox_to_anchor=(0.5, 1.01), frameon=False,
+               columnspacing=1.2, handlelength=1.4)
+    ax2.grid(axis="y", alpha=0.3); ax2.tick_params(labelsize=15)
     fig.tight_layout(pad=0.6)
 
     os.makedirs(os.path.join(args.out_dir, "figures"), exist_ok=True)

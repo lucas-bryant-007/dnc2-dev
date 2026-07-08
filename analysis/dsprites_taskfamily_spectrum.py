@@ -120,7 +120,7 @@ def family_spectrum(X: torch.Tensor, label_vectors, normalize=False):
     normalize=True renormalizes each a_t to unit length, i.e. uses the unit task
     direction u_t = a_t/||a_t|| -- the feature-side realization of the proposal's
     normalized posterior eta_bar_t (RO2: M_w = sum_t w_t eta_bar_t (x) eta_bar_t).
-    normalize=False (default) is Tomer's Slack recipe (a_t un-normalized).
+    normalize=False (default) is the original recipe (a_t un-normalized).
     """
     n = X.shape[0]
     a_list = []
@@ -275,7 +275,7 @@ if __name__ == "__main__":
     ap.add_argument("--rel_eig_threshold", type=float, default=1e-3)
     ap.add_argument("--normalize", action="store_true",
                     help="Renormalize a_t to unit length (proposal's M_w on eta_bar_t); "
-                         "default off = Tomer's Slack recipe (un-normalized a_t)")
+                         "default off = original recipe (un-normalized a_t)")
     ap.add_argument("--out_dir", default=".")
     ap.add_argument("--tag", default="ro2")
     main(ap.parse_args())

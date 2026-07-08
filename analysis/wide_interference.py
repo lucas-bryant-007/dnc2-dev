@@ -1,8 +1,8 @@
 """Wider shared-bottleneck interference on a 3DShapes encoder that preserves FIVE
 factors (floor/wall/object colour, scale, shape). The diverse family is one task
 per factor, so it needs ~5 independent bottleneck dimensions instead of 3 -- a
-richer version of the dSprites interference (Tomer: "something that requires a bit
-more dimensions").
+richer version of the dSprites interference that exercises more independent
+factor dimensions.
 
     python -u analysis/wide_interference.py -c configs/vicreg/shapes3d_wide.yaml \
         --ckpt_dir checkpoints/vicreg_shapes3d_wide --epoch 120 --device cuda:0

@@ -2,8 +2,8 @@
 the hero box: large fonts, no top/right spines, light grid, vector-friendly, and
 PDF-direct. Call apply_style() once at the top of a plotting driver.
 
-Honors Tomer's standing asks: large fonts, clean labels, no clutter, no
-unnecessary inner title, save PDF directly from python.
+House style: large fonts, clean labels, no clutter, no unnecessary inner
+title, save PDF directly from python.
 """
 import matplotlib as mpl
 
@@ -21,13 +21,13 @@ def apply_style():
         "savefig.bbox": "tight",
         "savefig.pad_inches": 0.04,
         "font.family": "DejaVu Sans",
-        "font.size": 14,
-        "axes.titlesize": 15,
-        "axes.labelsize": 16,
+        "font.size": 17,
+        "axes.titlesize": 18,
+        "axes.labelsize": 19,
         "axes.titleweight": "bold",
-        "xtick.labelsize": 13,
-        "ytick.labelsize": 13,
-        "legend.fontsize": 13,
+        "xtick.labelsize": 16,
+        "ytick.labelsize": 16,
+        "legend.fontsize": 15.5,
         "legend.frameon": True,
         "legend.framealpha": 0.95,
         "legend.edgecolor": "0.8",

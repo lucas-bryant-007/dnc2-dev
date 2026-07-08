@@ -75,9 +75,9 @@ def main():
             x = gi + (k - 1) * bar_w
             ax.bar(x, B[idx], bar_w * 0.92, color=PALETTE[k], zorder=3)
             ax.text(x, B[idx] + 0.018, DISP.get(names[idx], names[idx]),
-                    ha="center", va="bottom", fontsize=11.5)
+                    ha="center", va="bottom", fontsize=14.5)
         ax.text(gi, 1.10, f"max$|\\cos|$={mcos:.3f}", ha="center", va="bottom",
-                fontsize=12, color="#444")
+                fontsize=15, color="#444")
     ax.axhline(1.0, color="0.5", ls=":", lw=1.2, zorder=1)
     ax.set_xticks(range(n_runs))
     ax.set_xticklabels([r[0] for r in runs])
