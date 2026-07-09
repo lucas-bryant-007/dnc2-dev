@@ -69,8 +69,8 @@ def main():
     ylab = ("action-specific recoverability $B(F)$\n(within-state held-out $R^2$)"
             if m == "within" else "linear recoverability $B(F)$ (held-out $R^2$)")
     ax.set_ylabel(ylab)
-    ax.set_title("The bottleneck keeps action-driven position, not goal coverage",
-                 pad=10, fontsize=15)
+    ax.set_title(r"Predictable $\neq$ preserved: the bottleneck drops goal coverage",
+                 pad=10, fontsize=14.5)
     top = max([v for v in ceil if np.isfinite(v)] + cm + [0.05])
     ax.set_ylim(0, top * 1.25)
     ax.axhline(0, color="black", lw=0.9)
