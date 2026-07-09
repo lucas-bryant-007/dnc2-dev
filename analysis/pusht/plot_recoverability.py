@@ -1,10 +1,15 @@
-"""RO3 figure: which future factors survive the predictive bottleneck.
+"""RO3 figure: which action-driven future factors survive the predictive
+bottleneck.
 
 Reads metrics/ro3_recoverability_diag.json (from diagnose_recoverability.py) and
-draws linear recoverability B(F) = held-out R^2 per future factor, action-
-conditioned vs action-blind. The point: the bottleneck keeps generic future
-structure (object position) but not the decision-relevant factor (goal
-coverage).
+draws WITHIN-STATE (candidate-specific, action-driven) linear recoverability
+B(F) per future factor:
+  - filled bar  = action-conditioned bottleneck Z
+  - outlined bar = full future embedding E(X_{t+H})  (the linear ceiling)
+An action-blind model is 0 here by construction (identical Z across a state's
+candidates), so this isolates the action contribution. The point: the bottleneck
+retains action-driven object position/displacement but NOT goal coverage, and
+the ceiling shows how much is lost.
 
     python analysis/pusht/plot_recoverability.py \
         --metrics metrics/ro3_recoverability_diag.json
@@ -18,59 +23,72 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from plot_style import apply_style
 
-# display order (recoverable -> not) and friendly names
 FACTORS = [("final_x", "object\nx-position"), ("final_y", "object\ny-position"),
            ("displacement", "displacement"), ("progress", "goal\ncoverage")]
-COND, BLIND = "#0D9488", "#9CA3AF"
+COND, CEIL = "#0D9488", "#6B7280"
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--metrics", default="metrics/ro3_recoverability_diag.json")
     ap.add_argument("--out", default="figures/ro3_recoverability")
+    ap.add_argument("--metric", default="within", choices=["within", "pooled"])
     args = ap.parse_args()
 
     with open(args.metrics) as f:
-        rows = json.load(f)
-    cond = [r for r in rows if not r["action_blind"]]
-    blind = [r for r in rows if r["action_blind"]]
+        data = json.load(f)
+    cond = [m for m in data["models"] if not m["action_blind"]]
+    full = data.get("full_embedding", {})
+    m = args.metric
 
-    def stats(group, key):
-        v = np.array([g[key] for g in group], float)
+    def cmean_std(key):
+        v = np.array([mm["factors"][key][m] for mm in cond], float)
         return v.mean(), v.std()
 
     apply_style()
-    fig, ax = plt.subplots(figsize=(9.6, 6.2))
+    fig, ax = plt.subplots(figsize=(9.8, 6.2))
     x = np.arange(len(FACTORS))
-    w = 0.38
-    cm = [stats(cond, k)[0] for k, _ in FACTORS]
-    cs = [stats(cond, k)[1] for k, _ in FACTORS]
-    bm = [stats(blind, k)[0] for k, _ in FACTORS]
+    w = 0.42
+    cm = [cmean_std(k)[0] for k, _ in FACTORS]
+    cs = [cmean_std(k)[1] for k, _ in FACTORS]
+    ceil = [full.get(k, {}).get(m, np.nan) for k, _ in FACTORS]
 
-    ax.bar(x - w / 2, cm, w, yerr=cs, capsize=4, color=COND, edgecolor="black",
-           linewidth=0.8, label="action-conditioned", zorder=3)
-    ax.bar(x + w / 2, bm, w, color=BLIND, edgecolor="black", linewidth=0.8,
-           label="action-blind", zorder=3)
+    # ceiling (full embedding) as outlined bars behind; bottleneck filled in front
+    ax.bar(x, ceil, w * 1.9, facecolor="none", edgecolor=CEIL, linewidth=1.8,
+           linestyle=(0, (4, 2)), zorder=2)
+    ax.bar(x, cm, w, yerr=cs, capsize=4, color=COND, edgecolor="black",
+           linewidth=0.8, zorder=3)
 
     ax.set_xticks(x)
     ax.set_xticklabels([n for _, n in FACTORS])
-    ax.set_ylabel(r"linear recoverability  $B(F)$  (held-out $R^2$)")
-    ax.set_title("Bottleneck keeps position, not goal coverage",
-                 pad=10, fontsize=16)
-    ax.set_ylim(0, max(cm) * 1.28)
+    ylab = ("action-specific recoverability $B(F)$\n(within-state held-out $R^2$)"
+            if m == "within" else "linear recoverability $B(F)$ (held-out $R^2$)")
+    ax.set_ylabel(ylab)
+    ax.set_title("The bottleneck keeps action-driven position, not goal coverage",
+                 pad=10, fontsize=15)
+    top = max([v for v in ceil if np.isfinite(v)] + cm + [0.05])
+    ax.set_ylim(0, top * 1.25)
     ax.axhline(0, color="black", lw=0.9)
-    ax.legend(frameon=True, loc="upper right", fontsize=14)
     ax.yaxis.grid(True, alpha=0.3)
     ax.set_axisbelow(True)
 
-    # call out the decision-relevant factor
+    legend = [
+        Patch(facecolor=COND, edgecolor="black", label="bottleneck $Z$ (learned)"),
+        Patch(facecolor="none", edgecolor=CEIL, linestyle="--",
+              label="full future embedding (ceiling)"),
+    ]
+    ax.legend(handles=legend, frameon=True, loc="upper right", fontsize=13)
+    ax.text(0.015, 0.97, "action-blind $= 0$ here by construction",
+            transform=ax.transAxes, fontsize=12, color="0.4", va="top")
+
     j = [k for k, _ in FACTORS].index("progress")
-    ax.annotate("decision needs this\n— but it doesn't survive",
-                xy=(x[j] - w / 2, cm[j] + 0.02), xytext=(x[j] - 1.15, 0.34),
+    ax.annotate("decision needs this",
+                xy=(x[j], cm[j] + top * 0.03), xytext=(x[j] - 1.0, top * 0.55),
                 fontsize=13, color="#B45309", ha="center", va="center",
                 arrowprops=dict(arrowstyle="-|>", color="#B45309", lw=1.8))
 
