@@ -14,7 +14,9 @@ proposal scatter).
 export PY=/home/lucas_bryant1/dnc2_s2/dnc2_env/bin/python
 
 # 0) one-time deps + demo data (~80 MB)
-$PY -m pip install gymnasium gym-pusht zarr shapely pygame pymunk
+# NB: pin pymunk < 7 -- pymunk 7.0 removed Space.add_collision_handler, which
+# gym-pusht's env setup still calls (AttributeError on env.reset otherwise).
+$PY -m pip install gymnasium gym-pusht zarr shapely pygame 'pymunk>=6.4,<7'
 cd ~/dnc2_s2/dnc2-dev
 wget https://diffusion-policy.cs.columbia.edu/data/training/pusht.zip
 unzip pusht.zip        # -> pusht/pusht_cchi_v7_replay.zarr
