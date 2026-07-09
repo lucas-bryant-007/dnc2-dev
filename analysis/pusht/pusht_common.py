@@ -53,7 +53,9 @@ def frozen_embeddings(d, data_path, device):
     """Embed X_t and all six X_{t+H} once; cache next to the data file.
     Cache key includes ENC_TAG so changing the encoder invalidates old caches."""
     cache = os.path.splitext(data_path)[0] + f"_emb_{ENC_TAG}.npz"
-    if os.path.exists(cache):
+    # Reuse the cache only if it is at least as new as the data file, so a
+    # regenerated data file (same path, new contents) is always re-embedded.
+    if os.path.exists(cache) and os.path.getmtime(cache) >= os.path.getmtime(data_path):
         z = np.load(cache)
         return dict(e_t=z["e_t"], e_f=z["e_f"])
     n, c = d["x_f"].shape[:2]
