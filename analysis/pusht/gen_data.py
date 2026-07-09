@@ -139,6 +139,7 @@ def rollout_state(job):
 
 
 def main():
+    global H, SHIFT
     ap = argparse.ArgumentParser()
     ap.add_argument("--zarr", required=True,
                     help="path to pusht_cchi_v7_replay.zarr")
@@ -153,7 +154,6 @@ def main():
     args = ap.parse_args()
 
     # Override the module-level knobs before the (forked) workers read them.
-    global H, SHIFT
     H, SHIFT = args.horizon, args.shift
 
     import zarr

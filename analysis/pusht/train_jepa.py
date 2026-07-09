@@ -50,10 +50,15 @@ class JEPA(nn.Module):
 def run_one(rows, split, r, seed, action_blind, device, epochs, lr, bs):
     set_seed(seed)
     e_t, act, e_f = (rows[k] for k in ("e_t", "act", "e_f"))
-    # standardize the TARGET embedding with train stats -> interpretable MSE
+    # standardize the TARGET embedding with train stats -> interpretable MSE.
+    # The spatial embedding has many near-constant dims (sparse feature cells);
+    # leave those unscaled (avoid divide-by-~0) and clip z-scores so a single
+    # low-variance dim can't blow up the loss.
     tr = split["train"]
-    mu, sd = e_f[tr].mean(0, keepdims=True), e_f[tr].std(0, keepdims=True) + 1e-8
-    y = (e_f - mu) / sd
+    mu = e_f[tr].mean(0, keepdims=True)
+    sd = e_f[tr].std(0, keepdims=True)
+    sd = np.where(sd < 1e-6, 1.0, sd)
+    y = np.clip((e_f - mu) / sd, -10.0, 10.0).astype(np.float32)
 
     model = JEPA(e_t.shape[1], act.shape[1], r,
                  action_blind=action_blind).to(device)
