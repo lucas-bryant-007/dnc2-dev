@@ -9,6 +9,14 @@ import torch
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
 
+# Spatial grid the layer4 feature map is pooled to. Goal coverage is a spatial
+# quantity (T-vs-goal overlap), so we keep a coarse SxS layout instead of a
+# global average pool -- otherwise position, and thus goal progress, is not
+# linearly recoverable from the frozen embedding. Bump ENC_TAG whenever this
+# changes so stale embedding caches are not reused.
+SPATIAL_GRID = 3
+ENC_TAG = f"r18sp{SPATIAL_GRID}"
+
 
 def set_seed(seed):
     random.seed(seed)
@@ -19,11 +27,15 @@ def set_seed(seed):
 
 @torch.no_grad()
 def _embed_images(imgs_uint8, device, bs=256):
-    """(N,H,W,3) uint8 -> (N,512) float32 from a frozen ImageNet ResNet-18."""
+    """(N,H,W,3) uint8 -> (N, 512*SPATIAL_GRID^2) float32 from a frozen ImageNet
+    ResNet-18. We take the layer4 feature map and adaptive-pool it to a coarse
+    SPATIAL_GRID x SPATIAL_GRID grid (not a global avgpool), so coarse object
+    position -- and therefore goal progress -- stays linearly recoverable."""
     from torchvision.models import resnet18, ResNet18_Weights
     net = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
-    net.fc = torch.nn.Identity()
-    net.eval().to(device)
+    # everything up to and including layer4 (drop avgpool + fc)
+    backbone = torch.nn.Sequential(*list(net.children())[:-2])
+    backbone.eval().to(device)
     mean, std = IMAGENET_MEAN.to(device), IMAGENET_STD.to(device)
     out = []
     for i in range(0, len(imgs_uint8), bs):
@@ -31,13 +43,16 @@ def _embed_images(imgs_uint8, device, bs=256):
         x = x.permute(0, 3, 1, 2).float() / 255.0
         x = torch.nn.functional.interpolate(x, size=224, mode="bilinear",
                                             align_corners=False)
-        out.append(net((x - mean) / std).cpu().numpy())
+        fmap = backbone((x - mean) / std)                       # (b,512,7,7)
+        g = torch.nn.functional.adaptive_avg_pool2d(fmap, SPATIAL_GRID)
+        out.append(g.flatten(1).cpu().numpy())                  # (b,512*S*S)
     return np.concatenate(out).astype(np.float32)
 
 
 def frozen_embeddings(d, data_path, device):
-    """Embed X_t and all six X_{t+H} once; cache next to the data file."""
-    cache = os.path.splitext(data_path)[0] + "_emb.npz"
+    """Embed X_t and all six X_{t+H} once; cache next to the data file.
+    Cache key includes ENC_TAG so changing the encoder invalidates old caches."""
+    cache = os.path.splitext(data_path)[0] + f"_emb_{ENC_TAG}.npz"
     if os.path.exists(cache):
         z = np.load(cache)
         return dict(e_t=z["e_t"], e_f=z["e_f"])

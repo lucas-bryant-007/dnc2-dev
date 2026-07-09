@@ -32,9 +32,13 @@ import multiprocessing as mp
 
 import numpy as np
 
-H = 16              # control steps per rollout (10 Hz -> 1.6 s)
-SHIFT = 30.0        # px offset for the 4 shifted candidates (space is 512x512)
-N_CAND = 6
+# Defaults; overridable via --horizon / --shift. Longer H and larger, more
+# diverse shifts make the six-plus candidate futures actually separate (bigger
+# best-vs-worst coverage spread), so goal progress and regret are not dominated
+# by near-ties.
+H = 48              # control steps per rollout (10 Hz -> 4.8 s)
+SHIFT = 48.0        # px offset for the shifted candidates (space is 512x512)
+N_CAND = 8
 _ENV = None         # per-worker singleton
 
 
@@ -79,9 +83,11 @@ def reset_to(env, state):
 
 
 def candidates(demo_actions, agent_pos):
-    """(6, H, 2): demo, 4 shifted copies, hold."""
+    """(N_CAND, H, 2): demo, 6 shifted copies (4 axis + 2 diagonal), hold."""
+    offs = [(SHIFT, 0), (-SHIFT, 0), (0, SHIFT), (0, -SHIFT),
+            (SHIFT, SHIFT), (-SHIFT, -SHIFT)]
     cands = [demo_actions]
-    for dx, dy in [(SHIFT, 0), (-SHIFT, 0), (0, SHIFT), (0, -SHIFT)]:
+    for dx, dy in offs:
         cands.append(np.clip(demo_actions + np.array([dx, dy]), 0.0, 512.0))
     cands.append(np.tile(np.asarray(agent_pos, float), (H, 1)))
     return np.stack(cands).astype(np.float32)
@@ -139,8 +145,16 @@ def main():
     ap.add_argument("--n_states", type=int, default=3000)
     ap.add_argument("--workers", type=int, default=1)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--horizon", type=int, default=H,
+                    help="control steps per rollout (default 48)")
+    ap.add_argument("--shift", type=float, default=SHIFT,
+                    help="px offset for shifted candidates (default 48)")
     ap.add_argument("--out", default="data/pusht_cf.npz")
     args = ap.parse_args()
+
+    # Override the module-level knobs before the (forked) workers read them.
+    global H, SHIFT
+    H, SHIFT = args.horizon, args.shift
 
     import zarr
     root = zarr.open(args.zarr, mode="r")

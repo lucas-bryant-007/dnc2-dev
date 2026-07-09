@@ -54,6 +54,10 @@ def main():
     ap.add_argument("--runs", default="runs/pusht_jepa")
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--out", default="figures/ro3_pusht_regret")
+    ap.add_argument("--min_spread", type=float, default=0.05,
+                    help="skip test states whose best-vs-worst candidate "
+                         "coverage spread is below this (degenerate ties add "
+                         "only noise to regret)")
     args = ap.parse_args()
 
     d = np.load(args.data)
@@ -62,6 +66,14 @@ def main():
     n_cand = d["c_f"].shape[1]
     split = episode_split(d["episode"], n_cand=n_cand, seed=0)
     c_f = d["c_f"]
+
+    # Regret is only meaningful where the candidates actually differ; drop
+    # near-tie states so the metric reflects real action-selection quality.
+    test_states = split["test_states"]
+    spread = c_f[test_states].max(1) - c_f[test_states].min(1)
+    keep_states = test_states[spread >= args.min_spread]
+    print(f"regret on {len(keep_states)}/{len(test_states)} test states "
+          f"with best-vs-worst spread >= {args.min_spread}")
 
     results = []
     for path in sorted(glob.glob(os.path.join(args.runs, "*.pt"))):
@@ -85,7 +97,7 @@ def main():
         pred = (zb @ w).reshape(-1, n_cand)
         regret = np.array([
             c_f[s].max() - c_f[s, pred[s].argmax()]
-            for s in split["test_states"]])
+            for s in keep_states])
         results.append(dict(name=os.path.basename(path)[:-3], r=ck["r"],
                             seed=ck["seed"], action_blind=ck["action_blind"],
                             val_loss=ck["val_loss"], probe_r2=float(r2),

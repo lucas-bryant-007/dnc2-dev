@@ -29,44 +29,51 @@ $PY -u analysis/pusht/train_jepa.py --data data/pusht_cf_smoke.npz \
 $PY -u analysis/pusht/eval_regret.py --data data/pusht_cf_smoke.npz \
     --runs runs/pusht_smoke --device cuda:0 --out figures/ro3_smoke
 
-# 2) full data generation (CPU-parallel, ~1-2 h at 16 workers)
+# 2) full data generation (CPU-parallel; H=48 + 8 candidates -> ~2-4 h)
 $PY -u analysis/pusht/gen_data.py --zarr pusht/pusht_cchi_v7_replay.zarr \
-    --n_states 3000 --workers 16 --out data/pusht_cf.npz
+    --n_states 4000 --workers 16 --out data/pusht_cf.npz
 
 # 3) JEPA sweep: r in {4,8,16,32} x 3 seeds + action-blind controls
-#    (frozen ResNet-18 embeddings cached on first call; whole sweep <1 h)
+#    (spatial frozen-ResNet embeddings cached on first call; whole sweep <1 h)
 CUDA_VISIBLE_DEVICES=0 $PY -u analysis/pusht/train_jepa.py \
     --data data/pusht_cf.npz --rs 4 8 16 32 --seeds 0 1 2 --device cuda:0
 
-# 4) probe + regret + proposal scatter
+# 4) probe + regret + metrics, then the proposal scatter (deck fonts)
 $PY -u analysis/pusht/eval_regret.py --data data/pusht_cf.npz \
-    --runs runs/pusht_jepa --device cuda:0
+    --runs runs/pusht_jepa --device cuda:0 --min_spread 0.05
+$PY -u analysis/pusht/plot_regret.py --metrics metrics/ro3_pusht_regret.json
 # -> figures/ro3_pusht_regret.{png,pdf}, metrics/ro3_pusht_regret.json
 ```
 
 ## What each piece implements
 
-- **Six candidates per state**: demonstrated `a_{t:t+H}` from the
-  diffusion_policy replay zarr, four ±30 px spatially shifted copies, one
-  hold-position sequence. H = 16 control steps (1.6 s at 10 Hz).
+- **Eight candidates per state**: demonstrated `a_{t:t+H}` from the
+  diffusion_policy replay zarr, six ±48 px spatially shifted copies (4 axis +
+  2 diagonal), one hold-position sequence. H = 48 control steps (4.8 s at
+  10 Hz). H and shift are `--horizon` / `--shift` CLI args.
 - **Factors recorded** (never used in JEPA training): final block pose,
   displacement, contact proxy (block moved), coverage `c_t`, `c_{t+H}`, and
   goal progress `f = c_{t+H} - c_t`. Coverage is computed exactly
   (shapely intersection of block and goal T-geometry), not the env's clipped
   reward.
-- **JEPA**: frozen ImageNet ResNet-18 gives `E(X_t)` and the target
-  `E(X_{t+H})`; trainable MLP encoder → r-dim bottleneck → MLP predictor of
-  the standardized future embedding. Action-blind control drops the actions.
+- **JEPA**: a frozen ImageNet ResNet-18 gives `E(X_t)` and the target
+  `E(X_{t+H})`, taken as the **layer4 feature map adaptively pooled to a 3×3
+  grid** (512·9 = 4608-d) rather than a global avgpool — goal coverage is
+  spatial, so keeping coarse position makes progress linearly recoverable.
+  Trainable MLP encoder → r-dim bottleneck → MLP predictor of the standardized
+  future embedding. Action-blind control drops the actions. (Embedding cache is
+  keyed by encoder tag, so this change auto-invalidates old `_emb` caches.)
 - **Eval**: ridge probe `Z → f` fit on train episodes; held-out `R^2`;
-  regret `max_j c^(j) - c^(jhat)` over the six pre-simulated candidates.
-  Splits are by demo episode (no initial-state leakage).
+  regret `max_j c^(j) - c^(jhat)` over the pre-simulated candidates, computed
+  only on non-degenerate test states (`--min_spread`, default 0.05). Splits are
+  by demo episode (no initial-state leakage).
 
 ## Knobs / caveats
 
-- `SHIFT` (30 px) and `H` (16) are constants at the top of `gen_data.py`.
-  If the best-vs-worst candidate coverage spread printed at the end of
-  gen_data is small (< ~0.02), increase H or SHIFT so candidates actually
-  diverge — regret is meaningless if all six futures are identical.
+- `--horizon` (default 48) and `--shift` (default 48 px) control candidate
+  divergence. Watch the best-vs-worst coverage spread printed at the end of
+  gen_data: aim for ≳ 0.10. If it's small, increase `--horizon`/`--shift` so
+  candidates actually diverge — regret is meaningless if all futures are equal.
 - `gen_data.py` assumes lerobot's `gym-pusht` API
   (`reset(options={"reset_to_state": ...})`, `obs["pixels"]`, and
   `env.unwrapped.block / goal_pose`). The smoke test exercises all of it;
