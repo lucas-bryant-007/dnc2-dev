@@ -5,17 +5,26 @@ import random
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
 IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
 
-# Spatial grid the layer4 feature map is pooled to. Goal coverage is a spatial
-# quantity (T-vs-goal overlap), so we keep a coarse SxS layout instead of a
-# global average pool -- otherwise position, and thus goal progress, is not
-# linearly recoverable from the frozen embedding. Bump ENC_TAG whenever this
-# changes so stale embedding caches are not reused.
+# Goal coverage is a spatial quantity (T-vs-goal overlap), so we keep a coarse
+# SPATIAL_GRID x SPATIAL_GRID layout of a patch/feature grid instead of a global
+# average pool -- otherwise object position, and thus goal progress, is not
+# linearly recoverable from the frozen embedding.
+#
+# Encoder is selectable via env var RO3_ENCODER:
+#   "dinov2"     (default) DINOv2 ViT-S/14 patch tokens -- self-supervised ViT
+#                whose patch features localize objects far better than an
+#                ImageNet-classification CNN, so progress becomes recoverable.
+#   "resnet18sp" frozen ImageNet ResNet-18 layer4 feature map (fallback).
+# ENC_TAG keys the embedding cache so switching encoders never reuses a stale
+# cache.
 SPATIAL_GRID = 3
-ENC_TAG = f"r18sp{SPATIAL_GRID}"
+ENC_KIND = os.environ.get("RO3_ENCODER", "dinov2")
+ENC_TAG = f"{ENC_KIND}_sp{SPATIAL_GRID}"
 
 
 def set_seed(seed):
@@ -26,27 +35,54 @@ def set_seed(seed):
 
 
 @torch.no_grad()
-def _embed_images(imgs_uint8, device, bs=256):
-    """(N,H,W,3) uint8 -> (N, 512*SPATIAL_GRID^2) float32 from a frozen ImageNet
-    ResNet-18. We take the layer4 feature map and adaptive-pool it to a coarse
-    SPATIAL_GRID x SPATIAL_GRID grid (not a global avgpool), so coarse object
-    position -- and therefore goal progress -- stays linearly recoverable."""
+def _embed_resnet18sp(imgs_uint8, device, bs=256):
+    """(N,H,W,3) uint8 -> (N, 512*S^2): ImageNet ResNet-18 layer4 map pooled to
+    a SPATIAL_GRID x SPATIAL_GRID grid (keeps coarse position)."""
     from torchvision.models import resnet18, ResNet18_Weights
     net = resnet18(weights=ResNet18_Weights.IMAGENET1K_V1)
-    # everything up to and including layer4 (drop avgpool + fc)
-    backbone = torch.nn.Sequential(*list(net.children())[:-2])
+    backbone = torch.nn.Sequential(*list(net.children())[:-2])  # up to layer4
     backbone.eval().to(device)
     mean, std = IMAGENET_MEAN.to(device), IMAGENET_STD.to(device)
     out = []
     for i in range(0, len(imgs_uint8), bs):
         x = torch.as_tensor(imgs_uint8[i:i + bs], device=device)
         x = x.permute(0, 3, 1, 2).float() / 255.0
-        x = torch.nn.functional.interpolate(x, size=224, mode="bilinear",
-                                            align_corners=False)
+        x = F.interpolate(x, size=224, mode="bilinear", align_corners=False)
         fmap = backbone((x - mean) / std)                       # (b,512,7,7)
-        g = torch.nn.functional.adaptive_avg_pool2d(fmap, SPATIAL_GRID)
-        out.append(g.flatten(1).cpu().numpy())                  # (b,512*S*S)
+        g = F.adaptive_avg_pool2d(fmap, SPATIAL_GRID)
+        out.append(g.flatten(1).cpu().numpy())
     return np.concatenate(out).astype(np.float32)
+
+
+@torch.no_grad()
+def _embed_dinov2(imgs_uint8, device, bs=128):
+    """(N,H,W,3) uint8 -> (N, 384*S^2): DINOv2 ViT-S/14 patch tokens reshaped to
+    their spatial grid and pooled to SPATIAL_GRID x SPATIAL_GRID. Patch tokens
+    localize objects, so goal progress is linearly recoverable when preserved."""
+    model = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14",
+                           trust_repo=True)
+    model.eval().to(device)
+    mean, std = IMAGENET_MEAN.to(device), IMAGENET_STD.to(device)
+    out = []
+    for i in range(0, len(imgs_uint8), bs):
+        x = torch.as_tensor(imgs_uint8[i:i + bs], device=device)
+        x = x.permute(0, 3, 1, 2).float() / 255.0
+        x = F.interpolate(x, size=224, mode="bilinear", align_corners=False)
+        feats = model.forward_features((x - mean) / std)["x_norm_patchtokens"]
+        b, npatch, cdim = feats.shape                           # (b,256,384)
+        p = int(round(npatch ** 0.5))                           # 16
+        grid = feats.transpose(1, 2).reshape(b, cdim, p, p)     # (b,384,16,16)
+        g = F.adaptive_avg_pool2d(grid, SPATIAL_GRID)           # (b,384,S,S)
+        out.append(g.flatten(1).cpu().numpy())
+    return np.concatenate(out).astype(np.float32)
+
+
+def _embed_images(imgs_uint8, device, bs=None):
+    if ENC_KIND == "dinov2":
+        return _embed_dinov2(imgs_uint8, device, bs or 128)
+    if ENC_KIND == "resnet18sp":
+        return _embed_resnet18sp(imgs_uint8, device, bs or 256)
+    raise ValueError(f"unknown RO3_ENCODER={ENC_KIND!r}")
 
 
 def frozen_embeddings(d, data_path, device):
@@ -67,15 +103,29 @@ def frozen_embeddings(d, data_path, device):
     return dict(e_t=e_t, e_f=e_f)
 
 
+def _standardize(x, eps=1e-6):
+    """Per-dim z-score; constant dims left unscaled (no divide-by-~0)."""
+    mu = x.mean(0, keepdims=True)
+    sd = x.std(0, keepdims=True)
+    sd = np.where(sd < eps, 1.0, sd)
+    return ((x - mu) / sd).astype(np.float32)
+
+
 def flat_rows(d, emb):
     """One training row per (state, candidate): repeat e_t across candidates,
-    flatten the H-step action sequence, normalize positions to [-1, 1]."""
+    flatten the H-step action sequence, normalize positions to [-1, 1].
+
+    The frozen image embedding is z-scored so it sits on the same scale as the
+    action features -- otherwise the ~4k-d image vector swamps the ~100-d action
+    vector and the encoder never learns candidate-specific (action-dependent)
+    futures, which is exactly the signal the downstream decision needs."""
     n, c = d["c_f"].shape
     acts = d["actions"].astype(np.float32) / 256.0 - 1.0        # (n,c,H,2)
+    e_t = _standardize(emb["e_t"])                              # (n, D)
     return dict(
-        e_t=np.repeat(emb["e_t"], c, axis=0),                   # (n*c, 512)
+        e_t=np.repeat(e_t, c, axis=0),                          # (n*c, D)
         act=acts.reshape(n * c, -1),                            # (n*c, H*2)
-        e_f=emb["e_f"].reshape(n * c, -1),                      # (n*c, 512)
+        e_f=emb["e_f"].reshape(n * c, -1),                      # (n*c, D)
         progress=d["progress"].reshape(n * c).astype(np.float32),
         state_id=np.repeat(np.arange(n), c),
         cand_id=np.tile(np.arange(c), n))

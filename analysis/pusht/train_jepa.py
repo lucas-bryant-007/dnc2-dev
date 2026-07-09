@@ -90,7 +90,7 @@ def main():
     ap.add_argument("--data", default="data/pusht_cf.npz")
     ap.add_argument("--rs", type=int, nargs="+", default=[4, 8, 16, 32])
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
-    ap.add_argument("--epochs", type=int, default=200)
+    ap.add_argument("--epochs", type=int, default=300)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--bs", type=int, default=512)
     ap.add_argument("--device", default="cuda:0")

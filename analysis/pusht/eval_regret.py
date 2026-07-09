@@ -72,8 +72,25 @@ def main():
     test_states = split["test_states"]
     spread = c_f[test_states].max(1) - c_f[test_states].min(1)
     keep_states = test_states[spread >= args.min_spread]
+    cf_keep = c_f[keep_states]                       # (n_keep, n_cand)
+    cmax = cf_keep.max(1)
     print(f"regret on {len(keep_states)}/{len(test_states)} test states "
           f"with best-vs-worst spread >= {args.min_spread}")
+
+    # Reference baselines (the whole point of the honest comparison):
+    #   random  = expected regret of picking a candidate uniformly at random
+    #             (= c_max - mean_c); this is the true "no information" floor.
+    #   demo    = regret of always copying the expert demo (candidate 0); a
+    #             blind model that can't rank candidates should land near here.
+    baselines = {
+        "random_select": float((cmax - cf_keep.mean(1)).mean()),
+        "copy_demo": float((cmax - cf_keep[:, 0]).mean()),
+        "min_spread": float(args.min_spread),
+        "n_kept": int(len(keep_states)), "n_total": int(len(test_states)),
+    }
+    print(f"baselines: random-select regret {baselines['random_select']:.4f} | "
+          f"copy-demo regret {baselines['copy_demo']:.4f}")
+    tie_rng = np.random.default_rng(0)
 
     results = []
     for path in sorted(glob.glob(os.path.join(args.runs, "*.pt"))):
@@ -92,12 +109,16 @@ def main():
                             rows["progress"][split["train"]],
                             z[split["test"]],
                             rows["progress"][split["test"]])
-        # candidate selection on held-out states
+        # candidate selection on held-out states, with RANDOM tie-breaking:
+        # a blind model scores all candidates identically, so plain argmax would
+        # always pick candidate 0 (= the expert demo) and look unfairly good.
+        # Jitter (negligible vs any real difference) breaks exact ties randomly.
         zb = np.concatenate([z, np.ones((len(z), 1))], 1)
-        pred = (zb @ w).reshape(-1, n_cand)
-        regret = np.array([
-            c_f[s].max() - c_f[s, pred[s].argmax()]
-            for s in keep_states])
+        pred = (zb @ w).reshape(-1, n_cand)[keep_states]     # (n_keep, n_cand)
+        jit = tie_rng.standard_normal(pred.shape) * \
+            (1e-6 * np.abs(pred).mean() + 1e-12)
+        sel = (pred + jit).argmax(1)
+        regret = cmax - cf_keep[np.arange(len(sel)), sel]
         results.append(dict(name=os.path.basename(path)[:-3], r=ck["r"],
                             seed=ck["seed"], action_blind=ck["action_blind"],
                             val_loss=ck["val_loss"], probe_r2=float(r2),
@@ -108,7 +129,7 @@ def main():
 
     os.makedirs("metrics", exist_ok=True)
     with open("metrics/ro3_pusht_regret.json", "w") as f:
-        json.dump(results, f, indent=1)
+        json.dump({"models": results, "baselines": baselines}, f, indent=1)
 
     # ---------------- the single proposal scatter ----------------
     fig, ax = plt.subplots(figsize=(5.4, 4.2))

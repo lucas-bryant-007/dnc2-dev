@@ -38,7 +38,9 @@ def main():
     args = ap.parse_args()
 
     with open(args.metrics) as f:
-        rows = json.load(f)
+        data = json.load(f)
+    rows = data["models"] if isinstance(data, dict) else data
+    baselines = data.get("baselines", {}) if isinstance(data, dict) else {}
 
     cond = [d for d in rows if not d["action_blind"]]
     blind = [d for d in rows if d["action_blind"]]
@@ -52,6 +54,18 @@ def main():
     def ys(g): return [d["mean_regret"] for d in g]
     def cs(g): return [d["val_loss"] for d in g]
     def ss(g): return [R_SIZES[d["r"]] for d in g]
+
+    # Reference baselines: horizontal lines for "pick at random" (the true
+    # no-information floor) and "copy the expert demo". A useful representation
+    # must sit BELOW these; that is the honest bar for the RO3 claim.
+    xr = max(xs(cond) + xs(blind)) if (cond or blind) else 0.1
+    for key, lbl, col in [("random_select", "random selection", "#9CA3AF"),
+                          ("copy_demo", "copy expert demo", "#D97706")]:
+        if key in baselines:
+            yv = baselines[key]
+            ax.axhline(yv, ls="--", lw=1.8, color=col, zorder=1, alpha=0.9)
+            ax.text(xr, yv, "  " + lbl, color=col, fontsize=12.5,
+                    va="center", ha="left")
 
     sc = ax.scatter(xs(cond), ys(cond), c=cs(cond), s=ss(cond), cmap="viridis",
                     vmin=vmin, vmax=vmax, edgecolor="black", linewidth=0.8,
@@ -85,12 +99,14 @@ def main():
     ax.legend(handles=blind_handle, loc="upper right",
               bbox_to_anchor=(1.0, 0.60), fontsize=13, frameon=True)
 
-    # a light guide arrow for the main trend
-    ax.annotate("", xy=(0.092, 0.0455), xytext=(0.012, 0.0605),
-                arrowprops=dict(arrowstyle="-|>", color="0.45", lw=2.0,
-                                alpha=0.7))
-    ax.text(0.055, 0.0585, "more recoverable\n$\\to$ lower regret",
-            fontsize=13, color="0.4", ha="center", va="center", rotation=-19)
+    # light guide arrow for the main trend, placed in axes-fraction coords so it
+    # is robust to whatever data range this run produces
+    ax.annotate("more recoverable\n$\\to$ lower regret",
+                xy=(0.82, 0.16), xytext=(0.30, 0.52),
+                xycoords="axes fraction", textcoords="axes fraction",
+                fontsize=12.5, color="0.45", ha="center", va="center",
+                arrowprops=dict(arrowstyle="-|>", color="0.5", lw=2.0,
+                                alpha=0.6))
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     fig.savefig(args.out + ".pdf", bbox_inches="tight")
