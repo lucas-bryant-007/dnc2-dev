@@ -39,14 +39,15 @@ DISP = {"posX": "x-position", "posY": "y-position", "scale": "size",
 LBL = {"posX": COL["posX"], "posY": COL["posY"], "scale": COL["scale"],
        "shape": "#6B7280", "orientation": "#9C8B78"}
 
-# Fonts sized for proposal insertion at reduced width: everything ~1.5x the
-# reference mock so labels stay readable in a wrapfigure.
+# Fonts sized for proposal insertion at reduced width: everything ~1.7x the
+# reference mock so labels stay readable in a wrapfigure. y-axis labels are kept
+# short (one word each) so the bigger tick/label fonts don't crowd the axes.
 mpl.rcParams.update({
-    "font.family": "DejaVu Sans", "font.size": 15, "axes.edgecolor": INK,
-    "axes.linewidth": 1.0, "axes.titlesize": 17, "axes.labelsize": 16,
+    "font.family": "DejaVu Sans", "font.size": 16.5, "axes.edgecolor": INK,
+    "axes.linewidth": 1.0, "axes.titlesize": 19, "axes.labelsize": 18.5,
     "xtick.color": INK, "ytick.color": INK, "text.color": INK,
-    "axes.labelcolor": INK, "xtick.labelsize": 13.5, "ytick.labelsize": 13.5,
-    "legend.fontsize": 12, "figure.dpi": 150})
+    "axes.labelcolor": INK, "xtick.labelsize": 15, "ytick.labelsize": 15,
+    "legend.fontsize": 13, "figure.dpi": 150})
 
 
 def clean(ax):
@@ -80,9 +81,9 @@ def main():
     task_names = [t[0] for t in fam["diverse"]["tasks"]]
 
     fig, axes = plt.subplots(1, 2, figsize=(10.6, 4.4))
-    fig.subplots_adjust(left=0.085, right=0.995, top=0.82, bottom=0.15,
-                        wspace=0.26)
-    panel_lbl = dict(fontsize=18, fontweight="bold", va="bottom", ha="left")
+    fig.subplots_adjust(left=0.072, right=0.995, top=0.82, bottom=0.155,
+                        wspace=0.22)
+    panel_lbl = dict(fontsize=20, fontweight="bold", va="bottom", ha="left")
 
     # ---------- Panel a : spectrum bars + cumulative capacity + empirical ----
     ax = axes[0]
@@ -98,7 +99,7 @@ def main():
 
     ax.set_xticks(r.astype(int))
     ax.set_xlabel("dimension $r$ / eigen-index $j$")
-    ax.set_ylabel("spectrum / recoverability")
+    ax.set_ylabel("recoverability")
     ax.set_ylim(0, 1.06)
     ax.set_title(r"Spectrum $\to$ capacity law", loc="center", pad=8)
     ax.yaxis.grid(True, color=GRID, lw=0.8)
@@ -118,21 +119,21 @@ def main():
     # annotate the contrast (anchored to real values, offsets tuned to avoid
     # the legend and each other)
     ax.annotate("aligned: mass in 1 dim (shareable)",
-                xy=(1.30, a_cap[0]), xytext=(2.55, 0.895), fontsize=11.5,
+                xy=(1.30, a_cap[0]), xytext=(2.5, 0.905), fontsize=13,
                 color=TEAL, ha="left", va="center",
-                arrowprops=dict(arrowstyle="-|>", color=TEAL, lw=1.2,
+                arrowprops=dict(arrowstyle="-|>", color=TEAL, lw=1.3,
                                 shrinkB=4))
     ax.annotate("diverse: spread over 3 dims\n(interference to $r{=}3$)",
-                xy=(2.12, d_cap[1] - 0.01), xytext=(3.35, 0.47), fontsize=11.5,
+                xy=(2.15, d_cap[1] + 0.005), xytext=(3.3, 0.60), fontsize=13,
                 color=AMBER, ha="left",
-                arrowprops=dict(arrowstyle="-|>", color=AMBER, lw=1.2,
+                arrowprops=dict(arrowstyle="-|>", color=AMBER, lw=1.3,
                                 shrinkB=4))
-    ax.text(-0.15, 1.04, "a", transform=ax.transAxes, **panel_lbl)
+    ax.text(-0.14, 1.04, "a", transform=ax.transAxes, **panel_lbl)
 
     # ---------- Panel b : which diverse tasks survive ----------
     ax = axes[1]
     ax.axhline(0.5, color=MUTE, lw=1.2, ls=(0, (4, 3)), zorder=1)
-    ax.text(5.6, 0.489, "chance", fontsize=11, color=MUTE, va="top",
+    ax.text(5.5, 0.487, "chance", fontsize=12.5, color=MUTE, va="top",
             ha="left")
     for j, name in enumerate(task_names):
         # x/y-position coincide for r>=2: dash y-position so both stay visible
@@ -143,27 +144,27 @@ def main():
     ax.set_xlim(0.6, 12.4)
     ax.set_ylim(0.44, 1.04)
     ax.set_xlabel("bottleneck dimension $r$")
-    ax.set_ylabel("balanced held-out accuracy")
+    ax.set_ylabel("balanced accuracy")
     ax.set_title("Which diverse tasks survive?", loc="center", pad=8)
     ax.yaxis.grid(True, color=GRID, lw=0.8)
     ax.set_axisbelow(True)
     clean(ax)
 
     # direct labels, stacked where curves end at (nearly) the same value
-    lab = dict(fontsize=13, va="center", ha="left")
+    lab = dict(fontsize=14, va="center", ha="left")
     ends = {n: per_task[-1, j] for j, n in enumerate(task_names)}
     ypos = {  # hand-staggered so nothing collides at the larger font
-        "posX": min(ends["posX"], 0.985) + 0.032,   # above the coincident pair
-        "posY": ends["posY"] - 0.042,               # below it
+        "posX": min(ends["posX"], 0.985) + 0.036,   # above the coincident pair
+        "posY": ends["posY"] - 0.046,               # below it
         "scale": ends["scale"],
-        "shape": ends["shape"] + 0.034,
-        "orientation": ends["orientation"] - 0.030,
+        "shape": ends["shape"] + 0.038,
+        "orientation": ends["orientation"] - 0.034,
     }
     for name in task_names:
         bold = ends[name] > 0.6
         ax.text(8.3, ypos[name], DISP[name], color=LBL[name],
                 fontweight="bold" if bold else "normal", **lab)
-    ax.text(-0.15, 1.04, "b", transform=ax.transAxes, **panel_lbl)
+    ax.text(-0.14, 1.04, "b", transform=ax.transAxes, **panel_lbl)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     fig.savefig(args.out + ".pdf", bbox_inches="tight")

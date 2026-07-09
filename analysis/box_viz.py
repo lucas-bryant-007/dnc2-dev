@@ -287,7 +287,7 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                   linewidth=1.8, arrow_length_ratio=0.1)
         pos, ha, va = labelspec[k]
         ax.text(pos[0], pos[1], pos[2], alabels[k],
-                fontsize=12, fontweight="bold", ha=ha, va=va)
+                fontsize=17, fontweight="bold", ha=ha, va=va)
 
     # Zoom so the box fills the frame; drop the axis frame entirely so the figure
     # crops tight to the box (no empty 3D floor pane / whitespace).
@@ -304,7 +304,7 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     from matplotlib.lines import Line2D
 
     def _key(marker, fc, ec, lw, label):
-        return Line2D([0], [0], marker=marker, color="none", markersize=12,
+        return Line2D([0], [0], marker=marker, color="none", markersize=14,
                       markerfacecolor=fc, markeredgecolor=ec, markeredgewidth=lw,
                       label=label)
     def _hdr(label):  # column header: blank handle, just the channel name
@@ -323,15 +323,15 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
         _key("o", "white", "0.45", 2.2, llab[2][1]),
     ]
     fig.legend(key, [h.get_label() for h in key], loc="lower center", ncol=3,
-               fontsize=11, framealpha=0.9, handletextpad=0.5,
-               columnspacing=1.6, labelspacing=0.55, borderpad=0.6,
+               fontsize=14.5, framealpha=0.9, handletextpad=0.5,
+               columnspacing=1.3, labelspacing=0.5, borderpad=0.55,
                bbox_to_anchor=(0.5, 0.0))
     if has_pred:
         from matplotlib.lines import Line2D
         box_handles = [Line2D([0], [0], color="black", lw=1.8),
                        Line2D([0], [0], color=pred_color, lw=1.8, linestyle=(0, (5, 4)))]
         ax.legend(box_handles, ["observed", r"predicted $\sqrt{B_t}$"],
-                  loc="upper right", fontsize=9, framealpha=0.9)
+                  loc="upper right", fontsize=13, framealpha=0.9)
     for pth in (save_path if isinstance(save_path, (list, tuple)) else [save_path]):
         fig.savefig(pth, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
