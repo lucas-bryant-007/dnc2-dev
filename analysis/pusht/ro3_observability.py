@@ -53,6 +53,8 @@ class MLP(nn.Module):
 def obs_mlp(x_tr, y_tr, x_te, y_te, device, seed, epochs=150, bs=512, lr=1e-3):
     """Unconstrained regressor R^2 from (e_t, act) -> f: the observability ceiling."""
     set_seed(seed)
+    x_tr = np.asarray(x_tr, np.float32); y_tr = np.asarray(y_tr, np.float32)
+    x_te = np.asarray(x_te, np.float32)
     model = MLP(x_tr.shape[1], y_tr.shape[1]).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
     xt = torch.as_tensor(x_tr, device=device); yt = torch.as_tensor(y_tr, device=device)
