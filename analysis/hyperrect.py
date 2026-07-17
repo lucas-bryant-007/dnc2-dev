@@ -253,14 +253,22 @@ def box_prediction_diagnostics(box: Sequence[Dict], predicted_box: Sequence[Dict
             "min_cell_count": 0,
         }
     errors = []
+    predicted_squared_radii = []
     for combo in shared:
         obs = torch.tensor(observed[combo], dtype=torch.float64)
         pred = torch.tensor(predicted[combo], dtype=torch.float64)
         errors.append(float(torch.linalg.vector_norm(obs - pred).item()))
+        predicted_squared_radii.append(float((pred @ pred).item()))
     counts = [entry["count"] for entry in box if tuple(entry["combo"]) in shared]
+    centroid_rmse = math.sqrt(sum(error * error for error in errors) / len(errors))
+    predicted_rms_radius = math.sqrt(sum(predicted_squared_radii) / len(predicted_squared_radii))
     return {
         "n_corners": len(shared),
-        "centroid_rmse": math.sqrt(sum(error * error for error in errors) / len(errors)),
+        "centroid_rmse": centroid_rmse,
+        "predicted_rms_radius": predicted_rms_radius,
+        "normalized_centroid_rmse": (
+            centroid_rmse / predicted_rms_radius if predicted_rms_radius > 0 else None
+        ),
         "max_centroid_error": max(errors),
         "min_cell_count": min(counts),
         "per_corner_error": [

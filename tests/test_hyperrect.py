@@ -59,5 +59,7 @@ def test_box_prediction_diagnostics_reports_corner_error_and_counts():
 
     assert diagnostics["n_corners"] == 2
     assert math.isclose(diagnostics["centroid_rmse"], math.sqrt(0.5))
+    assert math.isclose(diagnostics["predicted_rms_radius"], math.sqrt(3.0))
+    assert math.isclose(diagnostics["normalized_centroid_rmse"], math.sqrt(1.0 / 6.0))
     assert diagnostics["max_centroid_error"] == 1.0
     assert diagnostics["min_cell_count"] == 10

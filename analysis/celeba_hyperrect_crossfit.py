@@ -241,18 +241,53 @@ def main(args):
     diagnostics = H.box_prediction_diagnostics(
         test_result["box"], test_result["predicted_box"]
     )
+    test_triple = _triple_summary(test_result)
+    test_min_capture = min(float(row["capture_B"]) for row in test_triple)
+    headline_criteria = {
+        "max_pairwise_abs_cos": {
+            "target": args.test_cos_target,
+            "observed": float(test_result["triple_max_abs_cos"]),
+            "passed": float(test_result["triple_max_abs_cos"]) <= args.test_cos_target,
+        },
+        "min_capture_B": {
+            "target": args.test_min_capture,
+            "observed": test_min_capture,
+            "passed": test_min_capture >= args.test_min_capture,
+        },
+        "normalized_centroid_rmse": {
+            "target": args.max_normalized_centroid_rmse,
+            "observed": diagnostics["normalized_centroid_rmse"],
+            "passed": (
+                diagnostics["normalized_centroid_rmse"]
+                <= args.max_normalized_centroid_rmse
+            ),
+        },
+        "min_cell_count": {
+            "target": args.min_test_cell_count,
+            "observed": diagnostics["min_cell_count"],
+            "passed": diagnostics["min_cell_count"] >= args.min_test_cell_count,
+        },
+    }
+    headline_passed = all(item["passed"] for item in headline_criteria.values())
     print(f"Test triple: {test_result['triple_names']}")
     print(f"Test max pairwise |cos|: {test_result['triple_max_abs_cos']:.4f}")
-    for row in _triple_summary(test_result):
+    for row in test_triple:
         print(
             f"  {row['name']}: B={row['capture_B']:.4f}, "
             f"sqrtB={row['sqrt_capture_B']:.4f}, pos_frac={row['pos_frac']:.3f}"
         )
     print(
         f"Centroid RMSE={diagnostics['centroid_rmse']:.4f}; "
+        f"normalized RMSE={diagnostics['normalized_centroid_rmse']:.4f}; "
         f"max error={diagnostics['max_centroid_error']:.4f}; "
         f"min test cell count={diagnostics['min_cell_count']}"
     )
+    print(f"Preregistered headline criteria passed: {headline_passed}")
+    for name, item in headline_criteria.items():
+        print(
+            f"  {name}: observed={item['observed']:.4f}, "
+            f"target={item['target']}, passed={item['passed']}"
+        )
 
     method = str(cfg.method.name)
     tag = (args.tag or "crossfit").strip()
@@ -278,12 +313,20 @@ def main(args):
             "cos_ceiling": args.cos_ceiling,
             "constraints_satisfied": constraints_ok,
             "rewhitening": "label-free, fitted independently within each analysis split",
+            "preregistered_test_criteria": {
+                "max_pairwise_abs_cos": args.test_cos_target,
+                "min_capture_B": args.test_min_capture,
+                "max_normalized_centroid_rmse": args.max_normalized_centroid_rmse,
+                "min_cell_count": args.min_test_cell_count,
+            },
         },
         "ssl_subspace_k_eff": estimator.k_eff,
         "selected_triple": frozen_triple,
         "train_selection": train_payload,
         "test_evaluation": _serializable_result(test_result),
         "test_box_diagnostics": diagnostics,
+        "headline_criteria": headline_criteria,
+        "headline_criteria_passed": headline_passed,
     }
     json_path = mio.write_json(
         os.path.join(metrics_dir, f"hyperrect_{stem}.json"),
@@ -327,6 +370,10 @@ if __name__ == "__main__":
     parser.add_argument("--whiten_ridge_rel", type=float, default=1e-3)
     parser.add_argument("--transform_batch_size", type=int, default=8192)
     parser.add_argument("--allow_constraint_fallback", action="store_true")
+    parser.add_argument("--test_cos_target", type=float, default=0.15)
+    parser.add_argument("--test_min_capture", type=float, default=0.10)
+    parser.add_argument("--max_normalized_centroid_rmse", type=float, default=0.25)
+    parser.add_argument("--min_test_cell_count", type=int, default=100)
     parser.add_argument("--show_samples", action="store_true")
     parser.add_argument("--out_dir", default=".")
     parser.add_argument("--tag", default="crossfit")
