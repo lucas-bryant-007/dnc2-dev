@@ -189,7 +189,8 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                 predicted_box=None, per_task=500, title=None, zoom=1.12,
                 axis_labels=None, level_labels=None, show_samples=True,
                 show_centroid_se=False, publication_compact=False,
-                axis_label_positions=None, sample_seed=0):
+                axis_label_positions=None, sample_seed=0,
+                sample_size=9, sample_alpha=0.38):
     """Clean 3D hyper-rectangle for the proposal: a swarm of samples colored by
     granular task clustered around each of the 8 centroids, a bold box through
     the centroids, and labeled arrows along the three task axes (orthogonality).
@@ -240,7 +241,8 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                 continue
             if sel.size > per_task:
                 sel = sample_rng.choice(sel, per_task, replace=False)
-            ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2], s=9, alpha=0.38,
+            ax.scatter(p[sel, 0], p[sel, 1], p[sel, 2],
+                       s=sample_size, alpha=sample_alpha,
                        color=CH_COLORS[combo[0]], edgecolors="none", depthshade=True,
                        rasterized=True)
 

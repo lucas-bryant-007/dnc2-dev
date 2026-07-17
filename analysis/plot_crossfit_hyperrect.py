@@ -87,12 +87,15 @@ def render_crossfit_json(
         triple,
         [str(path) for path in outputs],
         predicted_box=None,
+        per_task=160,
         axis_labels=[name.replace("_", " ") for name in triple],
         level_labels=[_CELEBA_LEVEL_LABELS.get(name, ("absent", "present")) for name in triple],
         show_samples=coords.shape[0] > 0,
         show_centroid_se=False,
         publication_compact=False,
         axis_label_positions=[(1.14, 0.0, 0.0), (0.0, 1.14, 0.0), (0.22, 0.0, 0.82)],
+        sample_size=8,
+        sample_alpha=0.20,
     )
     return outputs
 
