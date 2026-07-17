@@ -161,7 +161,7 @@ def plot_spectrum(curves, save_paths, rmax):
     """curves: list of (label, cumulative_mass_array, color). Saves each path."""
     fig, ax = plt.subplots(figsize=(6.6, 4.8))
     styles = [("-", "o"), ("--", "s")]
-    for (label, cms, color), (ls, mk) in zip(curves, styles):
+    for (label, cms, color), (ls, mk) in zip(curves, styles, strict=True):
         r = np.arange(1, len(cms) + 1)
         ax.plot(r, cms, ls, marker=mk, color=color, lw=2.6, markersize=7,
                 label=label, zorder=3)
@@ -219,9 +219,9 @@ def main(args):
     families = [(ALIGNED_NAME, ALIGNED_TASKS), (DIVERSE_NAME, DIVERSE_TASKS)]
     results, curves = {}, []
     colors = ["#1f77b4", "#d62728"]
-    for (fname, tasks), color in zip(families, colors):
+    for (fname, tasks), color in zip(families, colors, strict=True):
         labels = [_task_labels(latents, f, thr, shape_hi) for f, thr in tasks]
-        for (f, thr), s in zip(tasks, labels):
+        for (f, thr), s in zip(tasks, labels, strict=True):
             pos = float((s > 0).mean())
             print(f"  [{fname[:8]}] {f}>={thr}  pos_frac={pos:.3f}")
         evals = family_spectrum(X, labels, normalize=args.normalize)

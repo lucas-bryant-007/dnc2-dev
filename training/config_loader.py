@@ -5,9 +5,13 @@ Replaces HYDRA for basic configuration management.
 
 import os
 import re
-import yaml
 from pathlib import Path
 from typing import Any, Dict
+
+import yaml
+
+
+_ENV_PATTERN = re.compile(r"\$\{oc\.env:([^,}]+)(?:,([^}]*))?\}")
 
 
 def _substitute_env_vars(value: Any) -> Any:
@@ -16,15 +20,23 @@ def _substitute_env_vars(value: Any) -> Any:
     Supports ${oc.env:VAR_NAME,default_value} syntax.
     """
     if isinstance(value, str):
-        # Pattern: ${oc.env:VAR_NAME,default} or ${oc.env:VAR_NAME}
-        pattern = r'\$\{oc\.env:([^,}]+)(?:,([^}]*))?\}'
-
         def replace_env(match):
-            var_name = match.group(1)
+            var_name = match.group(1).strip()
             default_val = match.group(2)
-            return os.environ.get(var_name, default_val if default_val is not None else '')
+            return os.environ.get(
+                var_name,
+                default_val if default_val is not None else "",
+            )
 
-        return re.sub(pattern, replace_env, value)
+        # Preserve YAML scalar types for a full-value expression. This keeps
+        # `null`, booleans, and numbers from becoming truthy strings.
+        full_match = _ENV_PATTERN.fullmatch(value)
+        if full_match:
+            substituted = replace_env(full_match)
+            parsed = yaml.safe_load(substituted)
+            return os.path.expanduser(parsed) if isinstance(parsed, str) else parsed
+
+        return os.path.expanduser(_ENV_PATTERN.sub(replace_env, value))
     elif isinstance(value, dict):
         return {k: _substitute_env_vars(v) for k, v in value.items()}
     elif isinstance(value, list):
@@ -48,7 +60,7 @@ def load_config(config_path: str) -> Dict[str, Any]:
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
 
-    with open(config_path, 'r') as f:
+    with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     if config is None:

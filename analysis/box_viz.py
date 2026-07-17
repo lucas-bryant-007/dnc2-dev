@@ -39,7 +39,10 @@ def render_box_frame(pts, pts_task, centroids, triple_names, lim, arrow_len,
         if sel.size == 0:
             continue
         combo = ((idx >> 2) & 1, (idx >> 1) & 1, idx & 1)
-        lbl = " ".join((("+" if b else "-") + n) for n, b in zip(triple_names, combo))
+        lbl = " ".join(
+            (("+" if b else "-") + n)
+            for n, b in zip(triple_names, combo, strict=True)
+        )
         ax.scatter(pts[sel, 0], pts[sel, 1], pts[sel, 2], s=point_size,
                    alpha=point_alpha, color=cmap(idx), edgecolors="none",
                    depthshade=True, label=lbl)
@@ -200,7 +203,6 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
 
     fig = plt.figure(figsize=(7.0, 6.4))
     ax = fig.add_subplot(111, projection="3d")
-    cmap = plt.cm.tab10
     p = coords.numpy() if hasattr(coords, "numpy") else np.asarray(coords)
     g = granular_task.numpy() if hasattr(granular_task, "numpy") else np.asarray(granular_task)
 
@@ -264,7 +266,7 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                        facecolors="white", edgecolors=color, linewidth=2.6,
                        depthshade=False)
     if has_pred:  # open red diamonds framing each observed centroid
-        for combo, ctr in pcent.items():
+        for _combo, ctr in pcent.items():
             ax.scatter(ctr[0], ctr[1], ctr[2], s=310, marker="D",
                        facecolors="none", edgecolors=pred_color, linewidth=2.0,
                        depthshade=False)

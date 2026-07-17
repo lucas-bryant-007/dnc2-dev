@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
 from matplotlib.colors import LogNorm
 import numpy as np
 
@@ -48,8 +47,11 @@ def plot_fewshot_compare(curves_for_r, save_path=None, title="Few-shot NCC: new 
     # Bounds are error PROBABILITIES; clip the display at 1 so a vacuous/huge
     # bound (e.g. the Euclidean CDNV bound on a whitened rep) can't blow up the
     # axis. Empirical is left unclipped (it is always <= 0.5 for a balanced task).
-    col = lambda k: [cv[m][k] for m in ms]
-    colc = lambda k: [min(cv[m][k], 1.0) for m in ms]
+    def col(key):
+        return [cv[m][key] for m in ms]
+
+    def colc(key):
+        return [min(cv[m][key], 1.0) for m in ms]
     plt.figure(figsize=(7.5, 5.5))
     plt.plot(ms, col("empirical"), marker="o", color="black", label="empirical NCC")
     plt.plot(ms, colc("thm45_B"), marker="s", color="tab:red",

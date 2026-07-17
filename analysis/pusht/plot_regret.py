@@ -42,34 +42,53 @@ def main():
     rows = data["models"] if isinstance(data, dict) else data
     baselines = data.get("baselines", {}) if isinstance(data, dict) else {}
 
-    cond = [d for d in rows if not d["action_blind"]]
+    cond_rows = [d for d in rows if not d["action_blind"]]
     blind = [d for d in rows if d["action_blind"]]
     losses = [d["val_loss"] for d in rows]
     vmin, vmax = min(losses), max(losses)
 
     apply_style()
-    fig, ax = plt.subplots(figsize=(9.2, 6.8))
+    fig, ax = plt.subplots(figsize=(9.2, 6.8), constrained_layout=True)
+
+    cond = []
+    for rank in sorted({int(row["r"]) for row in cond_rows}):
+        group = [row for row in cond_rows if int(row["r"]) == rank]
+        cond.append({
+            "r": rank,
+            "probe_r2": float(np.mean([row["probe_r2"] for row in group])),
+            "probe_r2_sd": float(np.std([row["probe_r2"] for row in group])),
+            "mean_regret": float(np.mean([row["mean_regret"] for row in group])),
+            "mean_regret_sd": float(np.std([row["mean_regret"] for row in group])),
+            "val_loss": float(np.mean([row["val_loss"] for row in group])),
+        })
 
     def xs(g): return [d["probe_r2"] for d in g]
     def ys(g): return [d["mean_regret"] for d in g]
     def cs(g): return [d["val_loss"] for d in g]
-    def ss(g): return [R_SIZES[d["r"]] for d in g]
+    def ss(g): return [R_SIZES.get(d["r"], 180) for d in g]
 
     # Reference baselines: horizontal lines for "pick at random" (the true
     # no-information floor) and "copy the expert demo". A useful representation
     # must sit BELOW these; that is the honest bar for the RO3 claim.
-    xr = max(xs(cond) + xs(blind)) if (cond or blind) else 0.1
     for key, lbl, col in [("random_select", "random selection", "#9CA3AF"),
                           ("copy_demo", "copy expert demo", "#D97706")]:
         if key in baselines:
             yv = baselines[key]
             ax.axhline(yv, ls="--", lw=1.8, color=col, zorder=1, alpha=0.9)
-            ax.text(xr, yv, "  " + lbl, color=col, fontsize=12.5,
-                    va="center", ha="left")
+            xpos = 0.02 if key == "random_select" else 0.36
+            ax.text(xpos, yv, lbl, color=col, fontsize=12.5,
+                    va="bottom", ha="left", transform=ax.get_yaxis_transform(),
+                    bbox=dict(facecolor="white", edgecolor="none", alpha=0.8, pad=1))
 
     sc = ax.scatter(xs(cond), ys(cond), c=cs(cond), s=ss(cond), cmap="viridis",
                     vmin=vmin, vmax=vmax, edgecolor="black", linewidth=0.8,
                     alpha=0.95, zorder=3)
+    ax.errorbar(
+        xs(cond), ys(cond),
+        xerr=[d["probe_r2_sd"] for d in cond],
+        yerr=[d["mean_regret_sd"] for d in cond],
+        fmt="none", ecolor="0.35", capsize=3, lw=1.2, zorder=2,
+    )
     # action-blind controls: same color scale, X marker, fixed mid size
     ax.scatter(xs(blind), ys(blind), c=cs(blind), s=200, cmap="viridis",
                vmin=vmin, vmax=vmax, marker="X", edgecolor="black",
@@ -92,25 +111,24 @@ def main():
                            markerfacecolor="0.7", markeredgecolor="black",
                            markersize=11, label="action-blind control")]
     leg1 = ax.legend(handles=size_handles, title="bottleneck $r$",
-                     loc="upper right", labelspacing=1.1, borderpad=0.8,
+                     loc="lower left", labelspacing=1.1, borderpad=0.8,
                      handletextpad=0.9, fontsize=13, title_fontsize=14,
                      frameon=True)
     ax.add_artist(leg1)
-    ax.legend(handles=blind_handle, loc="upper right",
-              bbox_to_anchor=(1.0, 0.60), fontsize=13, frameon=True)
+    ax.legend(handles=blind_handle, loc="lower right",
+              fontsize=13, frameon=True)
 
-    # light guide arrow for the main trend, placed in axes-fraction coords so it
-    # is robust to whatever data range this run produces
-    ax.annotate("more recoverable\n$\\to$ lower regret",
-                xy=(0.82, 0.16), xytext=(0.30, 0.52),
-                xycoords="axes fraction", textcoords="axes fraction",
-                fontsize=12.5, color="0.45", ha="center", va="center",
-                arrowprops=dict(arrowstyle="-|>", color="0.5", lw=2.0,
-                                alpha=0.6))
+    corr = data.get("conditioned_recovery_regret_pearson")
+    if corr is not None:
+        ax.text(
+            0.02, 0.60, f"conditioned runs: Pearson $r={corr:.2f}$",
+            transform=ax.transAxes, va="top", ha="left", fontsize=11.5,
+            color="0.35",
+        )
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    fig.savefig(args.out + ".pdf", bbox_inches="tight")
-    fig.savefig(args.out + ".png", bbox_inches="tight", dpi=200)
+    fig.savefig(args.out + ".pdf", facecolor="white")
+    fig.savefig(args.out + ".png", dpi=200, facecolor="white")
     print("saved", args.out + ".{pdf,png}")
 
 

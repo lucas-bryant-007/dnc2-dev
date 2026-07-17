@@ -2,7 +2,7 @@
 
 Emits the `factors` block of the results.json consumed by ro3_figure.py.
 
-Crucially, Obs(f) is the held-out R^2 of an UNCONSTRAINED regressor
+Obs(f) is estimated by the held-out R^2 of a flexible finite MLP regressor
     (E(X_t), a_{t:t+H-1})  ->  f
 i.e. from the observation + actions, NOT from an encoder of the future state.
 That keeps observability (can f be inferred from what we observe at all) distinct
@@ -23,7 +23,14 @@ import torch
 import torch.nn as nn
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from pusht_common import frozen_embeddings, episode_split, flat_rows, set_seed
+from pusht_common import (
+    frozen_embeddings,
+    episode_split,
+    flat_rows,
+    rows_for_checkpoint,
+    set_seed,
+    standardize_rows,
+)
 from train_jepa import JEPA
 
 
@@ -51,7 +58,7 @@ class MLP(nn.Module):
 
 
 def obs_mlp(x_tr, y_tr, x_te, y_te, device, seed, epochs=150, bs=512, lr=1e-3):
-    """Unconstrained regressor R^2 from (e_t, act) -> f: the observability ceiling."""
+    """Finite-MLP estimate from (e_t, act) to f; a lower bound on observability."""
     set_seed(seed)
     x_tr = np.asarray(x_tr, np.float32); y_tr = np.asarray(y_tr, np.float32)
     x_te = np.asarray(x_te, np.float32)
@@ -74,19 +81,19 @@ def obs_mlp(x_tr, y_tr, x_te, y_te, device, seed, epochs=150, bs=512, lr=1e-3):
 
 
 def factor_targets(d, n, c):
-    """Each factor as a (rows, k) standardized array. Orientation is [sin,cos]."""
+    """Return raw factor arrays. Orientation is represented as [sin, cos]."""
     pose = d["pose_f"].reshape(n * c, 3)
     ang = pose[:, 2]
-    def z(a):
+    def columns(a):
         a = np.atleast_2d(a.astype(np.float64))
         if a.shape[0] == 1:
             a = a.T
-        return (a - a.mean(0)) / (a.std(0) + 1e-8)
+        return a
     return {
-        "object x-position": z(pose[:, 0]),
-        "object y-position": z(pose[:, 1]),
-        "T orientation": z(np.stack([np.sin(ang), np.cos(ang)], 1)),
-        "goal coverage": z(d["progress"].reshape(n * c)),
+        "object x-position": columns(pose[:, 0]),
+        "object y-position": columns(pose[:, 1]),
+        "T orientation": columns(np.stack([np.sin(ang), np.cos(ang)], 1)),
+        "goal progress": columns(d["progress"].reshape(n * c)),
     }
 
 
@@ -109,7 +116,8 @@ def main():
     targets = factor_targets(d, n, c)
 
     # observability input: (E(X_t), actions) -- the observation + the actions
-    x_obs = np.concatenate([rows["e_t"], rows["act"]], 1).astype(np.float32)
+    obs_rows, _ = standardize_rows(rows, tr)
+    x_obs = np.concatenate([obs_rows["e_t"], rows["act"]], 1).astype(np.float32)
 
     # bottleneck read-outs: Z from the trained models at the chosen r
     zs = []
@@ -119,26 +127,43 @@ def main():
             continue
         m = JEPA(ck["emb_dim"], ck["act_dim"], ck["r"]).to(args.device)
         m.load_state_dict(ck["state_dict"]); m.eval()
+        model_rows = rows_for_checkpoint(rows, split, ck)
         with torch.no_grad():
             zs.append(m.bottleneck(
-                torch.as_tensor(rows["e_t"], device=args.device),
+                torch.as_tensor(model_rows["e_t"], device=args.device),
                 torch.as_tensor(rows["act"], device=args.device)).cpu().numpy())
     print(f"B_f(G): {len(zs)} conditioned models at r={args.r}")
+    if not zs:
+        raise RuntimeError(
+            f"No action-conditioned checkpoints found for bottleneck r={args.r}"
+        )
+    if args.obs_seeds < 1:
+        raise ValueError("obs_seeds must be at least one")
 
     factors = []
     for name, y in targets.items():
+        target_mean = y[tr].mean(0, keepdims=True)
+        target_std = y[tr].std(0, keepdims=True)
+        target_std = np.where(target_std < 1e-8, 1.0, target_std)
+        y = (y - target_mean) / target_std
         obs = [obs_mlp(x_obs[tr], y[tr], x_obs[te], y[te], args.device, s)
                for s in range(args.obs_seeds)]
         cap = [ridge_cap(z[tr], y[tr], z[te], y[te]) for z in zs]
         rec = dict(name=name,
-                   obs=float(np.mean(obs)), obs_se=float(np.std(obs)),
-                   cap=float(np.mean(cap)), cap_se=float(np.std(cap)))
+                   obs=float(np.mean(obs)), obs_sd=float(np.std(obs)),
+                   cap=float(np.mean(cap)), cap_sd=float(np.std(cap)))
         factors.append(rec)
-        print(f"  {name:<20} Obs={rec['obs']:.3f}±{rec['obs_se']:.3f}  "
-              f"B_f={rec['cap']:.3f}±{rec['cap_se']:.3f}")
+        print(f"  {name:<20} Obs={rec['obs']:.3f}±{rec['obs_sd']:.3f}  "
+              f"B_f={rec['cap']:.3f}±{rec['cap_sd']:.3f}")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    payload = {"factors": factors, "n_seeds": len(zs), "bottleneck_r": args.r}
+    payload = {
+        "factors": factors,
+        "n_seeds": len(zs),
+        "bottleneck_r": args.r,
+        "observability_estimator": "finite_mlp_lower_bound",
+        "preprocessing_scope": "train_split_only",
+    }
     with open(args.out, "w") as f:
         json.dump(payload, f, indent=1)
     print("saved", args.out)

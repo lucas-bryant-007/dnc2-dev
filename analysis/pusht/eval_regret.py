@@ -26,7 +26,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from pusht_common import frozen_embeddings, episode_split, flat_rows
+from pusht_common import frozen_embeddings, episode_split, flat_rows, rows_for_checkpoint
 from train_jepa import JEPA
 
 INK, GRID, MUTE = "#1F2A37", "#E5E7EB", "#9CA3AF"
@@ -72,6 +72,13 @@ def main():
     test_states = split["test_states"]
     spread = c_f[test_states].max(1) - c_f[test_states].min(1)
     keep_states = test_states[spread >= args.min_spread]
+    if len(keep_states) == 0:
+        raise RuntimeError(
+            f"No held-out states meet min_spread={args.min_spread}; lower the threshold"
+        )
+    keep_rows = (
+        keep_states[:, None] * n_cand + np.arange(n_cand)[None, :]
+    ).ravel()
     cf_keep = c_f[keep_states]                       # (n_keep, n_cand)
     cmax = cf_keep.max(1)
     print(f"regret on {len(keep_states)}/{len(test_states)} test states "
@@ -99,16 +106,17 @@ def main():
                      action_blind=ck["action_blind"]).to(args.device)
         model.load_state_dict(ck["state_dict"])
         model.eval()
+        model_rows = rows_for_checkpoint(rows, split, ck)
         with torch.no_grad():
             z = model.bottleneck(
-                torch.as_tensor(rows["e_t"], device=args.device),
+                torch.as_tensor(model_rows["e_t"], device=args.device),
                 torch.as_tensor(rows["act"], device=args.device)
             ).cpu().numpy()
 
         w, r2 = ridge_probe(z[split["train"]],
                             rows["progress"][split["train"]],
-                            z[split["test"]],
-                            rows["progress"][split["test"]])
+                            z[keep_rows],
+                            rows["progress"][keep_rows])
         # candidate selection on held-out states, with RANDOM tie-breaking:
         # a blind model scores all candidates identically, so plain argmax would
         # always pick candidate 0 (= the expert demo) and look unfairly good.
@@ -127,9 +135,26 @@ def main():
         print(f"{results[-1]['name']}: R2={r2:.3f} "
               f"regret={regret.mean():.4f} loss={ck['val_loss']:.4f}")
 
+    if not results:
+        raise RuntimeError(f"No model checkpoints found in {args.runs}")
+
+    conditioned = [item for item in results if not item["action_blind"]]
+    if len(conditioned) >= 2:
+        corr = float(np.corrcoef(
+            [item["probe_r2"] for item in conditioned],
+            [item["mean_regret"] for item in conditioned],
+        )[0, 1])
+    else:
+        corr = None
+
     os.makedirs("metrics", exist_ok=True)
     with open("metrics/ro3_pusht_regret.json", "w") as f:
-        json.dump({"models": results, "baselines": baselines}, f, indent=1)
+        json.dump({
+            "models": results,
+            "baselines": baselines,
+            "conditioned_recovery_regret_pearson": corr,
+            "probe_evaluation_scope": "same_non_degenerate_test_candidates_as_regret",
+        }, f, indent=1)
 
     # ---------------- the single proposal scatter ----------------
     fig, ax = plt.subplots(figsize=(5.4, 4.2))

@@ -31,7 +31,7 @@ import numpy as np
 import torch
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from pusht_common import frozen_embeddings, episode_split, flat_rows
+from pusht_common import frozen_embeddings, episode_split, flat_rows, rows_for_checkpoint
 from train_jepa import JEPA
 
 
@@ -47,9 +47,10 @@ def ridge_r2(z_tr, y_tr, z_te, y_te, alpha=1e-2):
     return float(1.0 - np.sum((y_te - pred) ** 2) / ss_tot)
 
 
-def zscore(y):
+def zscore(y, fit_indices):
     y = y.astype(np.float64)
-    return (y - y.mean()) / (y.std() + 1e-8)
+    fit = y[fit_indices]
+    return (y - fit.mean()) / (fit.std() + 1e-8)
 
 
 def demean_within(a, n, c):
@@ -85,15 +86,17 @@ def main():
     tr, te = split["train"], split["test"]
     pose = d["pose_f"].reshape(n * c, 3)
     targets = {
-        "progress": zscore(d["progress"].reshape(n * c)),
-        "final_x": zscore(pose[:, 0]),
-        "final_y": zscore(pose[:, 1]),
-        "displacement": zscore(d["displacement"].reshape(n * c)),
+        "progress": zscore(d["progress"].reshape(n * c), tr),
+        "final_x": zscore(pose[:, 0], tr),
+        "final_y": zscore(pose[:, 1], tr),
+        "displacement": zscore(d["displacement"].reshape(n * c), tr),
     }
 
     # upper bound: recover each factor from the full future embedding directly
     e_f = rows["e_f"]
-    full = {k: dict(zip(("pooled", "within"), both_r2(e_f, y, tr, te, n, c)))
+    full = {k: dict(zip(
+        ("pooled", "within"), both_r2(e_f, y, tr, te, n, c), strict=True
+    ))
             for k, y in targets.items()}
     print("full future embedding (upper bound):")
     for k in targets:
@@ -110,9 +113,10 @@ def main():
                      action_blind=ck["action_blind"]).to(args.device)
         model.load_state_dict(ck["state_dict"])
         model.eval()
+        model_rows = rows_for_checkpoint(rows, split, ck)
         with torch.no_grad():
             z = model.bottleneck(
-                torch.as_tensor(rows["e_t"], device=args.device),
+                torch.as_tensor(model_rows["e_t"], device=args.device),
                 torch.as_tensor(rows["act"], device=args.device)).cpu().numpy()
         factors = {}
         for k, y in targets.items():
@@ -126,7 +130,8 @@ def main():
 
     os.makedirs("metrics", exist_ok=True)
     with open("metrics/ro3_recoverability_diag.json", "w") as f:
-        json.dump({"models": out, "full_embedding": full}, f, indent=1)
+        json.dump({"models": out, "full_embedding": full,
+                   "preprocessing_scope": "train_split_only"}, f, indent=1)
     print("\nsaved metrics/ro3_recoverability_diag.json")
 
 

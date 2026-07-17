@@ -1,46 +1,52 @@
 # Directional Neural Collapse
 
-Authors: 
+Research code for studying which task directions survive self-supervised
+representation learning. The repository includes SSL training, directional-CDNV
+and few-shot bounds, multi-task hyper-rectangle geometry, shared-bottleneck
+interference, and Push-T future-factor recoverability experiments.
 
-We acknowledge the public availability of the following repositories, which we have built upon in our work:
+The implemented training methods are:
 
-- [Lightly-SSL](https://github.com/lightly-ai/lightly) for training models from scratch
-- [Timm](https://github.com/rwightman/pytorch-image-models) for vision models and datasets
-
-## Abstract
-
-```
-TODO
-```
-
-### NCCC evaluation
-
-```python
-TODO
-```
-
-This shall result in `nccc.csv` file in your output directory. 
-
-### CDNV evaluation
-
-```python
-TODO
-```
-
-This shall result in `cdnv.csv` file in your output directory.
-
-# Training SSL models from scratch
-
-Our repository supports training following SSL methods from scratch:
 - VICReg
-- Barlow Twins
+- W-MSE
+- I-JEPA
 
+## Setup
 
-You can find the training scripts and necessary utilities in the [training](src/training) folder. Please refer to the [training_from_scratch.md](docs/training_from_scratch.md) document for detailed instructions on training these models from scratch.
+Create an isolated Python environment, then install the runtime and test
+dependencies:
 
-## Citation
-If you find our work useful in your research, please consider citing the following paper:
-
-```bibtex
-TODO
+```bash
+python -m pip install -r requirements.txt -r requirements-dev.txt
 ```
+
+Train from a checked-in configuration:
+
+```bash
+python training/train.py --config configs/ijepa/celeba.yaml
+```
+
+See [training from scratch](docs/training_from_scratch.md) for configuration,
+resume, logging, and checkpoint details. Analysis entry points live in
+`analysis/`; each executable script documents its inputs and expected outputs in
+`--help` and its module docstring. Curated metrics and proposal figures are
+tracked, while local datasets, checkpoints, and run directories are ignored.
+
+## Reproducibility notes
+
+- Training seeds Python, NumPy, PyTorch, and data-loader workers through
+  Lightning.
+- I-JEPA checkpoints include the EMA teacher for exact resume; older
+  teacherless checkpoints load with an explicit compatibility warning.
+- RO2/RO3 supervised evaluation fits preprocessing and probes on training rows
+  only and evaluates disjoint held-out rows.
+- Saved metric files identify legacy results that predate train-only
+  preprocessing and need regeneration before being treated as corrected runs.
+
+The experiments are ongoing research; citation metadata has not yet been
+released.
+
+## Acknowledgements
+
+This code builds on [Lightly SSL](https://github.com/lightly-ai/lightly) and
+[timm](https://github.com/huggingface/pytorch-image-models).

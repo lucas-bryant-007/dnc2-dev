@@ -1,10 +1,9 @@
 import math
+import warnings
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.amp import autocast
 from torch.optim.lr_scheduler import LambdaLR
-from omegaconf import OmegaConf
 from copy import deepcopy
 
 import os, sys
@@ -17,8 +16,6 @@ from lightly.models.modules import MaskedVisionTransformerTIMM
 
 # timm vit builders
 from timm.models.vision_transformer import vit_base_patch32_224, vit_base_patch16_224, vit_large_patch16_224
-import timm.optim.optim_factory as optim_factory
-
 def _namespace_to_dict(ns) -> dict:
     """
     Convert a Namespace object back to a dictionary recursively.
@@ -59,6 +56,24 @@ class LightlyIJEPA(pl.LightningModule):
         self.backbone = MaskedVisionTransformerTIMM(vit=vit_student)
         self.sequence_length = self.backbone.sequence_length  # includes CLS
 
+        patch_size = vit_student.patch_embed.patch_size
+        patch_size = patch_size[0] if isinstance(patch_size, tuple) else patch_size
+        image_size = vit_student.patch_embed.img_size
+        image_size = image_size[0] if isinstance(image_size, tuple) else image_size
+        configured_patch_size = int(getattr(cfg.model, "patch_size", patch_size))
+        configured_image_size = int(getattr(cfg.data, "img_size", image_size))
+        if configured_patch_size != patch_size:
+            raise ValueError(
+                f"Configured patch_size={configured_patch_size} does not match "
+                f"{cfg.model.encoder_type} patch size {patch_size}."
+            )
+        if configured_image_size != image_size:
+            raise ValueError(
+                f"Configured data.img_size={configured_image_size} does not match "
+                f"{cfg.model.encoder_type} image size {image_size}."
+            )
+        self.expected_image_size = image_size
+
         D = vit_student.embed_dim
 
         # ── predictor ─────────────────────────────────────────────────
@@ -87,6 +102,12 @@ class LightlyIJEPA(pl.LightningModule):
 
         self.criterion = nn.MSELoss()
 
+    def train(self, mode: bool = True):
+        """Keep the EMA teacher deterministic while training student modules."""
+        super().train(mode)
+        self.teacher.eval()
+        return self
+
     # ──────────────────────────────────────────────────────────────────
     #  EMA helpers
     # ──────────────────────────────────────────────────────────────────
@@ -106,7 +127,7 @@ class LightlyIJEPA(pl.LightningModule):
         """Exponential moving average update of teacher from student."""
         momentum = self._ema_momentum()
         for teacher_p, student_p in zip(
-            self.teacher.parameters(), self.backbone.parameters()
+            self.teacher.parameters(), self.backbone.parameters(), strict=True
         ):
             teacher_p.data.mul_(momentum).add_(student_p.data, alpha=1.0 - momentum)
         self.log("train/ema_momentum", momentum, on_step=True, on_epoch=False)
@@ -145,7 +166,21 @@ class LightlyIJEPA(pl.LightningModule):
         views, _, idx_keep, idx_mask = batch
         images = views[0]  # [B, 3, H, W]
 
-        assert idx_mask.min() > 0, "CLS token should not be masked"
+        if tuple(images.shape[-2:]) != (self.expected_image_size,) * 2:
+            raise ValueError(
+                f"Expected {self.expected_image_size}x{self.expected_image_size} images, "
+                f"got {tuple(images.shape[-2:])}."
+            )
+        if idx_keep.numel() == 0 or idx_mask.numel() == 0:
+            raise ValueError("I-JEPA masks must contain at least one context and target token")
+        if idx_keep.min() <= 0 or idx_mask.min() <= 0:
+            raise ValueError("CLS token at index 0 must not appear in I-JEPA masks")
+        max_index = max(int(idx_keep.max()), int(idx_mask.max()))
+        if max_index >= self.sequence_length:
+            raise ValueError(
+                f"Mask index {max_index} exceeds the encoder token grid "
+                f"(maximum {self.sequence_length - 1})."
+            )
 
         # teacher: full image, no grad, normalized targets
         teacher_mask = self.extract_teacher_features(
@@ -186,8 +221,8 @@ class LightlyIJEPA(pl.LightningModule):
         )
         return loss
 
-    def on_train_batch_end(self, outputs, batch, batch_idx):
-        """EMA update of teacher after every optimiser step."""
+    def on_before_zero_grad(self, optimizer):
+        """Update the teacher once per optimizer step, including accumulation."""
         self._update_teacher()
 
     # ──────────────────────────────────────────────────────────────────
@@ -207,6 +242,11 @@ class LightlyIJEPA(pl.LightningModule):
         warmup_epochs = int(self.cfg.model.warmup_epochs)
         max_epochs = int(self.cfg.trainer.max_epochs)
         min_lr = float(self.cfg.model.min_lr)
+        if scaled_lr <= 0 or min_lr < 0 or min_lr > scaled_lr:
+            raise ValueError(
+                f"Expected 0 <= min_lr <= lr, got min_lr={min_lr:g} "
+                f"and lr={scaled_lr:g}."
+            )
 
         # ── Collect parameters explicitly ─────────────────────────
         no_wd_keywords = {"pos_embed", "cls_token", "mask_token", "bias"}
@@ -265,22 +305,29 @@ class LightlyIJEPA(pl.LightningModule):
     # ──────────────────────────────────────────────────────────────────
     #  Checkpointing
     # ──────────────────────────────────────────────────────────────────
-    def on_save_checkpoint(self, checkpoint):
-        """Strip teacher keys — they are reconstructed from student via EMA."""
-        sd = checkpoint["state_dict"]
-        for k in list(sd.keys()):
-            if k.startswith("teacher."):
-                sd.pop(k)
-
-    def on_load_checkpoint(self, checkpoint):
-        """After loading student weights, re-initialise teacher as a copy."""
-        pass  # let load_state_dict run first, then fix teacher below
-
     def load_state_dict(self, state_dict, strict: bool = True):
+        """Load exact checkpoints, with explicit legacy-checkpoint support."""
+        has_teacher = any(key.startswith("teacher.") for key in state_dict)
+        if has_teacher:
+            return super().load_state_dict(state_dict, strict=strict)
+
         result = super().load_state_dict(state_dict, strict=False)
-        # ── reconstruct teacher from the (just-loaded) student ────────
-        for teacher_p, student_p in zip(
-            self.teacher.parameters(), self.backbone.parameters()
-        ):
-            teacher_p.data.copy_(student_p.data)
+        non_teacher_missing = [
+            key for key in result.missing_keys if not key.startswith("teacher.")
+        ]
+        if strict and (non_teacher_missing or result.unexpected_keys):
+            details = (
+                f"missing non-teacher keys={non_teacher_missing}, "
+                f"unexpected keys={result.unexpected_keys}"
+            )
+            raise RuntimeError(f"Invalid legacy I-JEPA checkpoint: {details}")
+
+        self.teacher.load_state_dict(self.backbone.state_dict(), strict=True)
+        warnings.warn(
+            "Loaded a legacy I-JEPA checkpoint without EMA teacher weights; "
+            "the teacher was reconstructed from the student. New checkpoints "
+            "store both networks for exact resume.",
+            UserWarning,
+            stacklevel=2,
+        )
         return result

@@ -8,7 +8,7 @@ B(F) per future factor:
   - outlined bar = full future embedding E(X_{t+H})  (the linear ceiling)
 An action-blind model is 0 here by construction (identical Z across a state's
 candidates), so this isolates the action contribution. The point: the bottleneck
-retains action-driven object position/displacement but NOT goal coverage, and
+retains action-driven object position/displacement but not goal progress, and
 the ceiling shows how much is lost.
 
     python analysis/pusht/plot_recoverability.py \
@@ -29,7 +29,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from plot_style import apply_style
 
 FACTORS = [("final_x", "object\nx-position"), ("final_y", "object\ny-position"),
-           ("displacement", "displacement"), ("progress", "goal\ncoverage")]
+           ("displacement", "displacement"), ("progress", "goal\nprogress")]
 COND, CEIL = "#0D9488", "#6B7280"
 
 
@@ -38,11 +38,18 @@ def main():
     ap.add_argument("--metrics", default="metrics/ro3_recoverability_diag.json")
     ap.add_argument("--out", default="figures/ro3_recoverability")
     ap.add_argument("--metric", default="within", choices=["within", "pooled"])
+    ap.add_argument("--r", type=int, default=4,
+                    help="fixed bottleneck rank; uncertainty is across seeds only")
     args = ap.parse_args()
 
     with open(args.metrics) as f:
         data = json.load(f)
-    cond = [m for m in data["models"] if not m["action_blind"]]
+    cond = [
+        model for model in data["models"]
+        if not model["action_blind"] and int(model["r"]) == args.r
+    ]
+    if not cond:
+        raise RuntimeError(f"No action-conditioned models found for r={args.r}")
     full = data.get("full_embedding", {})
     m = args.metric
 
@@ -69,7 +76,7 @@ def main():
     ylab = ("action-specific recoverability $B(F)$\n(within-state held-out $R^2$)"
             if m == "within" else "linear recoverability $B(F)$ (held-out $R^2$)")
     ax.set_ylabel(ylab)
-    ax.set_title(r"Predictable $\neq$ preserved: the bottleneck drops goal coverage",
+    ax.set_title(rf"Predictable $\neq$ preserved at $r={args.r}$",
                  pad=10, fontsize=14.5)
     top = max([v for v in ceil if np.isfinite(v)] + cm + [0.05])
     ax.set_ylim(0, top * 1.25)

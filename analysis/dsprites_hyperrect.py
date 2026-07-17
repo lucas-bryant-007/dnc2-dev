@@ -24,7 +24,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from training.config_loader import load_config, dict_to_namespace, namespace_to_dict
+from training.config_loader import load_config, dict_to_namespace
 from factor_data import build_data
 from eval_utils import (
     find_checkpoint_files,
@@ -35,7 +35,7 @@ from eval_utils import (
     freeze_model,
 )
 from br.ssl_subspace import fit_ssl_subspace
-from box_viz import plot_box_3d, plot_cosine_heatmap
+from box_viz import plot_box_3d
 import hyperrect as H
 import metrics_io as mio
 

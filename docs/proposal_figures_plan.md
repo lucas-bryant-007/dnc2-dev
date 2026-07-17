@@ -11,7 +11,7 @@ priority. Favor *observation over prediction*. Keep figures drop-in ready.
    dSprites, two-view-by-resampling sharing three independent factors
    **(size, x-position, y-position)**. In the whitened SSL representation the 8
    granular-task centroids sit at the corners of an axis-aligned box; axes
-   orthogonal (max |cos| = 0.004), side ≈ √Bₜ with **B = 0.99 / 0.99 / 0.93**.
+   orthogonal (max |cos| = 0.004), half-side ≈ √Bₜ with **B = 0.99 / 0.99 / 0.93**.
    File: `figures/hyperrect_box_vicreg_dsprites_epoch_80_twoview.{pdf,png}`.
    Final form after review rounds: PDF saved direct from python, predicted box
    removed (kept for the paper, not the proposal), friendly axis/level names
@@ -85,7 +85,7 @@ Empirically validate the two theorems and "show they're tight." Key formulas
 Spec → actions:
 - "2 bounds, measure left & right, show tight" → `analysis/hyperrect_bounds.py`
   (LHS vs RHS bars). **DONE on epoch-80 dSprites (ε=0):** predicted √Bₜ = observed
-  side to **0.00%**; Bound 1 holds 5–16× slack (rep is *more* orthogonal than
+  half-side to **0.00%**; Bound 1 holds 5–16× slack (rep is *more* orthogonal than
   required); Bound 2 obs 6e-5 ≤ 0.079 (centroids sit on the corners).
   `figures/hyperrect_bounds_dsprites.{pdf,png}`.
 - "est. ε empirically / assume ε=0" → dSprites factors are deterministic so ε=0 is
@@ -111,7 +111,7 @@ representation (how much of the task survived SSL). Verdicts:
 
 | Piece | Verdict |
 |---|---|
-| Box side lengths = √Bₜ ("0.00% match") | **Nearly trivial / algebraic** — centroid along a task's own axis ≡ √Bₜ by definition. Don't lead with this. |
+| Box half-sides = √Bₜ ("0.00% match") | **Nearly trivial / algebraic** — centroid along a task's own axis ≡ √Bₜ by definition. Don't lead with this. |
 | Box axes orthogonal (max\|cos\|=0.004) | **Real, emergent** — SSL could have entangled the factors; it didn't. |
 | 8 corners form a product/box | **Real, emergent** — factors don't interfere; the joint structure is the content. |
 | Clean dSprites setup (size/posX/posY, dropped shape, `keep_levels`) | **Curated (legitimately)** — best-case sandbox to *show the mechanism*, not a claim about arbitrary tasks. |
@@ -179,7 +179,7 @@ filtering on size/posX/posY (config `configs/vicreg/dsprites.yaml`).
 
 Thm 4.4 is robust: **axes stay orthogonal and √Bₜ predicts every side to ≤0.01%**
 across a new model AND a new dataset. The boxes are hyper-*rectangles* (one short
-axis), which is a stronger result than a cube — side length = how much survived.
+axis), which is a stronger result than a cube — half-side = how much survived.
 
 | run | axis B values | max\|cos\| | read |
 |---|---|---|---|

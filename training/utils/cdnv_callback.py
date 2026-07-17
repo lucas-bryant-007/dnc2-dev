@@ -104,75 +104,57 @@ class CDNVCallback(pl. Callback):
         was_training = pl_module.training
         pl_module.eval()
 
+        try:
+            self._evaluate_epoch(dm, pl_module, epoch)
+        finally:
+            if was_training:
+                pl_module.train()
+            # Always release waiting ranks, including when evaluation fails.
+            if trainer.strategy is not None:
+                trainer.strategy.barrier()
+
+    def _evaluate_epoch(self, dm, pl_module, epoch):
         device = pl_module.device
         backbone = pl_module.backbone
-        
-        # Initialize evaluator with the correct device
         if self.evaluator is None:
             self.evaluator = GeometricEvaluator(
                 num_classes=self.num_classes,
                 device=device,
             )
 
-        train_loader = dm.probe_train_dataloader() if hasattr(dm, "probe_train_dataloader") else dm.train_dataloader()
-        Xtr, Ytr = self.extract_features(
-            train_loader, backbone, device
+        train_loader = (
+            dm.probe_train_dataloader()
+            if hasattr(dm, "probe_train_dataloader")
+            else dm.train_dataloader()
         )
-
-        print(f"[CDNV] Extracted features for epoch {epoch}: Xtr.shape={Xtr.shape}, Ytr.shape={Ytr.shape}")
-        train_cdnv = self.evaluator.compute_cdnv(Xtr, Ytr)
-        train_dir_cdnv = self.evaluator.compute_directional_cdnv(Xtr, Ytr)
-
-        if train_cdnv is not None:
-            pl_module.log(
-                "cdnv/train_cdnv",
-                train_cdnv,
-                on_step=False,
-                on_epoch=True,
-                sync_dist=False,
-            )
-            pl_module.print(f"[CDNV] epoch={epoch} train_cdnv={train_cdnv:.6f}")
-
-        if train_dir_cdnv is not None:
-            pl_module.log(
-                "cdnv/train_dir_cdnv",
-                train_dir_cdnv,
-                on_step=False,
-                on_epoch=True,
-                sync_dist=False,
-            )
-            pl_module.print(f"[CDNV] epoch={epoch} train_dir_cdnv={train_dir_cdnv:.6f}")
-
-        val_loader = dm.probe_test_dataloader() if hasattr(dm, "probe_test_dataloader") else dm.val_dataloader()
-        Xva, Yva = self.extract_features(
-            val_loader, backbone, device
+        Xtr, Ytr = self.extract_features(train_loader, backbone, device)
+        pl_module.print(
+            f"[CDNV] Extracted features for epoch {epoch}: "
+            f"Xtr.shape={Xtr.shape}, Ytr.shape={Ytr.shape}"
         )
+        self._compute_and_log(pl_module, Xtr, Ytr, epoch, split="train")
 
-        val_cdnv = self.evaluator.compute_cdnv(Xva, Yva)
-        val_dir_cdnv = self.evaluator.compute_directional_cdnv(Xva, Yva)
+        val_loader = (
+            dm.probe_test_dataloader()
+            if hasattr(dm, "probe_test_dataloader")
+            else dm.val_dataloader()
+        )
+        Xva, Yva = self.extract_features(val_loader, backbone, device)
+        self._compute_and_log(pl_module, Xva, Yva, epoch, split="val")
 
-        if val_cdnv is not None:
+    def _compute_and_log(self, pl_module, features, labels, epoch, split):
+        cdnv = self.evaluator.compute_cdnv(features, labels)
+        directional = self.evaluator.compute_directional_cdnv(features, labels)
+        for metric_name, value in (("cdnv", cdnv), ("dir_cdnv", directional)):
+            if value is None:
+                continue
             pl_module.log(
-                "cdnv/val_cdnv",
-                val_cdnv,
+                f"cdnv/{split}_{metric_name}",
+                value,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=False,
             )
-            pl_module.print(f"[CDNV] epoch={epoch} val_cdnv={val_cdnv:.6f}")
-
-        if val_dir_cdnv is not None:
-            pl_module.log(
-                "cdnv/val_dir_cdnv",
-                val_dir_cdnv,
-                on_step=False,
-                on_epoch=True,
-                sync_dist=False,
+            pl_module.print(
+                f"[CDNV] epoch={epoch} {split}_{metric_name}={value:.6f}"
             )
-            pl_module.print(f"[CDNV] epoch={epoch} val_dir_cdnv={val_dir_cdnv:.6f}")
-
-        if was_training:
-            pl_module.train()
-        # signal completion to other ranks
-        if trainer.strategy is not None:
-            trainer.strategy.barrier()

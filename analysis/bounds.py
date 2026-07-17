@@ -1,6 +1,6 @@
 """Exact population bounds from "Which Tasks Survive Self-Supervised Learning?".
 
-All formulas are transcribed directly from the paper, in terms of the captured
+All formulas are implemented directly from the paper, in terms of the captured
 posterior energy
 
     B = B(F) = || E[Y F(X)] ||_2^2          (centered, whitened F; balanced Y in {+-1})
@@ -14,8 +14,8 @@ References (paper equation -> function):
         re-exposed here for a single import surface.)
   * Thm 4.5  few-shot NCC error bound           -> nccc_error_bound[_from_tilde_v]
        err_NCC_m(F) <= (1 - B) + (r - B)/m + (1 - B)/(1 - B + 2 m B)
-  * Thm 4.4  multitask hyper-rectangle          -> hyperrectangle_side_lengths,
-       side length along task t = sqrt(B_t);       centroid_geometry_rhs,
+  * Thm 4.4  multitask hyper-rectangle          -> hyperrectangle_half_side_lengths,
+       half-side along task t = sqrt(B_t);          centroid_geometry_rhs,
        centroid bound sum_t (1 - B_t);             near_orthogonality_bound
        |u_i.u_j| <= (|rho_ij| + sqrt(eps_i eps_j)
                      + sqrt((||eta_i||^2 - B_i)(||eta_j||^2 - B_j))) / sqrt(B_i B_j)
@@ -26,12 +26,19 @@ from typing import List, Sequence
 import torch
 
 
+def _validate_B(B: float, eps: float = 1e-12) -> float:
+    B = float(B)
+    if not math.isfinite(B) or B < 0.0 or B > 1.0 + eps:
+        raise ValueError(f"B must lie in [0, 1], got {B}")
+    return min(B, 1.0)
+
+
 # ---------------------------------------------------------------------------
 # Prop 4.1: directional-collapse law
 # ---------------------------------------------------------------------------
 def directional_cdnv_from_B(B: float, eps: float = 1e-12) -> float:
     """V~_F = (1 - B)/(2B); +inf at B = 0."""
-    B = float(B)
+    B = _validate_B(B, eps)
     if B <= eps:
         return float("inf")
     return (1.0 - B) / (2.0 * B)
@@ -39,7 +46,9 @@ def directional_cdnv_from_B(B: float, eps: float = 1e-12) -> float:
 
 def cdnv_from_B(B: float, r: int, eps: float = 1e-12) -> float:
     """V_F = (r - B)/(2B); +inf at B = 0."""
-    B = float(B)
+    B = _validate_B(B, eps)
+    if r < 1:
+        raise ValueError(f"r must be positive, got {r}")
     if B <= eps:
         return float("inf")
     return (float(r) - B) / (2.0 * B)
@@ -55,7 +64,9 @@ def nccc_error_bound(B: float, r: int, m: int, clamp: bool = True) -> float:
     the rest are finite-sample centroid-estimation terms vanishing as m -> inf.
     B = 0 gives a vacuous bound (+inf, or 1.0 if ``clamp``).
     """
-    B = float(B)
+    B = _validate_B(B)
+    if r < 1 or m < 1:
+        raise ValueError(f"r and m must be positive, got r={r}, m={m}")
     if B <= 0.0:
         return 1.0 if clamp else float("inf")
     val = (1.0 - B) + (r - B) / m + (1.0 - B) / (1.0 - B + 2.0 * m * B)
@@ -68,6 +79,10 @@ def nccc_error_bound_from_tilde_v(tilde_v: float, r: int, m: int, clamp: bool = 
         2V~/(1+2V~) + ((r-1)+2rV~)/(m(1+2V~)) + V~/(V~+m).
     """
     tv = float(tilde_v)
+    if tv < 0 or r < 1 or m < 1:
+        raise ValueError(
+            f"tilde_v must be nonnegative and r,m positive; got {tv}, {r}, {m}"
+        )
     if not math.isfinite(tv):
         return 1.0 if clamp else float("inf")
     val = (
@@ -81,14 +96,19 @@ def nccc_error_bound_from_tilde_v(tilde_v: float, r: int, m: int, clamp: bool = 
 # ---------------------------------------------------------------------------
 # Thm 4.4: multitask hyper-rectangle geometry
 # ---------------------------------------------------------------------------
-def hyperrectangle_side_lengths(Bs: Sequence[float]) -> List[float]:
+def hyperrectangle_half_side_lengths(Bs: Sequence[float]) -> List[float]:
     """Per-task hyper-rectangle half-side length along task t is sqrt(B_t)."""
-    return [math.sqrt(max(float(b), 0.0)) for b in Bs]
+    return [math.sqrt(_validate_B(b)) for b in Bs]
+
+
+def hyperrectangle_side_lengths(Bs: Sequence[float]) -> List[float]:
+    """Backward-compatible alias; values are half-sides, not full side lengths."""
+    return hyperrectangle_half_side_lengths(Bs)
 
 
 def centroid_geometry_rhs(Bs: Sequence[float]) -> float:
     """Thm 4.4 centroid bound RHS: sum_t (1 - B_t)."""
-    return float(sum(1.0 - float(b) for b in Bs))
+    return float(sum(1.0 - _validate_B(b) for b in Bs))
 
 
 def near_orthogonality_bound(

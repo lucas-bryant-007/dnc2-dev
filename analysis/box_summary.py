@@ -56,10 +56,12 @@ def main():
         runs.append((label, names, B, mcos))
 
     # --- markdown table ---
-    print("\n| run | axes (B) | max|cos| | sqrtB sides |")
+    print("\n| run | axes (B) | max|cos| | sqrtB half-sides |")
     print("|---|---|---|---|")
     for label, names, B, mcos in runs:
-        axes = ", ".join(f"{DISP.get(n,n)} {b:.2f}" for n, b in zip(names, B))
+        axes = ", ".join(
+            f"{DISP.get(n,n)} {b:.2f}" for n, b in zip(names, B, strict=True)
+        )
         sides = " / ".join(f"{np.sqrt(max(b,0)):.2f}" for b in B)
         print(f"| {label} | {axes} | {mcos:.3f} | {sides} |")
 
@@ -68,7 +70,7 @@ def main():
     fig, ax = plt.subplots(figsize=(10.0, 5.0))
     n_runs = len(runs)
     bar_w = 0.8 / 3.0
-    for gi, (label, names, B, mcos) in enumerate(runs):
+    for gi, (_label, names, B, mcos) in enumerate(runs):
         # sort axes within group descending so the weak axis is always rightmost
         order = np.argsort(B)[::-1]
         for k, idx in enumerate(order):
@@ -93,7 +95,7 @@ def main():
         fig.savefig(os.path.join(fig_dir, f"box_summary_multimodel.{ext}"),
                     bbox_inches="tight", pad_inches=0.04)
     plt.close(fig)
-    print(f"\nSaved: figures/box_summary_multimodel.png (+ .pdf)")
+    print("\nSaved: figures/box_summary_multimodel.png (+ .pdf)")
 
 
 if __name__ == "__main__":

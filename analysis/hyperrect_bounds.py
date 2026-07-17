@@ -58,15 +58,15 @@ def main(args):
     rho = float(args.rho)
 
     print(f"Tasks: {names}")
-    for n, b, s in zip(names, B, sqrtB):
-        print(f"  {n:>11s}  B={b:.4f}  sqrtB(predicted side)={s:.4f}")
+    for n, b, s in zip(names, B, sqrtB, strict=True):
+        print(f"  {n:>11s}  B={b:.4f}  sqrtB(predicted half-side)={s:.4f}")
 
-    # --- Observed side length per axis: mean |centroid coordinate| along its axis.
+    # --- Observed half-side per axis: mean |centroid coordinate| along its axis.
     combos = sorted(centers.keys())
     M = np.stack([centers[c] for c in combos])          # [8, k]
-    obs_side = np.abs(M).mean(axis=0)                    # mean |coord| per axis
-    print("\nPredicted vs observed hyper-rectangle side lengths:")
-    for n, p, o in zip(names, sqrtB, obs_side):
+    obs_half_side = np.abs(M).mean(axis=0)               # mean |coord| per axis
+    print("\nPredicted vs observed hyper-rectangle half-sides:")
+    for n, p, o in zip(names, sqrtB, obs_half_side, strict=True):
         print(f"  {n:>11s}  predicted sqrtB={p:.4f}  observed={o:.4f}  "
               f"rel.err={abs(p-o)/p*100:.2f}%")
 
@@ -90,7 +90,7 @@ def main(args):
     dev = ((M - ideal) ** 2).sum(axis=1).mean()          # E|| m_Y - sqrtB*Y ||^2
     rhs2 = float((1.0 - B).sum())
     ok2 = "OK" if dev <= rhs2 + 1e-9 else "VIOLATED"
-    print(f"\nThm 4.4 Bound 2  (centroid):")
+    print("\nThm 4.4 Bound 2  (centroid):")
     print(f"  observed E||m_Y - sqrtB*Y||^2 = {dev:.5f}  <=  sum_t(1-B_t) = {rhs2:.5f}"
           f"  ({ok2}, {rhs2/max(dev,1e-12):.0f}x slack)")
     print(f"  -> centroids sit essentially ON the predicted corners "
@@ -101,9 +101,9 @@ def main(args):
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10.5, 4.4))
     x = np.arange(k); w = 0.38
     ax1.bar(x - w / 2, sqrtB, w, label="predicted  $\\sqrt{B_t}$", color="#d62728")
-    ax1.bar(x + w / 2, obs_side, w, label="observed", color="#1f77b4")
+    ax1.bar(x + w / 2, obs_half_side, w, label="observed", color="#1f77b4")
     ax1.set_xticks(x); ax1.set_xticklabels(disp, fontsize=16)
-    ax1.set_ylabel("Hyper-rectangle side length", fontsize=18)
+    ax1.set_ylabel("Hyper-rectangle half-side", fontsize=18)
     ax1.set_ylim(0, 1.08)
     ax1.legend(fontsize=14.5, ncol=2, loc="lower center",
                bbox_to_anchor=(0.5, 1.01), frameon=False,
@@ -140,7 +140,8 @@ def main(args):
 
     out = {
         "source_json": args.json, "tasks": names, "B": B.tolist(),
-        "sqrtB_predicted": sqrtB.tolist(), "observed_side": obs_side.tolist(),
+        "sqrtB_predicted_half_side": sqrtB.tolist(),
+        "observed_half_side": obs_half_side.tolist(),
         "eps_assumed": args.eps, "rho_assumed": rho,
         "bound1_orthogonality": b1,
         "bound2_centroid": {"observed": dev, "bound_sum_1_minus_B": rhs2},

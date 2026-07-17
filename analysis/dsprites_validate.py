@@ -131,7 +131,7 @@ def main(args):
     rho = (Y.t() @ Y / Y.shape[0]).cpu().numpy()
     Bf = B.cpu().numpy()
     print("\nMeasured Thm 4.4 inputs:")
-    for n, b in zip(task_names, Bf):
+    for n, b in zip(task_names, Bf, strict=True):
         print(f"  {n:>11s}  B={b:.4f}  sqrtB={np.sqrt(b):.4f}")
     for i, j in itertools.combinations(range(k), 2):
         print(f"  |cos|({task_names[i]},{task_names[j]})={abs(cos[i,j]):.4f}  "
@@ -162,7 +162,7 @@ def main(args):
             "empirical_err_full": emp_e, "bound_full": bnd,
             "empirical_err_r1": emp1_e, "bound_r1": bnd1}
         print(f"\n[{task_names[t]}] m-shot NCC  (full r={r_dim} | effective r=1):")
-        for m, e, b, e1, b1 in zip(ms, emp_e, bnd, emp1_e, bnd1):
+        for m, e, b, e1, b1 in zip(ms, emp_e, bnd, emp1_e, bnd1, strict=True):
             print(f"  m={m:>4d}  full emp={e:.3f} bnd={b:7.3f} | "
                   f"r1 emp={e1:.3f} bnd={b1:.3f} "
                   f"{'OK' if e1 <= b1 + 1e-6 else 'VIOLATED'}")

@@ -22,7 +22,7 @@ import torch.nn as nn
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from pusht_common import (frozen_embeddings, episode_split, set_seed,
-                          flat_rows)
+                          flat_rows, standardize_rows)
 
 
 class JEPA(nn.Module):
@@ -70,7 +70,7 @@ def run_one(rows, split, r, seed, action_blind, device, epochs, lr, bs):
     idx = torch.as_tensor(split["train"], device=device)
     va = torch.as_tensor(split["val"], device=device)
     best = float("inf")
-    for ep in range(epochs):
+    for _ in range(epochs):
         model.train()
         perm = idx[torch.randperm(len(idx), device=device)]
         for i in range(0, len(perm), bs):
@@ -101,6 +101,7 @@ def main():
     emb = frozen_embeddings(d, args.data, args.device)   # cached .npz sidecar
     rows = flat_rows(d, emb)                             # one row per (state, cand)
     split = episode_split(d["episode"], n_cand=d["c_f"].shape[1], seed=0)
+    rows, input_stats = standardize_rows(rows, split["train"])
     print(f"rows: {len(rows['e_t'])} | train/val/test "
           f"{len(split['train'])}/{len(split['val'])}/{len(split['test'])}")
 
@@ -115,7 +116,10 @@ def main():
         torch.save(dict(state_dict=model.state_dict(), r=r, seed=seed,
                         action_blind=blind, val_loss=vl, best_val_loss=best,
                         emb_dim=rows["e_t"].shape[1],
-                        act_dim=rows["act"].shape[1]),
+                        act_dim=rows["act"].shape[1],
+                        input_mean=input_stats["input_mean"],
+                        input_std=input_stats["input_std"],
+                        preprocessing_scope="train_split_only"),
                    os.path.join(args.outdir, name + ".pt"))
         summary.append(dict(name=name, r=r, seed=seed, action_blind=blind,
                             val_loss=vl, best_val_loss=best))

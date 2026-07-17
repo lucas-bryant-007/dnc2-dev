@@ -37,8 +37,12 @@ class Shapes3DDataModule(pl.LightningDataModule):
               f"shapes={list(self.cfg.shapes)})")
 
     def _make_loader(self, ds, train: bool, collate_fn, shuffle: bool,
-                     num_workers: int):
-        is_ddp = torch.distributed.is_available() and torch.distributed.is_initialized()
+                     num_workers: int, distributed: bool = True):
+        is_ddp = (
+            distributed
+            and torch.distributed.is_available()
+            and torch.distributed.is_initialized()
+        )
         sampler = DistributedSampler(ds, shuffle=train) if is_ddp else None
         return DataLoader(
             ds,
@@ -62,9 +66,13 @@ class Shapes3DDataModule(pl.LightningDataModule):
                                  shuffle=True, num_workers=self.cfg.num_workers)
 
     def probe_train_dataloader(self):
-        return self._make_loader(self.ds_eval, train=True, collate_fn=collate_eval,
-                                 shuffle=True, num_workers=4)
+        return self._make_loader(
+            self.ds_eval, train=False, collate_fn=collate_eval,
+            shuffle=True, num_workers=4, distributed=False,
+        )
 
     def probe_test_dataloader(self):
-        return self._make_loader(self.ds_eval, train=False, collate_fn=collate_eval,
-                                 shuffle=False, num_workers=4)
+        return self._make_loader(
+            self.ds_eval, train=False, collate_fn=collate_eval,
+            shuffle=False, num_workers=4, distributed=False,
+        )

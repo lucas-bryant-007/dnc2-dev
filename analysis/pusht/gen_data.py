@@ -166,7 +166,7 @@ def main():
     rng = np.random.default_rng(args.seed)
     # sample (episode, t) pairs uniformly with the whole horizon in-episode
     pool = []
-    for ep, (s, e) in enumerate(zip(ep_starts, ep_ends)):
+    for ep, (s, e) in enumerate(zip(ep_starts, ep_ends, strict=True)):
         for t in range(s, e - H):
             pool.append((ep, t))
     pool = np.asarray(pool)

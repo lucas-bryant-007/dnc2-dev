@@ -6,8 +6,8 @@ AUGMENTATION_REGISTRY = {
     'wmse': wmse.get_wmse_transforms,
 }
 
-def get_transforms(method, dataset='imagenet'):
+def get_transforms(method, dataset="imagenet", img_size=224):
     key = method.lower()
     if key not in AUGMENTATION_REGISTRY:
         raise NotImplementedError(f"No augmentations defined for {method}")
-    return AUGMENTATION_REGISTRY[key](dataset)
+    return AUGMENTATION_REGISTRY[key](dataset, img_size=img_size)

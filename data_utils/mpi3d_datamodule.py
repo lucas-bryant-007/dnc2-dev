@@ -27,8 +27,13 @@ class Mpi3dDataModule(pl.LightningDataModule):
               f"(pair_mode={self.cfg.pair_mode}, content="
               f"{list(self.cfg.content_factors or self.cfg.task_factors)})")
 
-    def _make_loader(self, ds, train, collate_fn, shuffle, num_workers):
-        is_ddp = torch.distributed.is_available() and torch.distributed.is_initialized()
+    def _make_loader(self, ds, train, collate_fn, shuffle, num_workers,
+                     distributed=True):
+        is_ddp = (
+            distributed
+            and torch.distributed.is_available()
+            and torch.distributed.is_initialized()
+        )
         sampler = DistributedSampler(ds, shuffle=train) if is_ddp else None
         return DataLoader(
             ds, batch_size=self.cfg.batch_size,
@@ -44,7 +49,11 @@ class Mpi3dDataModule(pl.LightningDataModule):
         return self._make_loader(self.ds_train, True, collate_pairs, True, self.cfg.num_workers)
 
     def probe_train_dataloader(self):
-        return self._make_loader(self.ds_eval, True, collate_eval, True, 4)
+        return self._make_loader(
+            self.ds_eval, False, collate_eval, True, 4, distributed=False
+        )
 
     def probe_test_dataloader(self):
-        return self._make_loader(self.ds_eval, False, collate_eval, False, 4)
+        return self._make_loader(
+            self.ds_eval, False, collate_eval, False, 4, distributed=False
+        )

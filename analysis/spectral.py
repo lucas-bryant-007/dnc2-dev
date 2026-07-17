@@ -518,7 +518,6 @@ def check_basis_stats(psi, name="psi"):
     print(f"{name} diag range = [{cov.diag().min().item():.4f}, {cov.diag().max().item():.4f}]")
 
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
 from matplotlib.colors import LogNorm
 def plot_Br_vs_r(all_results, save_path=None, title="B_r vs r"):
     plt.figure(figsize=(7, 5))
@@ -643,8 +642,6 @@ def main(args):
 
     train_loader = data_module.train_dataloader() # required (w/ augmentations) to estimate SSL subspace
     sv_train_loader = data_module.probe_train_dataloader() # single-view loader for estimating B_r and tilde_V without augmentation
-    sv_test_loader = data_module.probe_test_dataloader()
-
     # pick 2 random classes and filter the dataloaders to only include those classes
     selected_classes = random.sample(range(100), 2)
     # selected_classes = [0, 1]

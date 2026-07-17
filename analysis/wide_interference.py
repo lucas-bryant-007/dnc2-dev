@@ -12,7 +12,6 @@ import os
 import sys
 
 import numpy as np
-import torch
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -25,7 +24,8 @@ from eval_utils import (find_checkpoint_files, load_model_from_checkpoint,
                         freeze_model, set_seed)
 from factor_data import build_data
 from dsprites_taskfamily_spectrum import whiten_features
-from dsprites_interference import shared_bottleneck_accuracy, extract_feats
+from dsprites_interference import extract_feats
+from interference_core import evaluate_bottleneck_splits
 import metrics_io as mio
 
 # Task families per --variant. Aligned = redundant object-colour thresholds (~1 dim).
@@ -81,6 +81,7 @@ def main(args):
     imgs, latents, bits, _, _ = core.build_arrays(data_cfg)
     loader = core.make_eval_loader(data_cfg, imgs=imgs, bits=bits, shuffle=False)
     Z = extract_feats(loader, model.backbone, args.device)
+    Z_raw = Z.cpu().numpy()
     X, k_eff = whiten_features(Z, rel_eig_threshold=args.rel_eig_threshold)
     X = X.cpu().numpy()
     print(f"Whitened X {X.shape} (k_eff={k_eff})")
@@ -92,52 +93,77 @@ def main(args):
     U = W / (np.linalg.norm(W, axis=0, keepdims=True) + 1e-12)
     offdiag = (U.T @ U) - np.eye(len(diverse))
     print("Per-factor capture B + orthogonality (want high B, tiny |cos|):")
-    for (f, _t), b in zip(diverse, Bvec):
+    for (f, _t), b in zip(diverse, Bvec, strict=True):
         print(f"  {DISP.get(f, f):>12s}  B={b:.3f}  sqrtB={np.sqrt(max(b, 0)):.3f}")
     print(f"  max|cos| among the {len(diverse)} task axes = {np.abs(offdiag).max():.4f}")
 
     fams = [("aligned", "Aligned (object-color thresholds)", aligned),
             ("diverse", f"Diverse ({len(diverse)} distinct factors)", diverse)]
     out = {"epoch": args.epoch, "ckpt": ckpts[args.epoch], "k_eff": int(k_eff),
-           "r_list": R_LIST, "families": {}}
+           "r_list": R_LIST, "split_seeds": args.split_seeds,
+           "recovery_metric": "held_out_r2",
+           "whitening_scope": "train_split_only",
+           "factor_capture_B": Bvec.tolist(),
+           "max_abs_task_axis_cosine": float(np.abs(offdiag).max()),
+           "families": {}}
     curves = {}
-    ridx = np.array(R_LIST) - 1
     for key, name, fam in fams:
         Y = _labels(latents, fam, core)
-        res = shared_bottleneck_accuracy(X, Y, R_LIST, train_frac=args.train_frac,
-                                         seed=args.seed)
-        ev = res["eigvals"]
-        cap = (np.cumsum(ev) / ev.sum())[ridx]               # predicted capacity
-        recov_n = res["mean_recov"] / (res["mean_recov"][-1] + 1e-12)
+        res = evaluate_bottleneck_splits(
+            Z_raw, Y, R_LIST, args.split_seeds, train_frac=args.train_frac,
+            rel_eig_threshold=args.rel_eig_threshold,
+        )
+        cap = res["capacity"]
+        recov = res["mean_recov"]
         curves[key] = {"name": name, "fam": fam, "per": res["per_task_bal_acc"],
-                       "recov_n": recov_n, "cap": cap}
+                       "per_sd": res["per_task_bal_acc_sd"],
+                       "recov": recov, "recov_sd": res["mean_recov_sd"],
+                       "cap": cap, "cap_sd": res["capacity_sd"]}
         out["families"][key] = {
             "name": name, "tasks": [[f, int(t)] for f, t in fam],
             "mean_bal_acc": res["mean_bal_acc"].tolist(),
+            "mean_bal_acc_sd": res["mean_bal_acc_sd"].tolist(),
             "per_task_bal_acc": res["per_task_bal_acc"].tolist(),
+            "per_task_bal_acc_sd": res["per_task_bal_acc_sd"].tolist(),
             "mean_recov": res["mean_recov"].tolist(), "capacity": cap.tolist(),
-            "eigvals": ev[:R_LIST[-1]].tolist()}
+            "mean_recov_sd": res["mean_recov_sd"].tolist(),
+            "capacity_sd": res["capacity_sd"].tolist(),
+            "whitening_ranks": res["whitening_ranks"],
+            "whitening_scope": res["whitening_scope"]}
         print(f"\n{name}")
-        for r, a in zip(R_LIST, res["mean_bal_acc"]):
+        for r, a in zip(R_LIST, res["mean_bal_acc"], strict=True):
             print(f"  r={r}  mean balanced held-out acc={a:.3f}")
 
     # LEFT: empirical aggregate recoverability vs predicted capacity (RO2 Task 2.1)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.5, 5.0))
-    ax1.plot(R_LIST, curves["diverse"]["recov_n"], "s-", color="#d62728", lw=2.6,
+    ax1.plot(R_LIST, curves["diverse"]["recov"], "s-", color="#d62728", lw=2.6,
              ms=7, label="diverse: empirical recoverability")
+    ax1.fill_between(
+        R_LIST, curves["diverse"]["recov"] - curves["diverse"]["recov_sd"],
+        curves["diverse"]["recov"] + curves["diverse"]["recov_sd"],
+        color="#d62728", alpha=0.15,
+    )
     ax1.plot(R_LIST, curves["diverse"]["cap"], "--", color="#444", lw=1.7,
              label=r"diverse: capacity $\sum_{j\leq r}\lambda_j(M_w)$")
-    ax1.plot(R_LIST, curves["aligned"]["recov_n"], "o-", color="#1f77b4", lw=2.6,
+    ax1.plot(R_LIST, curves["aligned"]["recov"], "o-", color="#1f77b4", lw=2.6,
              ms=7, label="aligned: empirical recoverability")
+    ax1.fill_between(
+        R_LIST, curves["aligned"]["recov"] - curves["aligned"]["recov_sd"],
+        curves["aligned"]["recov"] + curves["aligned"]["recov_sd"],
+        color="#1f77b4", alpha=0.15,
+    )
     ax1.set_xlabel("Bottleneck dimension  $r$")
-    ax1.set_ylabel("Normalized aggregate recoverability", fontsize=13)
-    ax1.set_ylim(0, 1.05); ax1.set_xticks(R_LIST)
+    ax1.set_ylabel(r"Mean held-out recovery $R^2$", fontsize=13)
+    ax1.set_ylim(min(-0.1, ax1.get_ylim()[0]), 1.05); ax1.set_xticks(R_LIST)
     ax1.legend(fontsize=9, loc="lower right")
 
     # RIGHT: which diverse tasks survive (balanced accuracy); legend below
     per = curves["diverse"]["per"]
     for t, (f, _thr) in enumerate(diverse):
-        ax2.plot(R_LIST, per[:, t], "o-", lw=2, ms=5, label=DISP.get(f, f))
+        ax2.errorbar(
+            R_LIST, per[:, t], yerr=curves["diverse"]["per_sd"][:, t],
+            marker="o", lw=2, ms=5, capsize=2, label=DISP.get(f, f),
+        )
     ax2.axhline(0.5, color="gray", ls=":", lw=1)
     ax2.set_xlabel("Bottleneck dimension  $r$")
     ax2.set_ylabel("Balanced held-out accuracy")
@@ -147,7 +173,8 @@ def main(args):
                ncol=len(diverse), frameon=False, handletextpad=0.3, columnspacing=1.0)
     fig.tight_layout(pad=0.6)
 
-    stem = f"wide_interference_{args.variant}_vicreg_shapes3d_epoch_{args.epoch}"
+    dataset_name = mio.slug(cfg.data.name)
+    stem = f"wide_interference_{args.variant}_vicreg_{dataset_name}_epoch_{args.epoch}"
     fig_dir = os.path.join(args.out_dir, "figures")
     met_dir = os.path.join(args.out_dir, "metrics")
     os.makedirs(fig_dir, exist_ok=True); os.makedirs(met_dir, exist_ok=True)
@@ -165,11 +192,11 @@ if __name__ == "__main__":
     ap.add_argument("--ckpt_dir", "-ckpt", required=True)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--seed", type=int, default=6)
+    ap.add_argument("--split_seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
     ap.add_argument("--epoch", type=int, default=120)
-    ap.add_argument("--variant", choices=["colors5", "distinct4", "mpi3d6"],
+    ap.add_argument("--variant", choices=sorted(VARIANTS),
                     default="colors5",
-                    help="colors5/distinct4 = 3DShapes; mpi3d6 = MPI3D 6 distinct "
-                         "factors incl. two position axes")
+                    help="colors5/distinct4 = 3DShapes; mpi3d5/mpi3d6 = MPI3D")
     ap.add_argument("--train_frac", type=float, default=0.6)
     ap.add_argument("--rel_eig_threshold", type=float, default=1e-3)
     ap.add_argument("--out_dir", default=".")

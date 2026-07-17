@@ -24,7 +24,10 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
 
-from br.geometric_estimators import estimate_tilde_V, estimate_V
+try:
+    from .br.geometric_estimators import estimate_tilde_V, estimate_V
+except ImportError:  # direct script execution from analysis/
+    from br.geometric_estimators import estimate_tilde_V, estimate_V
 
 
 def capture_proxy(m: Dict) -> float:
@@ -32,7 +35,7 @@ def capture_proxy(m: Dict) -> float:
 
     Uses the measured ``capture_B`` when present (whitened mode), else inverts
     directional CDNV via Prop 4.1 (B = 1/(1 + 2*tilde_V)). Higher = better
-    captured = larger sqrt(B_t) box side, i.e. cleaner separation along that axis.
+    captured = larger sqrt(B_t) box half-side, i.e. cleaner separation along that axis.
     """
     if m.get("capture_B") is not None:
         return float(m["capture_B"])
@@ -187,6 +190,14 @@ def orthonormal_basis(deltas3: torch.Tensor) -> torch.Tensor:
     return q * signs
 
 
+def task_axis_basis(deltas3: torch.Tensor) -> torch.Tensor:
+    """Normalize each task direction without rotating it into a QR basis."""
+    norms = deltas3.norm(dim=0, keepdim=True)
+    if torch.any(norms <= 1e-12):
+        raise ValueError("Task directions must be nonzero")
+    return deltas3 / norms
+
+
 def subclass_box(
     features: torch.Tensor, attr3: torch.Tensor, basis: torch.Tensor
 ) -> Tuple[torch.Tensor, List[Dict], torch.Tensor]:
@@ -227,6 +238,8 @@ def predicted_box_corners(w_cols: torch.Tensor, basis: torch.Tensor) -> List[Dic
     ``w_cols`` is [D, 3] (column t = capture vector w_t); the predicted centroid
     for granular task (y0,y1,y2) is sum_t y_t w_t, projected via ``basis`` [D,3].
     With orthogonal tasks the corners sit at (+-||w_0||, +-||w_1||, +-||w_2||).
+    For non-orthogonal tasks, projecting onto the actual normalized task axes
+    exposes the cross-task terms instead of hiding them with a QR rotation.
     """
     corners: List[Dict] = []
     for combo in itertools.product((0, 1), repeat=3):
@@ -343,7 +356,7 @@ def analyze(
     if triple_idx is not None:
         triple_names = [attr_names[i] for i in triple_idx]
         d3 = torch.stack([deltas_t[i] for i in triple_idx], dim=1)  # [D, 3]
-        basis = orthonormal_basis(d3)
+        basis = task_axis_basis(d3)
         attr3 = torch.stack([bin_cols[i] for i in triple_idx], dim=1)  # [N, 3]
         coords, box, granular_task = subclass_box(features, attr3, basis)
         if compute_capture:

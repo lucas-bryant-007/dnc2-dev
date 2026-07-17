@@ -14,7 +14,7 @@ the eight granular-task centroids on the corners of an axis-aligned box
 
 Kept Lightning-free so the analysis driver can reuse the loaders on CPU.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np

@@ -46,8 +46,10 @@ def main():
     sweep = dict(
         factor=args.sweep_factor,
         H=[h for h, _ in rows],
-        obs=[fr["obs"] for _, fr in rows], obs_se=[fr["obs_se"] for _, fr in rows],
-        cap=[fr["cap"] for _, fr in rows], cap_se=[fr["cap_se"] for _, fr in rows])
+        obs=[fr["obs"] for _, fr in rows],
+        obs_sd=[fr.get("obs_sd", fr.get("obs_se", 0.0)) for _, fr in rows],
+        cap=[fr["cap"] for _, fr in rows],
+        cap_sd=[fr.get("cap_sd", fr.get("cap_se", 0.0)) for _, fr in rows])
 
     out = dict(factors=fac["factors"], sweep=sweep,
                n_seeds=fac.get("n_seeds", 3), bottleneck_r=fac.get("bottleneck_r", 4))

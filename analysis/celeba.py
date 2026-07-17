@@ -1,10 +1,8 @@
 import argparse
 import torch
-import math
 from typing import Dict, List, Optional, Sequence
 from dataclasses import dataclass
 
-import torch
 import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from training.config_loader import load_config, dict_to_namespace, namespace_to_dict
@@ -208,8 +206,6 @@ def main(args):
 
     train_loader_b = data_module.paired_train_dataloader() # required (w/ augmentations) to estimate SSL subspace
     sv_train_loader_b = data_module.probe_train_dataloader() # single-view loader for estimating B_r and tilde_V without augmentation
-    sv_test_loader_b = data_module.probe_test_dataloader()
-
     # build model 
     # get all checkpoint files in the directory
     ckpt_files = find_checkpoint_files(args.ckpt_dir)

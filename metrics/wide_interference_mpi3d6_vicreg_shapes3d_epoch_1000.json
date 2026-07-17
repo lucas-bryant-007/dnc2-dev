@@ -285,5 +285,8 @@
         2.38934069883533e-17
       ]
     }
-  }
+  },
+  "recovery_metric": "legacy_squared_pearson_r2",
+  "whitening_scope": "legacy_all_rows",
+  "regeneration_required": true
 }

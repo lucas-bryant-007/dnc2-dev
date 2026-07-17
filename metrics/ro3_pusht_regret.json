@@ -167,5 +167,8 @@
   "min_spread": 0.05,
   "n_kept": 472,
   "n_total": 615
- }
+ },
+ "conditioned_recovery_regret_pearson": -0.6588084916974618,
+ "probe_evaluation_scope": "legacy_all_test_candidates; regenerate to match the non-degenerate regret subset",
+ "preprocessing_scope": "legacy_all_rows"
 }

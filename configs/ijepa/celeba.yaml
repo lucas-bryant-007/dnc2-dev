@@ -7,7 +7,8 @@ data:
   name: celeba
   hf_repo: flwrlabs/celeba
   hf_cache_dir: ${oc.env:HF_DATASETS_CACHE,~/.cache/huggingface/datasets}
-  img_size: 128
+  img_size: 224
+  patch_size: 16
   batch_size: 1024
   num_workers: 32
   num_views: 2
@@ -18,10 +19,10 @@ data:
 model:
   encoder_type: "vit_base_patch16_224"
   pretrained: false
-  lr: 3e-4         # Base learning rate (will be scaled)
-  weight_decay: 1e-6
+  lr: 3.0e-4
+  weight_decay: 1.0e-6
   warmup_epochs: 10
-  min_lr: 0.002
+  min_lr: 2.0e-6
   # IJEPA specific parameters
   context_encoder_depth: 12
   target_encoder_depth: 12
@@ -31,7 +32,7 @@ model:
   ema_momentum_start: 0.996
   ema_momentum_end: 1.0
   image_size: 224
-  patch_size: 14
+  patch_size: 16
 
 # Training configuration
 trainer:

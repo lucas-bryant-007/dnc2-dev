@@ -43,65 +43,12 @@ from dsprites_taskfamily_spectrum import (
     whiten_features, _task_labels, ALIGNED_TASKS, DIVERSE_TASKS,
     ALIGNED_NAME, DIVERSE_NAME,
 )
+from interference_core import evaluate_bottleneck_splits
 import metrics_io as mio
 
 DISPLAY = {"scale": "size", "posX": "x-position", "posY": "y-position",
            "shape": "shape", "orientation": "orientation"}
 R_LIST = list(range(1, 9))
-
-
-# --- Core: reduced-rank shared-bottleneck accuracy (importable, numpy) -------
-def _augment(Z):
-    return np.concatenate([Z, np.ones((Z.shape[0], 1))], axis=1)
-
-
-def _balanced_acc(pred, y):
-    """Mean of per-class accuracy -> robust to class imbalance / base difficulty."""
-    accs = [float((pred[y == c] == c).mean()) for c in (-1.0, 1.0) if (y == c).any()]
-    return float(np.mean(accs)) if accs else 0.5
-
-
-def shared_bottleneck_accuracy(X, Y, r_list, train_frac=0.6, seed=0):
-    """X:[n,d] whitened, Y:[n,M] in {-1,+1}. The shared r-dim subspace is the top-r
-    of M_w fit on TRAIN only; a per-task linear head is fit on TRAIN and evaluated on
-    held-out TEST. Returns a dict:
-      mean_bal_acc[r]      mean (over tasks) balanced held-out accuracy
-      per_task_bal_acc[r,M]
-      mean_recov[r]        mean held-out recoverability R^2 (= empirical aggregate B_bar)
-      eigvals              eigenvalues of M_w (predicted capacity: cumsum/sum)
-    """
-    X = np.asarray(X, dtype=np.float64)
-    Y = np.asarray(Y, dtype=np.float64)
-    n, M = Y.shape
-    rng = np.random.default_rng(seed)
-    idx = rng.permutation(n)
-    ntr = int(train_frac * n)
-    tr, te = idx[:ntr], idx[ntr:]
-    Xtr, Xte, Ytr, Yte = X[tr], X[te], Y[tr], Y[te]
-
-    Yn = (Ytr - Ytr.mean(0)) / (Ytr.std(0) + 1e-12)
-    A = (Xtr.T @ Yn) / Xtr.shape[0]                       # d x M
-    Mw = (A @ A.T) / M                                    # d x d
-    evals, evecs = np.linalg.eigh(Mw)
-    order = np.argsort(evals)[::-1]
-    evals, U = evals[order], evecs[:, order]
-
-    mean_bal, per_bal, mean_recov = [], [], []
-    for r in r_list:
-        P = U[:, :r]
-        Atr, Ate = _augment(Xtr @ P), _augment(Xte @ P)
-        bal, recov = [], []
-        for t in range(M):
-            w, *_ = np.linalg.lstsq(Atr, Ytr[:, t], rcond=None)
-            yhat = Ate @ w                                # continuous prediction
-            bal.append(_balanced_acc(np.sign(yhat), Yte[:, t]))
-            c = np.corrcoef(yhat, Yte[:, t])[0, 1]
-            recov.append(0.0 if np.isnan(c) else float(c * c))  # held-out R^2
-        per_bal.append(bal)
-        mean_bal.append(float(np.mean(bal)))
-        mean_recov.append(float(np.mean(recov)))
-    return {"mean_bal_acc": np.array(mean_bal), "per_task_bal_acc": np.array(per_bal),
-            "mean_recov": np.array(mean_recov), "eigvals": evals}
 
 
 # --- Feature extraction ------------------------------------------------------
@@ -134,53 +81,84 @@ def main(args):
     imgs, latents, bits, _, _ = build_arrays(data_cfg)
     loader = make_eval_loader(data_cfg, imgs=imgs, bits=bits, shuffle=False)
     Z = extract_feats(loader, model.backbone, args.device)
+    Z_raw = Z.cpu().numpy()
     X, k_eff = whiten_features(Z, rel_eig_threshold=args.rel_eig_threshold)
     X = X.cpu().numpy()
     print(f"Whitened X {X.shape} (k_eff={k_eff})")
 
     families = [("aligned", ALIGNED_NAME, ALIGNED_TASKS),
                 ("diverse", DIVERSE_NAME, DIVERSE_TASKS)]
-    out = {"epoch": args.epoch, "ckpt": ckpt_files[args.epoch], "k_eff": int(k_eff),
-           "r_list": R_LIST, "families": {}}
+    out = {
+        "epoch": args.epoch,
+        "ckpt": ckpt_files[args.epoch],
+        "k_eff": int(k_eff),
+        "r_list": R_LIST,
+        "split_seeds": args.split_seeds,
+        "recovery_metric": "held_out_r2",
+        "whitening_scope": "train_split_only",
+        "families": {},
+    }
     curves = {}
-    ridx = np.array(R_LIST) - 1
     for key, name, tasks in families:
         Y = np.stack([_task_labels(latents, f, thr, shape_hi) for f, thr in tasks], axis=1)
-        res = shared_bottleneck_accuracy(X, Y, R_LIST, train_frac=args.train_frac,
-                                         seed=args.seed)
-        ev = res["eigvals"]
-        cap = (np.cumsum(ev) / ev.sum())[ridx]               # predicted capacity (M_w)
-        recov_n = res["mean_recov"] / (res["mean_recov"][-1] + 1e-12)  # empirical
+        res = evaluate_bottleneck_splits(
+            Z_raw, Y, R_LIST, args.split_seeds, train_frac=args.train_frac,
+            rel_eig_threshold=args.rel_eig_threshold,
+        )
+        cap = res["capacity"]
+        recov = res["mean_recov"]
         curves[key] = {"name": name, "mean_bal": res["mean_bal_acc"],
-                       "per_bal": res["per_task_bal_acc"], "recov_n": recov_n, "cap": cap}
+                       "mean_bal_sd": res["mean_bal_acc_sd"],
+                       "per_bal": res["per_task_bal_acc"],
+                       "per_bal_sd": res["per_task_bal_acc_sd"],
+                       "recov": recov, "recov_sd": res["mean_recov_sd"],
+                       "cap": cap, "cap_sd": res["capacity_sd"]}
         out["families"][key] = {
             "name": name,
             "tasks": [[f, (None if thr is None else int(thr))] for f, thr in tasks],
             "mean_bal_acc": res["mean_bal_acc"].tolist(),
+            "mean_bal_acc_sd": res["mean_bal_acc_sd"].tolist(),
             "per_task_bal_acc": res["per_task_bal_acc"].tolist(),
+            "per_task_bal_acc_sd": res["per_task_bal_acc_sd"].tolist(),
             "mean_recov": res["mean_recov"].tolist(), "capacity": cap.tolist(),
-            "eigvals": ev[:R_LIST[-1]].tolist()}
+            "mean_recov_sd": res["mean_recov_sd"].tolist(),
+            "capacity_sd": res["capacity_sd"].tolist(),
+            "whitening_ranks": res["whitening_ranks"],
+            "whitening_scope": res["whitening_scope"]}
         print(f"\n{name}")
-        for r, a in zip(R_LIST, res["mean_bal_acc"]):
+        for r, a in zip(R_LIST, res["mean_bal_acc"], strict=True):
             print(f"  r={r}  mean balanced held-out acc={a:.3f}")
 
     # --- LEFT: empirical aggregate recoverability vs predicted capacity (Task 2.1)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11.0, 4.8))
-    ax1.plot(R_LIST, curves["diverse"]["recov_n"], "s-", color="#d62728", lw=2.6,
+    ax1.plot(R_LIST, curves["diverse"]["recov"], "s-", color="#d62728", lw=2.6,
              ms=7, label="diverse: empirical recoverability")
+    ax1.fill_between(
+        R_LIST, curves["diverse"]["recov"] - curves["diverse"]["recov_sd"],
+        curves["diverse"]["recov"] + curves["diverse"]["recov_sd"],
+        color="#d62728", alpha=0.15,
+    )
     ax1.plot(R_LIST, curves["diverse"]["cap"], "--", color="#444", lw=1.7,
              label=r"diverse: capacity $\sum_{j\leq r}\lambda_j(M_w)$")
-    ax1.plot(R_LIST, curves["aligned"]["recov_n"], "o-", color="#1f77b4", lw=2.6,
+    ax1.plot(R_LIST, curves["aligned"]["recov"], "o-", color="#1f77b4", lw=2.6,
              ms=7, label="aligned: empirical recoverability")
+    ax1.fill_between(
+        R_LIST, curves["aligned"]["recov"] - curves["aligned"]["recov_sd"],
+        curves["aligned"]["recov"] + curves["aligned"]["recov_sd"],
+        color="#1f77b4", alpha=0.15,
+    )
     ax1.set_xlabel("Bottleneck dimension  $r$")
-    ax1.set_ylabel("Normalized aggregate recoverability", fontsize=13)
-    ax1.set_ylim(0, 1.05); ax1.set_xticks(R_LIST)
+    ax1.set_ylabel(r"Mean held-out recovery $R^2$", fontsize=13)
+    ax1.set_ylim(min(-0.1, ax1.get_ylim()[0]), 1.05); ax1.set_xticks(R_LIST)
     ax1.legend(fontsize=9, loc="lower right")
 
     # --- RIGHT: which diverse tasks survive (balanced accuracy), legend below
     per = curves["diverse"]["per_bal"]                       # [R, M]
-    for t, (f, thr) in enumerate(DIVERSE_TASKS):
-        ax2.plot(R_LIST, per[:, t], "o-", lw=2, ms=5, label=DISPLAY.get(f, f))
+    for t, (f, _thr) in enumerate(DIVERSE_TASKS):
+        ax2.errorbar(
+            R_LIST, per[:, t], yerr=curves["diverse"]["per_bal_sd"][:, t],
+            marker="o", lw=2, ms=5, capsize=2, label=DISPLAY.get(f, f),
+        )
     ax2.axhline(0.5, color="gray", ls=":", lw=1)
     ax2.set_xlabel("Bottleneck dimension  $r$")
     ax2.set_ylabel("Balanced held-out accuracy")
@@ -209,6 +187,7 @@ if __name__ == "__main__":
     ap.add_argument("--ckpt_dir", "-ckpt", required=True)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--seed", type=int, default=6)
+    ap.add_argument("--split_seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4])
     ap.add_argument("--epoch", type=int, default=80)
     ap.add_argument("--npz_path", default=None)
     ap.add_argument("--shapes", type=int, nargs="+", default=[0, 1])

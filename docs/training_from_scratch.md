@@ -1,28 +1,37 @@
 # Training SSL models from scratch
 
-Our repository supports training the following SSL methods (from scratch) using [Lightly-SSL](https://github.com/lightly-ai/lightly-ssl):
-- VICReg
-- Barlow Twins
+The training entry point supports VICReg, W-MSE, and I-JEPA. Configuration files
+under `configs/` define the data source, model, optimizer schedule, callbacks,
+logging, precision, and output paths.
 
-## Configuration Files
-
-To train a model from scratch, you will need to create a configuration YAML file specifying the training parameters. You can find example configuration files in the `configs/` directory. An example configurationlooks like this:
-
-```yaml
-TODO
-```
-
-## Running the training script
-
-To start training, you can run the following command:
+## Run a configuration
 
 ```bash
-python training/train.py \
---config-path <config-file-name>
+python training/train.py --config configs/ijepa/celeba.yaml
 ```
 
-## Tracking experiments
+Environment substitutions use OmegaConf-compatible syntax. Full-value defaults
+retain their YAML type, so `${oc.env:EXP_DIR,null}` becomes `None` when unset.
+Useful path overrides include:
 
-You can track your experiments using [Weights & Biases](https://wandb.ai/). Navigate to `configs/<config-file-name>.yaml` file and set `logging.backend` to `wandb`. We provide callbacks for logging Linear Probing accuracy, and CDNV metrics to Weights & Biases. 
+```bash
+export OUTPUT_ROOT=/path/to/checkpoints
+export EXP_DIR=/path/to/this_run
+export RESUME_FROM_CHECKPOINT=/path/to/last.ckpt
+python training/train.py --config configs/ijepa/celeba.yaml
+```
 
-For example, navigate to `configs/<config-file-name>.yaml` and set `probe.enabled` to `true` to log LP accuracy. You can find such toggles for each method in their respective configuration files. 
+An explicitly supplied resume path must exist; training fails instead of
+silently starting a new run. I-JEPA image size and patch size must match its ViT
+encoder, and every cosine schedule requires `0 <= min_lr <= lr` (or the scaled
+learning rate for VICReg/W-MSE).
+
+## Logging and callbacks
+
+Set `logging.backend` to `csv` or `wandb`. The optional linear-probe and CDNV
+callbacks are configured under `probe` and `cdnv`. In distributed training these
+callbacks evaluate the complete probe dataset on rank zero, synchronize all
+ranks, and restore the model's previous train/eval mode.
+
+Checkpoint cadence is controlled by `ckpt_schedule`. Gradient accumulation,
+sanity validation steps, and logging frequency are read from `trainer`.

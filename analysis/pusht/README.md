@@ -34,7 +34,7 @@ $PY -u analysis/pusht/gen_data.py --zarr pusht/pusht_cchi_v7_replay.zarr \
     --n_states 4000 --workers 16 --out data/pusht_cf.npz
 
 # 3) JEPA sweep: r in {4,8,16,32} x 3 seeds + action-blind controls
-#    (spatial frozen-ResNet embeddings cached on first call; whole sweep <1 h)
+#    (spatial frozen-DINOv2 embeddings cached on first call)
 CUDA_VISIBLE_DEVICES=0 $PY -u analysis/pusht/train_jepa.py \
     --data data/pusht_cf.npz --rs 4 8 16 32 --seeds 0 1 2 --device cuda:0
 
@@ -56,13 +56,15 @@ $PY -u analysis/pusht/plot_regret.py --metrics metrics/ro3_pusht_regret.json
   goal progress `f = c_{t+H} - c_t`. Coverage is computed exactly
   (shapely intersection of block and goal T-geometry), not the env's clipped
   reward.
-- **JEPA**: a frozen ImageNet ResNet-18 gives `E(X_t)` and the target
-  `E(X_{t+H})`, taken as the **layer4 feature map adaptively pooled to a 3×3
-  grid** (512·9 = 4608-d) rather than a global avgpool — goal coverage is
-  spatial, so keeping coarse position makes progress linearly recoverable.
+- **JEPA**: a frozen DINOv2 ViT-S/14 gives `E(X_t)` and the target
+  `E(X_{t+H})`, using patch tokens adaptively pooled to a **3×3 spatial grid**.
+  The upstream revision is pinned in `pusht_common.py` and may be deliberately
+  overridden with `RO3_DINOV2_REF`. Keeping spatial position makes goal
+  progress recoverable; `RO3_ENCODER=resnet18sp` remains a documented fallback.
   Trainable MLP encoder → r-dim bottleneck → MLP predictor of the standardized
-  future embedding. Action-blind control drops the actions. (Embedding cache is
-  keyed by encoder tag, so this change auto-invalidates old `_emb` caches.)
+  future embedding. Action-blind control drops the actions. Input normalization
+  is fit on train episodes and saved with every checkpoint. Embedding caches are
+  keyed by encoder kind, pinned revision, and spatial grid.
 - **Eval**: ridge probe `Z → f` fit on train episodes; held-out `R^2`;
   regret `max_j c^(j) - c^(jhat)` over the pre-simulated candidates, computed
   only on non-degenerate test states (`--min_spread`, default 0.05). Splits are
@@ -78,6 +80,6 @@ $PY -u analysis/pusht/plot_regret.py --metrics metrics/ro3_pusht_regret.json
   (`reset(options={"reset_to_state": ...})`, `obs["pixels"]`, and
   `env.unwrapped.block / goal_pose`). The smoke test exercises all of it;
   if the pip version drifted, fix there before the full run.
-- Expected pattern: regret falls as probe `R^2` rises; models with similar
-  JEPA losses (color) land at different (R^2, regret) points — that's the
-  RO3 claim. Action-blind crosses should sit at low `R^2` / high regret.
+- The scatter reports the observed conditioned-run correlation and includes
+  random-selection and copy-expert baselines. Treat whether regret actually
+  falls with recoverability as an empirical result, not an assumed pattern.
