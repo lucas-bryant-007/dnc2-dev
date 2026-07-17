@@ -1,0 +1,18 @@
+# Analysis-only data configuration for the converted VICReg CelebA checkpoint.
+# Model architecture and weights are restored from the checkpoint itself.
+data:
+  name: celeba
+  hf_repo: flwrlabs/celeba
+  hf_cache_dir: ${oc.env:HF_DATASETS_CACHE,~/.cache/huggingface/datasets}
+  img_size: 128
+  patch_size: 16
+  batch_size: 128
+  num_workers: 16
+  num_views: 2
+  train_split: train
+  test_split: test
+  image_key: image
+  label_key: Male
+
+method:
+  name: vicreg

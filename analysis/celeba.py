@@ -178,7 +178,7 @@ def run_br_pipeline(
     )
 
 def main(args):
-    set_seed(6)
+    set_seed(args.seed)
     # Load config from YAML file
     cfg = load_config(args.config)
     # Convert dict to namespace for easier access (cfg.data.x instead of cfg['data']['x'])
@@ -187,6 +187,9 @@ def main(args):
     # build data module
     data_cfg = CelebACfg(**namespace_to_dict(cfg.data))
     data_cfg.method = cfg.method.name
+    if args.batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {args.batch_size}")
+    data_cfg.batch_size = args.batch_size
     if getattr(args, "label_key", None):
         data_cfg.label_key = args.label_key  # override the attribute (e.g. a high-B task)
     data_module = CelebADataModule(data_cfg)

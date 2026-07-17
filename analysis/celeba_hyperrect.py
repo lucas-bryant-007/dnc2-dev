@@ -118,6 +118,9 @@ def main(args):
 
     data_cfg = CelebACfg(**namespace_to_dict(cfg.data))
     data_cfg.method = cfg.method.name
+    if args.batch_size <= 0:
+        raise ValueError(f"batch_size must be positive, got {args.batch_size}")
+    data_cfg.batch_size = args.batch_size
     data_module = CelebADataModule(data_cfg)
     data_module.setup()
 
@@ -297,6 +300,8 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt_dir", "-ckpt", type=str, required=True)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--seed", type=int, default=6)
+    parser.add_argument("--batch_size", type=int, default=128,
+                        help="Feature-extraction batch size")
     parser.add_argument("--epoch", type=int, default=1000,
                         help="Single checkpoint epoch to analyze")
     parser.add_argument("--split", type=str, default="train", choices=["train", "test"])
