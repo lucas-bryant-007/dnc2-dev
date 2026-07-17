@@ -216,9 +216,58 @@ def subclass_box(
     for combo in itertools.product((0, 1), repeat=3):
         mask = (a3[:, 0] == combo[0]) & (a3[:, 1] == combo[1]) & (a3[:, 2] == combo[2])
         cnt = int(mask.sum().item())
-        center = coords[mask].mean(dim=0).tolist() if cnt > 0 else None
-        box.append({"combo": list(combo), "count": cnt, "center": center})
+        group = coords[mask]
+        center = group.mean(dim=0).tolist() if cnt > 0 else None
+        center_se = (
+            (group.std(dim=0, unbiased=True) / math.sqrt(cnt)).tolist()
+            if cnt > 1
+            else None
+        )
+        box.append({
+            "combo": list(combo),
+            "count": cnt,
+            "center": center,
+            "center_se": center_se,
+        })
     return coords, box, granular_task
+
+
+def box_prediction_diagnostics(box: Sequence[Dict], predicted_box: Sequence[Dict]) -> Dict:
+    """Compare observed granular-task centroids with predicted box corners."""
+    observed = {
+        tuple(entry["combo"]): entry["center"]
+        for entry in box
+        if entry.get("center") is not None
+    }
+    predicted = {
+        tuple(entry["combo"]): entry["center"]
+        for entry in predicted_box
+        if entry.get("center") is not None
+    }
+    shared = sorted(set(observed) & set(predicted))
+    if not shared:
+        return {
+            "n_corners": 0,
+            "centroid_rmse": None,
+            "max_centroid_error": None,
+            "min_cell_count": 0,
+        }
+    errors = []
+    for combo in shared:
+        obs = torch.tensor(observed[combo], dtype=torch.float64)
+        pred = torch.tensor(predicted[combo], dtype=torch.float64)
+        errors.append(float(torch.linalg.vector_norm(obs - pred).item()))
+    counts = [entry["count"] for entry in box if tuple(entry["combo"]) in shared]
+    return {
+        "n_corners": len(shared),
+        "centroid_rmse": math.sqrt(sum(error * error for error in errors) / len(errors)),
+        "max_centroid_error": max(errors),
+        "min_cell_count": min(counts),
+        "per_corner_error": [
+            {"combo": list(combo), "l2_error": error}
+            for combo, error in zip(shared, errors, strict=True)
+        ],
+    }
 
 
 def task_probe(features: torch.Tensor, labels01: torch.Tensor) -> torch.Tensor:
