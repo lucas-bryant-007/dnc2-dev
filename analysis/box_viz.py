@@ -188,7 +188,8 @@ def plot_cosine_heatmap(cos_abs, names, save_path, title=None):
 def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                 predicted_box=None, per_task=500, title=None, zoom=1.12,
                 axis_labels=None, level_labels=None, show_samples=True,
-                show_centroid_se=False, publication_compact=False):
+                show_centroid_se=False, publication_compact=False,
+                axis_label_positions=None):
     """Clean 3D hyper-rectangle for the proposal: a swarm of samples colored by
     granular task clustered around each of the 8 centroids, a bold box through
     the centroids, and labeled arrows along the three task axes (orthogonality).
@@ -307,10 +308,17 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
         L = cext * 0.92
         # Per-axis label position + alignment; the y-position (z) label is nudged in
         # +x so it sits to the right of the vertical arrow rather than on top of it.
+        relative_positions = axis_label_positions or [
+            (1.14, 0.0, 0.0),
+            (0.0, 1.14, 0.0),
+            (0.22, 0.0, 1.10),
+        ]
+        if len(relative_positions) != 3:
+            raise ValueError("axis_label_positions must contain three 3D positions")
+        alignments = [("left", "top"), ("left", "bottom"), ("left", "bottom")]
         labelspec = [
-            ((L * 1.14, 0.0, 0.0), "left", "top"),
-            ((0.0, L * 1.14, 0.0), "left", "bottom"),
-            ((L * 0.22, 0.0, L * 1.10), "left", "bottom"),
+            (tuple(L * value for value in position), *alignment)
+            for position, alignment in zip(relative_positions, alignments, strict=True)
         ]
         for k, vec in enumerate([(L, 0, 0), (0, L, 0), (0, 0, L)]):
             ax.quiver(0, 0, 0, vec[0], vec[1], vec[2], color="black",
