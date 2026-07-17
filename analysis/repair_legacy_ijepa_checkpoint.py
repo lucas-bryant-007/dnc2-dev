@@ -8,7 +8,10 @@ never overwritten.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -80,6 +83,60 @@ def repair_checkpoint_dict(checkpoint: dict[str, Any]) -> dict[str, Any]:
     return checkpoint
 
 
+def _sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(chunk_size):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _state_signature(checkpoint: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    state = _mapping(checkpoint.get("state_dict"), "state_dict")
+    return {
+        key: {"shape": list(value.shape), "dtype": str(value.dtype)}
+        for key, value in state.items()
+        if isinstance(value, torch.Tensor)
+    }
+
+
+def build_repair_record(
+    source: Path,
+    destination: Path,
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Build an auditable sidecar after both checkpoint files exist."""
+    return {
+        "schema_version": 1,
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "utility": "analysis/repair_legacy_ijepa_checkpoint.py",
+        "source": {
+            "path": str(source),
+            "bytes": source.stat().st_size,
+            "sha256": _sha256_file(source),
+        },
+        "repaired_copy": {
+            "path": str(destination),
+            "bytes": destination.stat().st_size,
+            "sha256": _sha256_file(destination),
+        },
+        "repair": metadata,
+    }
+
+
+def _write_repair_record(path: Path, record: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    try:
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(record, handle, indent=2)
+            handle.write("\n")
+        os.replace(temporary, path)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
 def main(args: argparse.Namespace) -> None:
     source = Path(args.input).expanduser().resolve()
     destination = Path(args.output).expanduser().resolve()
@@ -87,8 +144,31 @@ def main(args: argparse.Namespace) -> None:
         raise SystemExit("Refusing to overwrite the input checkpoint")
     if not source.is_file():
         raise SystemExit(f"Input checkpoint does not exist: {source}")
-    if destination.exists() and not args.force:
+    if destination.exists() and not args.force and not args.record_only:
         raise SystemExit(f"Output already exists (use --force to replace): {destination}")
+
+    record_path = (
+        Path(args.record).expanduser().resolve()
+        if args.record
+        else destination.with_name(destination.name + ".repair.json")
+    )
+
+    if args.record_only:
+        if not destination.is_file():
+            raise SystemExit(f"Repaired checkpoint does not exist: {destination}")
+        source_checkpoint = torch.load(source, map_location="cpu", weights_only=False)
+        expected = repair_checkpoint_dict(source_checkpoint)
+        repaired = torch.load(destination, map_location="cpu", weights_only=False)
+        metadata = repaired.get("legacy_metadata_repair")
+        if metadata != expected["legacy_metadata_repair"]:
+            raise SystemExit("Repaired checkpoint metadata does not match the validated source")
+        if _state_signature(repaired) != _state_signature(source_checkpoint):
+            raise SystemExit("Repaired checkpoint tensor structure differs from the source")
+        record = build_repair_record(source, destination, metadata)
+        _write_repair_record(record_path, record)
+        print(f"Validated existing repaired copy: {destination}")
+        print(f"Saved repair record: {record_path}")
+        return
 
     checkpoint = torch.load(source, map_location="cpu", weights_only=False)
     repaired = repair_checkpoint_dict(checkpoint)
@@ -102,11 +182,14 @@ def main(args: argparse.Namespace) -> None:
             temporary.unlink()
 
     metadata = repaired["legacy_metadata_repair"]
+    record = build_repair_record(source, destination, metadata)
+    _write_repair_record(record_path, record)
     print(f"Validated encoder: {metadata['encoder_type']}")
     print(f"Position embeddings: {metadata['validated_position_embeddings']}")
     print(f"Original metadata: {metadata['original']}")
     print(f"Corrected metadata: {metadata['corrected']}")
     print(f"Saved repaired copy: {destination}")
+    print(f"Saved repair record: {record_path}")
 
 
 if __name__ == "__main__":
@@ -114,4 +197,14 @@ if __name__ == "__main__":
     parser.add_argument("--input", required=True, help="Legacy checkpoint")
     parser.add_argument("--output", required=True, help="New repaired checkpoint path")
     parser.add_argument("--force", action="store_true", help="Replace an existing output")
+    parser.add_argument(
+        "--record",
+        default=None,
+        help="Repair sidecar path (default: <output>.repair.json)",
+    )
+    parser.add_argument(
+        "--record_only",
+        action="store_true",
+        help="Validate existing input/output files and write only the repair sidecar",
+    )
     main(parser.parse_args())
