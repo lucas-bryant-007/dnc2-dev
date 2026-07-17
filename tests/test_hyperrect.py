@@ -3,6 +3,8 @@ import math
 import torch
 
 from analysis.hyperrect import (
+    balanced_joint_indices,
+    balanced_triple_proxy,
     box_prediction_diagnostics,
     orthonormal_basis,
     subclass_box,
@@ -63,3 +65,42 @@ def test_box_prediction_diagnostics_reports_corner_error_and_counts():
     assert math.isclose(diagnostics["normalized_centroid_rmse"], math.sqrt(1.0 / 6.0))
     assert diagnostics["max_centroid_error"] == 1.0
     assert diagnostics["min_cell_count"] == 10
+
+
+def test_balanced_joint_indices_equalizes_all_eight_cells_reproducibly():
+    cells = []
+    for cell in range(8):
+        combo = [(cell >> 2) & 1, (cell >> 1) & 1, cell & 1]
+        cells.extend([combo] * (cell + 2))
+    attrs = torch.tensor(cells)
+
+    first, counts, per_cell = balanced_joint_indices(attrs, seed=7)
+    second, _, _ = balanced_joint_indices(attrs, seed=7)
+    selected = attrs[first]
+    groups = selected[:, 0] * 4 + selected[:, 1] * 2 + selected[:, 2]
+
+    assert counts == list(range(2, 10))
+    assert per_cell == 2
+    assert torch.equal(first, second)
+    assert torch.equal(torch.bincount(groups, minlength=8), torch.full((8,), 2))
+
+
+def test_balanced_triple_proxy_removes_label_prior_from_cell_weighting():
+    centers = []
+    attrs = []
+    for cell in range(8):
+        signs = torch.tensor(
+            [2 * ((cell >> 2) & 1) - 1,
+             2 * ((cell >> 1) & 1) - 1,
+             2 * (cell & 1) - 1],
+            dtype=torch.float32,
+        )
+        count = cell + 1
+        centers.extend([signs] * count)
+        attrs.extend([((signs + 1) / 2).long()] * count)
+
+    proxy = balanced_triple_proxy(torch.stack(centers), torch.stack(attrs))
+
+    assert proxy["min_cell_count"] == 1
+    assert torch.allclose(torch.tensor(proxy["capture_proxy"]), torch.ones(3))
+    assert math.isclose(proxy["max_abs_cos"], 0.0, abs_tol=1e-7)

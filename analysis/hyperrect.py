@@ -232,6 +232,92 @@ def subclass_box(
     return coords, box, granular_task
 
 
+def balanced_joint_indices(
+    attr3: torch.Tensor,
+    seed: int = 0,
+    max_per_cell: Optional[int] = None,
+) -> Tuple[torch.Tensor, List[int], int]:
+    """Deterministically sample the same number of examples from all 8 cells.
+
+    Returns ``(indices, original_cell_counts, samples_per_cell)``.  The random
+    draw is performed on CPU with a fixed seed so it is reproducible regardless
+    of the accelerator used for feature analysis.
+    """
+    if attr3.ndim != 2 or attr3.shape[1] != 3:
+        raise ValueError(f"attr3 must have shape [N,3], got {tuple(attr3.shape)}")
+    bits = (attr3 > 0).long()
+    group = bits[:, 0] * 4 + bits[:, 1] * 2 + bits[:, 2]
+    group_cpu = group.detach().cpu()
+    counts = torch.bincount(group_cpu, minlength=8).tolist()
+    if min(counts) <= 0:
+        raise ValueError(f"All eight joint cells must be present; counts={counts}")
+    per_cell = min(counts)
+    if max_per_cell is not None:
+        if max_per_cell <= 0:
+            raise ValueError(f"max_per_cell must be positive, got {max_per_cell}")
+        per_cell = min(per_cell, max_per_cell)
+    generator = torch.Generator(device="cpu").manual_seed(seed)
+    selected = []
+    for cell in range(8):
+        cell_indices = torch.where(group_cpu == cell)[0]
+        permutation = torch.randperm(cell_indices.numel(), generator=generator)
+        selected.append(cell_indices[permutation[:per_cell]])
+    indices = torch.cat(selected).to(attr3.device)
+    return indices, [int(count) for count in counts], int(per_cell)
+
+
+def balanced_triple_proxy(features: torch.Tensor, attr3: torch.Tensor) -> Dict:
+    """Cheap equal-cell geometry used only to rank training-set triples.
+
+    The input features share one common whitened coordinate system.  Each of
+    the eight cell means receives weight 1/8, eliminating correlations caused
+    solely by the empirical label prior.  The selected triple is subsequently
+    rewhitened and rechecked exactly before any test labels are analyzed.
+    """
+    if attr3.ndim != 2 or attr3.shape[1] != 3 or attr3.shape[0] != features.shape[0]:
+        raise ValueError("features and attr3 must have compatible [N,*] shapes")
+    bits = (attr3 > 0).long()
+    group = bits[:, 0] * 4 + bits[:, 1] * 2 + bits[:, 2]
+    counts = torch.bincount(group, minlength=8)
+    if int(counts.min().item()) <= 0:
+        return {
+            "cell_counts": [int(value) for value in counts.tolist()],
+            "min_cell_count": 0,
+            "capture_proxy": None,
+            "max_abs_cos": None,
+        }
+    sums = torch.zeros(
+        8,
+        features.shape[1],
+        device=features.device,
+        dtype=features.dtype,
+    )
+    sums.index_add_(0, group, features)
+    centers = sums / counts.to(features.dtype).unsqueeze(1)
+    signs = torch.tensor(
+        [
+            [2 * ((cell >> 2) & 1) - 1,
+             2 * ((cell >> 1) & 1) - 1,
+             2 * (cell & 1) - 1]
+            for cell in range(8)
+        ],
+        device=features.device,
+        dtype=features.dtype,
+    )
+    probes = (signs.T @ centers) / 8.0
+    capture = (probes * probes).sum(dim=1)
+    cos = cosine_matrix(probes)
+    offdiag = cos.abs()[
+        torch.triu_indices(3, 3, offset=1, device=cos.device).unbind()
+    ]
+    return {
+        "cell_counts": [int(value) for value in counts.tolist()],
+        "min_cell_count": int(counts.min().item()),
+        "capture_proxy": [float(value) for value in capture.tolist()],
+        "max_abs_cos": float(offdiag.max().item()),
+    }
+
+
 def box_prediction_diagnostics(box: Sequence[Dict], predicted_box: Sequence[Dict]) -> Dict:
     """Compare observed granular-task centroids with predicted box corners."""
     observed = {

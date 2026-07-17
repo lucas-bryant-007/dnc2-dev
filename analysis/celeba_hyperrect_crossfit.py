@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+import itertools
 import math
 import os
 import sys
@@ -86,6 +87,105 @@ def _constraints_satisfied(result, min_class_frac, min_capture, cos_ceiling):
     return float(result["triple_max_abs_cos"]) <= cos_ceiling
 
 
+def _rank_balanced_candidates(features, attrs, attr_names, metrics, args):
+    candidates = []
+    for index, row in enumerate(metrics):
+        if not row.get("usable") or row.get("capture_B") is None:
+            continue
+        prevalence = float(row["pos_frac"])
+        if min(prevalence, 1.0 - prevalence) < args.candidate_min_class_frac:
+            continue
+        if float(row["capture_B"]) < args.candidate_min_capture:
+            continue
+        candidates.append((index, float(row["capture_B"])))
+    candidates.sort(key=lambda item: item[1], reverse=True)
+    candidates = candidates[:args.balance_candidate_pool]
+    print("Balanced candidate pool:", [attr_names[index] for index, _ in candidates])
+
+    ranked = []
+    for combo in itertools.combinations([index for index, _ in candidates], 3):
+        proxy = H.balanced_triple_proxy(features, attrs[:, combo])
+        if proxy["min_cell_count"] < args.min_train_cell_count:
+            continue
+        if proxy["max_abs_cos"] > args.proxy_cos_ceiling:
+            continue
+        ranked.append(
+            {
+                "indices": list(combo),
+                "names": [attr_names[index] for index in combo],
+                "proxy": proxy,
+                "min_capture_proxy": min(proxy["capture_proxy"]),
+                "mean_capture_proxy": sum(proxy["capture_proxy"]) / 3.0,
+            }
+        )
+    ranked.sort(
+        key=lambda row: (
+            -row["min_capture_proxy"],
+            row["proxy"]["max_abs_cos"],
+            -row["mean_capture_proxy"],
+        )
+    )
+    print(f"Balanced proxy candidates meeting train feasibility: {len(ranked)}")
+    return ranked
+
+
+def _select_balanced_train_triple(features, attrs, attr_names, metrics, args):
+    ranked = _rank_balanced_candidates(features, attrs, attr_names, metrics, args)
+    attempts = []
+    for rank, candidate in enumerate(ranked[:args.max_exact_candidates], start=1):
+        indices = candidate["indices"]
+        selected, counts, per_cell = H.balanced_joint_indices(
+            attrs[:, indices],
+            seed=args.seed,
+            max_per_cell=args.max_train_cell_samples,
+        )
+        balanced_features = H.rewhiten(features[selected])
+        balanced_attrs = attrs[selected][:, indices]
+        result = H.analyze(
+            balanced_features,
+            balanced_attrs,
+            candidate["names"],
+            min_class_frac=args.min_class_frac,
+            viz_triple=candidate["names"],
+            compute_capture=True,
+            min_capture=args.min_capture,
+            cos_ceiling=args.cos_ceiling,
+        )
+        passed = _constraints_satisfied(
+            result,
+            args.min_class_frac,
+            args.min_capture,
+            args.cos_ceiling,
+        )
+        attempt = {
+            "rank": rank,
+            "triple": candidate["names"],
+            "proxy": candidate["proxy"],
+            "original_cell_counts": counts,
+            "samples_per_cell": per_cell,
+            "exact_max_abs_cos": result["triple_max_abs_cos"],
+            "exact_capture_B": [row["capture_B"] for row in result["metrics"]],
+            "passed": passed,
+        }
+        attempts.append(attempt)
+        print(
+            f"  balanced candidate {rank}: {candidate['names']} "
+            f"B={[round(value, 3) for value in attempt['exact_capture_B']]} "
+            f"max|cos|={result['triple_max_abs_cos']:.3f} passed={passed}"
+        )
+        if passed:
+            return result, {
+                "selected_candidate": candidate,
+                "original_cell_counts": counts,
+                "samples_per_cell": per_cell,
+                "exact_attempts": attempts,
+            }
+        del result, balanced_features, balanced_attrs
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    return None, {"selected_candidate": None, "exact_attempts": attempts}
+
+
 @torch.no_grad()
 def _transform_on_device(estimator, features, device, batch_size):
     """Apply the fitted SSL map in GPU chunks without retaining a second CPU copy."""
@@ -109,6 +209,7 @@ def _analyze_dataset(
     estimator,
     args,
     viz_triple=None,
+    retain_tensors=False,
 ):
     loader = _loader(dataset, data_cfg, transforms, attr_names)
     features, attr_matrix = extract_features_and_attrs(
@@ -137,7 +238,10 @@ def _analyze_dataset(
         min_capture=args.min_capture,
         cos_ceiling=args.cos_ceiling,
     )
-    del features, attr_matrix, features_dev, attrs_dev
+    del features, attr_matrix
+    if retain_tensors:
+        return result, features_dev, attrs_dev
+    del features_dev, attrs_dev
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     return result
@@ -194,15 +298,47 @@ def main(args):
     gc.collect()
 
     print("\n=== TRAIN-ONLY TRIPLE SELECTION ===")
-    train_result = _analyze_dataset(
-        data_module.ds_train,
-        data_cfg,
-        data_module.test_tfms,
-        attr_names,
-        model,
-        estimator,
-        args,
-    )
+    train_balance_record = None
+    natural_train_screen = None
+    if args.joint_balance:
+        natural_train_result, train_features, train_attrs = _analyze_dataset(
+            data_module.ds_train,
+            data_cfg,
+            data_module.test_tfms,
+            attr_names,
+            model,
+            estimator,
+            args,
+            retain_tensors=True,
+        )
+        natural_train_screen = {
+            "metrics": natural_train_result["metrics"],
+            "mean_abs_offdiag_cosine": natural_train_result["mean_abs_offdiag_cosine"],
+        }
+        train_result, train_balance_record = _select_balanced_train_triple(
+            train_features,
+            train_attrs,
+            attr_names,
+            natural_train_result["metrics"],
+            args,
+        )
+        del natural_train_result, train_features, train_attrs
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        if train_result is None:
+            raise SystemExit(
+                "No jointly balanced training triple satisfied the preregistered constraints."
+            )
+    else:
+        train_result = _analyze_dataset(
+            data_module.ds_train,
+            data_cfg,
+            data_module.test_tfms,
+            attr_names,
+            model,
+            estimator,
+            args,
+        )
     constraints_ok = _constraints_satisfied(
         train_result,
         args.min_class_frac,
@@ -228,16 +364,55 @@ def main(args):
     gc.collect()
 
     print("\n=== HELD-OUT TEST EVALUATION (TRIPLE FROZEN) ===")
-    test_result = _analyze_dataset(
-        data_module.ds_test,
-        data_cfg,
-        data_module.test_tfms,
-        attr_names,
-        model,
-        estimator,
-        args,
-        viz_triple=frozen_triple,
-    )
+    test_balance_record = None
+    if args.joint_balance:
+        _natural_test, test_features, test_attrs = _analyze_dataset(
+            data_module.ds_test,
+            data_cfg,
+            data_module.test_tfms,
+            attr_names,
+            model,
+            estimator,
+            args,
+            retain_tensors=True,
+        )
+        selected_indices = [attr_names.index(name) for name in frozen_triple]
+        selected, counts, per_cell = H.balanced_joint_indices(
+            test_attrs[:, selected_indices],
+            seed=args.seed + 1,
+        )
+        balanced_test_features = H.rewhiten(test_features[selected])
+        balanced_test_attrs = test_attrs[selected][:, selected_indices]
+        test_result = H.analyze(
+            balanced_test_features,
+            balanced_test_attrs,
+            frozen_triple,
+            min_class_frac=args.min_class_frac,
+            viz_triple=frozen_triple,
+            compute_capture=True,
+            min_capture=args.min_capture,
+            cos_ceiling=args.cos_ceiling,
+        )
+        test_balance_record = {
+            "original_cell_counts": counts,
+            "samples_per_cell": per_cell,
+            "total_balanced_samples": 8 * per_cell,
+        }
+        del _natural_test, test_features, test_attrs
+        del balanced_test_features, balanced_test_attrs
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    else:
+        test_result = _analyze_dataset(
+            data_module.ds_test,
+            data_cfg,
+            data_module.test_tfms,
+            attr_names,
+            model,
+            estimator,
+            args,
+            viz_triple=frozen_triple,
+        )
     diagnostics = H.box_prediction_diagnostics(
         test_result["box"], test_result["predicted_box"]
     )
@@ -304,6 +479,11 @@ def main(args):
         "config": args.config,
         "ckpt_path": ckpt_path,
         "protocol": {
+            "population": (
+                "uniform_over_selected_eight_label_cells"
+                if args.joint_balance
+                else "natural_celeba_label_distribution"
+            ),
             "selection_split": "train",
             "evaluation_split": "test",
             "triple_frozen_before_test_label_analysis": True,
@@ -322,7 +502,10 @@ def main(args):
         },
         "ssl_subspace_k_eff": estimator.k_eff,
         "selected_triple": frozen_triple,
+        "natural_train_screen": natural_train_screen,
+        "train_balance": train_balance_record,
         "train_selection": train_payload,
+        "test_balance": test_balance_record,
         "test_evaluation": _serializable_result(test_result),
         "test_box_diagnostics": diagnostics,
         "headline_criteria": headline_criteria,
@@ -370,6 +553,14 @@ if __name__ == "__main__":
     parser.add_argument("--whiten_ridge_rel", type=float, default=1e-3)
     parser.add_argument("--transform_batch_size", type=int, default=8192)
     parser.add_argument("--allow_constraint_fallback", action="store_true")
+    parser.add_argument("--joint_balance", action="store_true")
+    parser.add_argument("--candidate_min_class_frac", type=float, default=0.10)
+    parser.add_argument("--candidate_min_capture", type=float, default=0.05)
+    parser.add_argument("--balance_candidate_pool", type=int, default=12)
+    parser.add_argument("--min_train_cell_count", type=int, default=1000)
+    parser.add_argument("--max_train_cell_samples", type=int, default=5000)
+    parser.add_argument("--proxy_cos_ceiling", type=float, default=0.25)
+    parser.add_argument("--max_exact_candidates", type=int, default=10)
     parser.add_argument("--test_cos_target", type=float, default=0.15)
     parser.add_argument("--test_min_capture", type=float, default=0.10)
     parser.add_argument("--max_normalized_centroid_rmse", type=float, default=0.25)
