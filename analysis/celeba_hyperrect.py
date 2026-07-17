@@ -209,7 +209,8 @@ def main(args):
     print("\nPer-attribute, sorted by capture (best first; * = ~balanced):")
     usable_sorted = sorted(
         [m for m in res["metrics"] if m.get("usable")],
-        key=lambda m: m["directional_cdnv"],
+        key=H.capture_proxy,
+        reverse=True,
     )
     for m in usable_sorted:
         capB = m.get("capture_B")
