@@ -1,6 +1,7 @@
 import json
 
 from analysis.build_results_manifest import build_manifest
+from analysis.plot_crossfit_hyperrect import render_crossfit_json
 from analysis.plot_pretrained_summary import (
     load_completed_runs,
     plot_interference,
@@ -96,3 +97,35 @@ def test_manifest_hashes_artifacts_and_records_run_commits(tmp_path):
     assert len(manifest["artifacts"]) == 4
     assert all(len(row["sha256"]) == 64 for row in manifest["artifacts"])
     assert {row["method"] for row in manifest["metric_records"]} == {"ijepa", "vicreg"}
+
+
+def test_crossfit_json_renders_compact_png_and_pdf(tmp_path):
+    box = []
+    predicted = []
+    for cell in range(8):
+        combo = [(cell >> 2) & 1, (cell >> 1) & 1, cell & 1]
+        center = [2 * value - 1 for value in combo]
+        box.append({"combo": combo, "count": 100, "center": center, "center_se": [0.01] * 3})
+        predicted.append({"combo": combo, "center": center})
+    payload = {
+        "method": "vicreg",
+        "epoch": 1000,
+        "selected_triple": ["Smiling", "Heavy_Makeup", "Black_Hair"],
+        "protocol": {
+            "selection_split": "train",
+            "evaluation_split": "test",
+            "triple_frozen_before_test_label_analysis": True,
+        },
+        "test_evaluation": {
+            "triple_names": ["Smiling", "Heavy_Makeup", "Black_Hair"],
+            "box": box,
+            "predicted_box": predicted,
+        },
+    }
+    json_path = tmp_path / "crossfit.json"
+    _write_json(json_path, payload)
+
+    outputs = render_crossfit_json(json_path, tmp_path / "paper")
+
+    assert {path.suffix for path in outputs} == {".png", ".pdf"}
+    assert all(path.stat().st_size > 0 for path in outputs)

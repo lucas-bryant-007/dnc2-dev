@@ -188,7 +188,7 @@ def plot_cosine_heatmap(cos_abs, names, save_path, title=None):
 def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                 predicted_box=None, per_task=500, title=None, zoom=1.12,
                 axis_labels=None, level_labels=None, show_samples=True,
-                show_centroid_se=False):
+                show_centroid_se=False, publication_compact=False):
     """Clean 3D hyper-rectangle for the proposal: a swarm of samples colored by
     granular task clustered around each of the 8 centroids, a bold box through
     the centroids, and labeled arrows along the three task axes (orthogonality).
@@ -201,8 +201,16 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     import numpy as np
     from br import style
     style.apply_style()
+    if publication_compact:
+        plt.rcParams.update({
+            "font.size": 10,
+            "legend.fontsize": 9,
+            "axes.labelsize": 10,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        })
 
-    fig = plt.figure(figsize=(7.0, 6.4))
+    fig = plt.figure(figsize=((8.8, 5.6) if publication_compact else (7.0, 6.4)))
     ax = fig.add_subplot(111, projection="3d")
     p = coords.numpy() if hasattr(coords, "numpy") else np.asarray(coords)
     g = granular_task.numpy() if hasattr(granular_task, "numpy") else np.asarray(granular_task)
@@ -257,7 +265,10 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     if has_pred:
         _edges(pcent, color=pred_color, linewidth=1.7, alpha=0.95, linestyle=(0, (5, 4)))
 
-    cs = 170 if has_pred else 240
+    if publication_compact:
+        cs = 105 if has_pred else 150
+    else:
+        cs = 170 if has_pred else 240
     for combo, ctr in centers.items():
         color, marker, filled = corner_style(combo)
         if filled:
@@ -269,8 +280,10 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                        depthshade=False)
     if has_pred:  # open red diamonds framing each observed centroid
         for _combo, ctr in pcent.items():
-            ax.scatter(ctr[0], ctr[1], ctr[2], s=310, marker="D",
-                       facecolors="none", edgecolors=pred_color, linewidth=2.0,
+            pred_size = 135 if publication_compact else 310
+            pred_width = 1.2 if publication_compact else 2.0
+            ax.scatter(ctr[0], ctr[1], ctr[2], s=pred_size, marker="D",
+                       facecolors="none", edgecolors=pred_color, linewidth=pred_width,
                        depthshade=False)
     if show_centroid_se:
         for entry in box:
@@ -290,20 +303,21 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     # view) so they don't sit on top of the arrows.
     allc = np.array(list(centers.values())) if centers else np.array([[1.0, 1.0, 1.0]])
     cext = float(np.abs(allc).max())
-    L = cext * 0.92
-    # Per-axis label position + alignment; the y-position (z) label is nudged in
-    # +x so it sits to the right of the vertical arrow rather than on top of it.
-    labelspec = [
-        ((L * 1.14, 0.0, 0.0), "left", "top"),         # size
-        ((0.0, L * 1.14, 0.0), "left", "bottom"),      # x-position
-        ((L * 0.22, 0.0, L * 1.10), "left", "bottom"),  # y-position (slightly right of arrow)
-    ]
-    for k, vec in enumerate([(L, 0, 0), (0, L, 0), (0, 0, L)]):
-        ax.quiver(0, 0, 0, vec[0], vec[1], vec[2], color="black",
-                  linewidth=1.8, arrow_length_ratio=0.1)
-        pos, ha, va = labelspec[k]
-        ax.text(pos[0], pos[1], pos[2], alabels[k],
-                fontsize=17, fontweight="bold", ha=ha, va=va)
+    if not publication_compact:
+        L = cext * 0.92
+        # Per-axis label position + alignment; the y-position (z) label is nudged in
+        # +x so it sits to the right of the vertical arrow rather than on top of it.
+        labelspec = [
+            ((L * 1.14, 0.0, 0.0), "left", "top"),
+            ((0.0, L * 1.14, 0.0), "left", "bottom"),
+            ((L * 0.22, 0.0, L * 1.10), "left", "bottom"),
+        ]
+        for k, vec in enumerate([(L, 0, 0), (0, L, 0), (0, 0, L)]):
+            ax.quiver(0, 0, 0, vec[0], vec[1], vec[2], color="black",
+                      linewidth=1.8, arrow_length_ratio=0.1)
+            pos, ha, va = labelspec[k]
+            ax.text(pos[0], pos[1], pos[2], alabels[k],
+                    fontsize=17, fontweight="bold", ha=ha, va=va)
 
     # Zoom so the box fills the frame; drop the axis frame entirely so the figure
     # crops tight to the box (no empty 3D floor pane / whitespace).
@@ -316,38 +330,72 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
     # Lift the cube into the top whitespace (shrink the axes upward) and hang the
     # color key in the reserved strip below it, so the legend can't clip the
     # bottom corner. tight-crop then trims the freed top margin.
-    ax.set_position([0.0, 0.16, 1.0, 0.84])
+    ax.set_position(
+        [0.01, 0.08, 0.98, 0.84]
+        if publication_compact
+        else [0.0, 0.16, 1.0, 0.84]
+    )
     from matplotlib.lines import Line2D
 
     def _key(marker, fc, ec, lw, label):
-        return Line2D([0], [0], marker=marker, color="none", markersize=14,
+        marker_size = 9 if publication_compact else 14
+        return Line2D([0], [0], marker=marker, color="none", markersize=marker_size,
                       markerfacecolor=fc, markeredgecolor=ec, markeredgewidth=lw,
                       label=label)
     def _hdr(label):  # column header: blank handle, just the channel name
         return Line2D([0], [0], marker="None", linestyle="None", label=label)
-    # One column per channel: a header (the factor) then its two states below, so
-    # it reads  "size:        x-position:    y-position:" with the markers under each.
-    key = [
-        _hdr(f"{alabels[0]}:"),
-        _key("o", CH_COLORS[0], "black", 1.0, llab[0][0]),
-        _key("o", CH_COLORS[1], "black", 1.0, llab[0][1]),
-        _hdr(f"{alabels[1]}:"),
-        _key(CH_MARKERS[0], "0.6", "black", 1.0, llab[1][0]),
-        _key(CH_MARKERS[1], "0.6", "black", 1.0, llab[1][1]),
-        _hdr(f"{alabels[2]}:"),
-        _key("o", "0.6", "black", 1.0, llab[2][0]),
-        _key("o", "white", "0.45", 2.2, llab[2][1]),
-    ]
-    fig.legend(key, [h.get_label() for h in key], loc="lower center", ncol=3,
-               fontsize=14.5, framealpha=0.9, handletextpad=0.5,
-               columnspacing=1.3, labelspacing=0.5, borderpad=0.55,
-               bbox_to_anchor=(0.5, 0.0))
+    if publication_compact:
+        key = [
+            _key("o", CH_COLORS[0], "black", 1.0, f"{alabels[0]} {llab[0][0]}"),
+            _key("o", CH_COLORS[1], "black", 1.0, f"{alabels[0]} {llab[0][1]}"),
+            _key(CH_MARKERS[0], "0.6", "black", 1.0, f"{alabels[1]} {llab[1][0]}"),
+            _key(CH_MARKERS[1], "0.6", "black", 1.0, f"{alabels[1]} {llab[1][1]}"),
+            _key("o", "0.6", "black", 1.0, f"{alabels[2]} {llab[2][0]}"),
+            _key("o", "white", "0.45", 2.2, f"{alabels[2]} {llab[2][1]}"),
+        ]
+    else:
+        # One column per channel: a header then its two states below.
+        key = [
+            _hdr(f"{alabels[0]}:"),
+            _key("o", CH_COLORS[0], "black", 1.0, llab[0][0]),
+            _key("o", CH_COLORS[1], "black", 1.0, llab[0][1]),
+            _hdr(f"{alabels[1]}:"),
+            _key(CH_MARKERS[0], "0.6", "black", 1.0, llab[1][0]),
+            _key(CH_MARKERS[1], "0.6", "black", 1.0, llab[1][1]),
+            _hdr(f"{alabels[2]}:"),
+            _key("o", "0.6", "black", 1.0, llab[2][0]),
+            _key("o", "white", "0.45", 2.2, llab[2][1]),
+        ]
+    fig.legend(
+        key,
+        [h.get_label() for h in key],
+        loc="lower center",
+        ncol=(6 if publication_compact else 3),
+        fontsize=(9.5 if publication_compact else 14.5),
+        framealpha=0.9,
+        handletextpad=(0.35 if publication_compact else 0.5),
+        columnspacing=(0.9 if publication_compact else 1.3),
+        labelspacing=(0.25 if publication_compact else 0.5),
+        borderpad=(0.35 if publication_compact else 0.55),
+        bbox_to_anchor=(0.5, 0.0),
+    )
     if has_pred:
         from matplotlib.lines import Line2D
         box_handles = [Line2D([0], [0], color="black", lw=1.8),
                        Line2D([0], [0], color=pred_color, lw=1.8, linestyle=(0, (5, 4)))]
-        ax.legend(box_handles, ["observed", r"predicted $\sqrt{B_t}$"],
-                  loc="upper right", fontsize=13, framealpha=0.9)
+        if publication_compact:
+            fig.legend(
+                box_handles,
+                ["observed", r"predicted $\sqrt{B_t}$"],
+                loc="upper center",
+                ncol=2,
+                fontsize=9.5,
+                framealpha=0.9,
+                bbox_to_anchor=(0.5, 0.99),
+            )
+        else:
+            ax.legend(box_handles, ["observed", r"predicted $\sqrt{B_t}$"],
+                      loc="upper right", fontsize=13, framealpha=0.9)
     for pth in (save_path if isinstance(save_path, (list, tuple)) else [save_path]):
         fig.savefig(pth, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
