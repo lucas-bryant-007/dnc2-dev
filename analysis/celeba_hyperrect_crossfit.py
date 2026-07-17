@@ -16,6 +16,7 @@ import math
 import os
 import sys
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -56,6 +57,37 @@ def _serializable_result(result):
         key: value
         for key, value in result.items()
         if key not in {"coords", "granular_task"}
+    }
+
+
+def _write_plot_points(path, coords, granular_task, triple_names, balance_seed):
+    """Save genuine held-out 3D coordinates for deterministic post-hoc figures."""
+    coords_np = coords.detach().cpu().numpy().astype(np.float32, copy=False)
+    task_np = granular_task.detach().cpu().numpy().astype(np.int8, copy=False)
+    if coords_np.ndim != 2 or coords_np.shape[1] != 3:
+        raise ValueError(f"Expected plot coordinates [N,3], got {coords_np.shape}")
+    if task_np.shape != (coords_np.shape[0],):
+        raise ValueError("granular_task must contain one label for every coordinate")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    np.savez_compressed(
+        path,
+        coords=coords_np,
+        granular_task=task_np,
+        triple_names=np.asarray(triple_names),
+        split=np.asarray("test"),
+        balance_seed=np.asarray(balance_seed, dtype=np.int64),
+    )
+    return {
+        "artifact": None,
+        "n_points": int(coords_np.shape[0]),
+        "coordinate_dim": 3,
+        "contains_raw_images": False,
+        "split": "test",
+        "balance_seed": int(balance_seed),
+        "coordinate_system": (
+            "projection onto normalized held-out task mean-difference axes after "
+            "rewhitening"
+        ),
     }
 
 
@@ -471,6 +503,25 @@ def main(args):
     figure_dir = os.path.join(args.out_dir, "figures")
     os.makedirs(metrics_dir, exist_ok=True)
     os.makedirs(figure_dir, exist_ok=True)
+    plot_points_record = None
+    if args.export_plot_points:
+        plot_points_path = os.path.join(
+            args.out_dir,
+            "plot_data",
+            f"hyperrect_points_{stem}.npz",
+        )
+        plot_points_record = _write_plot_points(
+            plot_points_path,
+            test_result["coords"],
+            test_result["granular_task"],
+            frozen_triple,
+            args.seed + 1,
+        )
+        plot_points_record["artifact"] = os.path.relpath(
+            plot_points_path,
+            args.out_dir,
+        ).replace(os.sep, "/")
+        print(f"Saved held-out plot points: {plot_points_path}")
     payload = {
         "method": method,
         "dataset": "celeba",
@@ -507,6 +558,7 @@ def main(args):
         "train_selection": train_payload,
         "test_balance": test_balance_record,
         "test_evaluation": _serializable_result(test_result),
+        "plot_points": plot_points_record,
         "test_box_diagnostics": diagnostics,
         "headline_criteria": headline_criteria,
         "headline_criteria_passed": headline_passed,
@@ -566,6 +618,11 @@ if __name__ == "__main__":
     parser.add_argument("--max_normalized_centroid_rmse", type=float, default=0.25)
     parser.add_argument("--min_test_cell_count", type=int, default=100)
     parser.add_argument("--show_samples", action="store_true")
+    parser.add_argument(
+        "--export_plot_points",
+        action="store_true",
+        help="Save genuine held-out 3D coordinates for deterministic paper rendering",
+    )
     parser.add_argument("--out_dir", default=".")
     parser.add_argument("--tag", default="crossfit")
     main(parser.parse_args())

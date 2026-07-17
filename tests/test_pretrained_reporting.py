@@ -1,5 +1,7 @@
 import json
 
+import numpy as np
+
 from analysis.build_results_manifest import build_manifest
 from analysis.plot_crossfit_hyperrect import render_crossfit_json
 from analysis.plot_pretrained_summary import (
@@ -99,7 +101,7 @@ def test_manifest_hashes_artifacts_and_records_run_commits(tmp_path):
     assert {row["method"] for row in manifest["metric_records"]} == {"ijepa", "vicreg"}
 
 
-def test_crossfit_json_renders_compact_png_and_pdf(tmp_path):
+def test_crossfit_json_renders_proposal_cube_with_genuine_point_sidecar(tmp_path):
     box = []
     predicted = []
     for cell in range(8):
@@ -121,8 +123,21 @@ def test_crossfit_json_renders_compact_png_and_pdf(tmp_path):
             "box": box,
             "predicted_box": predicted,
         },
+        "plot_points": {"artifact": "plot_data/points.npz"},
     }
-    json_path = tmp_path / "crossfit.json"
+    point_path = tmp_path / "plot_data" / "points.npz"
+    point_path.parent.mkdir(parents=True)
+    rng = np.random.default_rng(7)
+    coords = np.concatenate(
+        [rng.normal(center, 0.05, size=(12, 3)) for center in [row["center"] for row in box]]
+    ).astype(np.float32)
+    np.savez_compressed(
+        point_path,
+        coords=coords,
+        granular_task=np.repeat(np.arange(8, dtype=np.int8), 12),
+        triple_names=np.asarray(["Smiling", "Heavy_Makeup", "Black_Hair"]),
+    )
+    json_path = tmp_path / "metrics" / "crossfit.json"
     _write_json(json_path, payload)
 
     outputs = render_crossfit_json(json_path, tmp_path / "paper")
