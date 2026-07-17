@@ -87,6 +87,19 @@ def _constraints_satisfied(result, min_class_frac, min_capture, cos_ceiling):
 
 
 @torch.no_grad()
+def _transform_on_device(estimator, features, device, batch_size):
+    """Apply the fitted SSL map in GPU chunks without retaining a second CPU copy."""
+    mean = estimator.mean_.to(device)
+    whiten = estimator.whiten_.to(device)
+    eigenvectors = estimator.ssl_eigvecs_.to(device)
+    chunks = []
+    for start in range(0, features.shape[0], batch_size):
+        batch = features[start:start + batch_size].to(device, non_blocking=True)
+        chunks.append(((batch - mean) @ whiten) @ eigenvectors)
+    return torch.cat(chunks, dim=0)
+
+
+@torch.no_grad()
 def _analyze_dataset(
     dataset,
     data_cfg,
@@ -105,9 +118,14 @@ def _analyze_dataset(
         max_samples=args.max_samples,
     )
     print(f"Extracted features {tuple(features.shape)}, attrs {tuple(attr_matrix.shape)}")
-    features = estimator.transform(features)
-    print(f"Mapped to whitened SSL coordinates {tuple(features.shape)}")
-    features_dev = H.rewhiten(features.to(args.device))
+    features_dev = _transform_on_device(
+        estimator,
+        features,
+        args.device,
+        args.transform_batch_size,
+    )
+    print(f"Mapped to whitened SSL coordinates {tuple(features_dev.shape)}")
+    features_dev = H.rewhiten(features_dev)
     attrs_dev = attr_matrix.to(args.device)
     result = H.analyze(
         features_dev,
@@ -132,6 +150,10 @@ def main(args):
     data_cfg.method = cfg.method.name
     if args.batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {args.batch_size}")
+    if args.transform_batch_size <= 0:
+        raise ValueError(
+            f"transform_batch_size must be positive, got {args.transform_batch_size}"
+        )
     data_cfg.batch_size = args.batch_size
     data_module = CelebADataModule(data_cfg)
     data_module.setup()
@@ -303,6 +325,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_samples", type=int, default=None)
     parser.add_argument("--rel_eig_threshold", type=float, default=1e-3)
     parser.add_argument("--whiten_ridge_rel", type=float, default=1e-3)
+    parser.add_argument("--transform_batch_size", type=int, default=8192)
     parser.add_argument("--allow_constraint_fallback", action="store_true")
     parser.add_argument("--show_samples", action="store_true")
     parser.add_argument("--out_dir", default=".")
