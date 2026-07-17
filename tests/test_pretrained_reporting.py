@@ -3,7 +3,7 @@ import json
 import numpy as np
 
 from analysis.build_results_manifest import build_manifest
-from analysis.plot_crossfit_hyperrect import render_crossfit_json
+from analysis.plot_crossfit_hyperrect import _centroid_batch_cloud, render_crossfit_json
 from analysis.plot_pretrained_summary import (
     load_completed_runs,
     plot_interference,
@@ -144,3 +144,25 @@ def test_crossfit_json_renders_proposal_cube_with_genuine_point_sidecar(tmp_path
 
     assert {path.suffix for path in outputs} == {".png", ".pdf"}
     assert all(path.stat().st_size > 0 for path in outputs)
+
+
+def test_centroid_batch_cloud_is_balanced_deterministic_and_uses_real_means():
+    rng = np.random.default_rng(11)
+    tasks = np.repeat(np.arange(8), 40)
+    centers = np.asarray(
+        [[2 * ((cell >> bit) & 1) - 1 for bit in (2, 1, 0)] for cell in range(8)],
+        dtype=np.float32,
+    )
+    coords = np.concatenate(
+        [rng.normal(centers[cell], 0.5, size=(40, 3)) for cell in range(8)]
+    ).astype(np.float32)
+
+    first, first_tasks = _centroid_batch_cloud(coords, tasks, batches_per_cell=5, seed=7)
+    second, second_tasks = _centroid_batch_cloud(coords, tasks, batches_per_cell=5, seed=7)
+
+    assert first.shape == (40, 3)
+    assert np.array_equal(first, second)
+    assert np.array_equal(first_tasks, second_tasks)
+    assert np.array_equal(np.bincount(first_tasks, minlength=8), np.full(8, 5))
+    for cell in range(8):
+        assert np.allclose(first[first_tasks == cell].mean(axis=0), coords[tasks == cell].mean(axis=0))

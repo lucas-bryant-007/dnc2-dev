@@ -4,7 +4,10 @@ The headline rendering intentionally uses the same visual grammar as the
 synthetic-data cube figures: colour, marker shape, and fill encode the three
 binary factors.  The numerical observed/predicted overlay remains available in
 the original run output; it is deliberately omitted here so it does not obscure
-the eight observed CelebA centroids.
+the eight observed CelebA centroids.  When point coordinates are available, the
+headline cloud consists of deterministic mini-batch centroids rather than raw
+individual embeddings; this shows centroid stability without implying neural
+collapse of the within-cell distributions.
 """
 
 from __future__ import annotations
@@ -55,10 +58,37 @@ def _load_plot_points(json_path: Path, payload: dict, explicit_path: Path | None
     return coords, granular_task
 
 
+def _centroid_batch_cloud(
+    coords: np.ndarray,
+    granular_task: np.ndarray,
+    batches_per_cell: int = 24,
+    seed: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return means of disjoint deterministic mini-batches within each cell."""
+    if batches_per_cell <= 0:
+        raise ValueError("batches_per_cell must be positive")
+    rng = np.random.default_rng(seed)
+    cloud = []
+    cloud_task = []
+    for cell in range(8):
+        cell_coords = coords[granular_task == cell]
+        if cell_coords.shape[0] == 0:
+            continue
+        shuffled = cell_coords[rng.permutation(cell_coords.shape[0])]
+        for batch in np.array_split(shuffled, min(batches_per_cell, len(shuffled))):
+            cloud.append(batch.mean(axis=0))
+            cloud_task.append(cell)
+    if not cloud:
+        return np.empty((0, 3), dtype=np.float32), np.empty((0,), dtype=np.int64)
+    return np.asarray(cloud, dtype=np.float32), np.asarray(cloud_task, dtype=np.int64)
+
+
 def render_crossfit_json(
     json_path: Path,
     output_dir: Path,
     plot_points_path: Path | None = None,
+    cloud_mode: str = "centroid_batches",
+    clouds_per_cell: int = 24,
 ) -> list[Path]:
     with json_path.open(encoding="utf-8") as handle:
         payload = json.load(handle)
@@ -79,7 +109,23 @@ def render_crossfit_json(
     stem = f"celeba_balanced_cube_{method}_epoch_{epoch}"
     output_dir.mkdir(parents=True, exist_ok=True)
     outputs = [output_dir / f"{stem}.png", output_dir / f"{stem}.pdf"]
-    coords, granular_task = _load_plot_points(json_path, payload, plot_points_path)
+    raw_coords, raw_task = _load_plot_points(json_path, payload, plot_points_path)
+    if cloud_mode == "centroid_batches":
+        coords, granular_task = _centroid_batch_cloud(
+            raw_coords,
+            raw_task,
+            batches_per_cell=clouds_per_cell,
+        )
+        sample_size, sample_alpha = 18, 0.38
+    elif cloud_mode == "individual":
+        coords, granular_task = raw_coords, raw_task
+        sample_size, sample_alpha = 8, 0.20
+    elif cloud_mode == "none":
+        coords = np.empty((0, 3), dtype=np.float32)
+        granular_task = np.empty((0,), dtype=np.int64)
+        sample_size, sample_alpha = 8, 0.20
+    else:
+        raise ValueError(f"Unknown cloud_mode: {cloud_mode}")
     plot_box_3d(
         coords,
         test["box"],
@@ -87,15 +133,15 @@ def render_crossfit_json(
         triple,
         [str(path) for path in outputs],
         predicted_box=None,
-        per_task=160,
+        per_task=clouds_per_cell if cloud_mode == "centroid_batches" else 160,
         axis_labels=[name.replace("_", " ") for name in triple],
         level_labels=[_CELEBA_LEVEL_LABELS.get(name, ("absent", "present")) for name in triple],
         show_samples=coords.shape[0] > 0,
         show_centroid_se=False,
         publication_compact=False,
         axis_label_positions=[(1.14, 0.0, 0.0), (0.0, 1.14, 0.0), (0.22, 0.0, 0.82)],
-        sample_size=8,
-        sample_alpha=0.20,
+        sample_size=sample_size,
+        sample_alpha=sample_alpha,
     )
     return outputs
 
@@ -114,7 +160,13 @@ def main(args: argparse.Namespace) -> None:
         if args.plot_points
         else None
     )
-    for path in render_crossfit_json(json_path, output_dir, plot_points_path):
+    for path in render_crossfit_json(
+        json_path,
+        output_dir,
+        plot_points_path,
+        cloud_mode=args.cloud_mode,
+        clouds_per_cell=args.clouds_per_cell,
+    ):
         print(f"Saved: {path}")
 
 
@@ -126,5 +178,17 @@ if __name__ == "__main__":
         "--plot_points",
         default=None,
         help="Optional NPZ override containing genuine held-out 3D coordinates",
+    )
+    parser.add_argument(
+        "--cloud_mode",
+        choices=("centroid_batches", "individual", "none"),
+        default="centroid_batches",
+        help="Render mini-batch centroid clouds, raw embeddings, or no cloud",
+    )
+    parser.add_argument(
+        "--clouds_per_cell",
+        type=int,
+        default=24,
+        help="Number of deterministic mini-batch centroids per cell",
     )
     main(parser.parse_args())
