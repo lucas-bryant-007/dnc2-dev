@@ -309,7 +309,11 @@ def main(args):
             "box_axes_and_predicted_corners": (
                 "fit on selected balanced train population and frozen for test"
             ),
-            "criteria_status": "declared_exploratory_before_first_CUB_test_run",
+            "criteria_status": (
+                "numeric_criteria_unchanged_after_first_diagnostic; "
+                "distinct_attribute_family_constraint_added_after_the_first_"
+                "selector_chose_two_values_of_primary_color"
+            ),
             "fixed_test_criteria": {
                 "max_pairwise_abs_cos": args.test_cos_target,
                 "min_capture_B": args.test_min_capture,
@@ -394,6 +398,6 @@ if __name__ == "__main__":
     parser.add_argument("--test_min_capture", type=float, default=0.03)
     parser.add_argument("--max_normalized_centroid_rmse", type=float, default=0.35)
     parser.add_argument("--min_test_cell_count", type=int, default=20)
-    parser.add_argument("--tag", default="bbox_exploratory_v1")
+    parser.add_argument("--tag", default="bbox_distinct_families_v2")
     parser.add_argument("--out_dir", default=".")
     main(parser.parse_args())
