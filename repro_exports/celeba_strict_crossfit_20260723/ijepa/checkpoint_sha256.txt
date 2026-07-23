@@ -1,0 +1,2 @@
+59aaa442b3aeabe1dcaa74a3405cd769e0cb7f9318232d0cd2149c5bc5aff78e  /home/lucas_bryant1/dnc2_s1/hf_models/ijepa-resnet50-celeba/converted_checkpoints/epoch_1000.ckpt
+b25b2300f8a6bf36c3e0dc43cce139ebb0d9dad5a8cd163ecad984f4526766c8  /home/lucas_bryant1/dnc2_s1/hf_models/ijepa-resnet50-celeba/repaired_checkpoints/epoch_1000.ckpt
