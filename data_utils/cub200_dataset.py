@@ -43,15 +43,23 @@ def _require_consecutive(ids: np.ndarray, name: str) -> None:
 def load_cub200_metadata(root: str | Path) -> CUB200Metadata:
     """Parse metadata distributed in the official CUB_200_2011 archive."""
     root = Path(root).expanduser().resolve()
+    # The official archive stores the attribute-name table at its root while
+    # the per-image annotations live in the ``attributes`` subdirectory.
+    # Accept the older nested layout too, since some repackaged copies move the
+    # name table alongside the annotations.
+    attribute_names_path = root / "attributes.txt"
+    if not attribute_names_path.is_file():
+        attribute_names_path = root / "attributes" / "attributes.txt"
     required = (
         "images.txt",
         "image_class_labels.txt",
         "train_test_split.txt",
         "bounding_boxes.txt",
-        "attributes/attributes.txt",
         "attributes/image_attribute_labels.txt",
     )
     missing = [name for name in required if not (root / name).is_file()]
+    if not attribute_names_path.is_file():
+        missing.append("attributes.txt")
     if missing:
         raise FileNotFoundError(
             f"CUB-200 root {root} is missing required files: {missing}"
@@ -77,9 +85,7 @@ def load_cub200_metadata(root: str | Path) -> CUB200Metadata:
     ):
         _require_consecutive(table[:, 0].astype(np.int64), name)
 
-    attribute_ids, raw_attribute_names = _read_indexed_text(
-        root / "attributes" / "attributes.txt"
-    )
+    attribute_ids, raw_attribute_names = _read_indexed_text(attribute_names_path)
     _require_consecutive(attribute_ids, "attribute")
     attribute_names = [
         value.removeprefix("has_").replace("::", "=")

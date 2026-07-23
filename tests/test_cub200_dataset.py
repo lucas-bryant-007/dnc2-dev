@@ -20,7 +20,7 @@ def _tiny_cub(root: Path):
     _write(root / "train_test_split.txt", "1 1\n2 0\n")
     _write(root / "bounding_boxes.txt", "1 1 1 4 3\n2 0 0 6 5\n")
     _write(
-        root / "attributes" / "attributes.txt",
+        root / "attributes.txt",
         "1 has_bill_shape::curved\n2 has_wing_color::blue\n3 has_size::small\n",
     )
     rows = []
@@ -49,6 +49,20 @@ def test_load_cub200_metadata_parses_official_tables(tmp_path):
     assert metadata.class_labels.tolist() == [1, 0]
     assert metadata.is_train.tolist() == [True, False]
     assert metadata.attributes.tolist() == [[1, 0, 1], [0, 1, 1]]
+
+
+def test_load_cub200_metadata_accepts_nested_attribute_names(tmp_path):
+    _tiny_cub(tmp_path)
+    nested = tmp_path / "attributes" / "attributes.txt"
+    nested.write_text(
+        (tmp_path / "attributes.txt").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "attributes.txt").unlink()
+
+    metadata = load_cub200_metadata(tmp_path)
+
+    assert metadata.attribute_names[0] == "bill_shape=curved"
 
 
 def test_cub200_dataset_uses_official_split_attributes_and_bbox(tmp_path):
