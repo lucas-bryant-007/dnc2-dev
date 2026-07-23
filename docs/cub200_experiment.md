@@ -63,7 +63,7 @@ nohup env \
   --num_workers 12 \
   --crop_to_bbox \
   --test_balance_seeds $(seq 7 26) \
-  --tag bbox_exploratory_v1 \
+  --tag bbox_distinct_families_v2 \
   --out_dir "$COUT" \
   > "$CLOG" 2>&1 &
 
