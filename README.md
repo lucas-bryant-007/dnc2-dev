@@ -31,6 +31,8 @@ resume, logging, and checkpoint details. Analysis entry points live in
 `analysis/`; each executable script documents its inputs and expected outputs in
 `--help` and its module docstring. Curated metrics and proposal figures are
 tracked, while local datasets, checkpoints, and run directories are ignored.
+The preregistered pretrained CelebA follow-up runs are documented in
+[the next-experiments protocol](docs/pretrained_celeba_next_experiments.md).
 
 ## Reproducibility notes
 

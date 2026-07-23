@@ -10,6 +10,7 @@ about every individual sample landing at a corner.
 from __future__ import annotations
 
 import argparse
+import csv
 import gc
 import itertools
 import math
@@ -119,6 +120,128 @@ def _constraints_satisfied(result, min_class_frac, min_capture, cos_ceiling):
     return float(result["triple_max_abs_cos"]) <= cos_ceiling
 
 
+def _evaluate_headline(result, args):
+    diagnostics = H.box_prediction_diagnostics(result["box"], result["predicted_box"])
+    triple = _triple_summary(result)
+    min_capture = min(float(row["capture_B"]) for row in triple)
+    criteria = {
+        "max_pairwise_abs_cos": {
+            "target": args.test_cos_target,
+            "observed": float(result["triple_max_abs_cos"]),
+            "passed": float(result["triple_max_abs_cos"]) <= args.test_cos_target,
+        },
+        "min_capture_B": {
+            "target": args.test_min_capture,
+            "observed": min_capture,
+            "passed": min_capture >= args.test_min_capture,
+        },
+        "normalized_centroid_rmse": {
+            "target": args.max_normalized_centroid_rmse,
+            "observed": diagnostics["normalized_centroid_rmse"],
+            "passed": (
+                diagnostics["normalized_centroid_rmse"]
+                <= args.max_normalized_centroid_rmse
+            ),
+        },
+        "min_cell_count": {
+            "target": args.min_test_cell_count,
+            "observed": diagnostics["min_cell_count"],
+            "passed": diagnostics["min_cell_count"] >= args.min_test_cell_count,
+        },
+    }
+    return diagnostics, triple, criteria, all(item["passed"] for item in criteria.values())
+
+
+def _compact_stability_record(seed, result, balance, diagnostics, criteria, passed):
+    triple = _triple_summary(result)
+    return {
+        "test_balance_seed": int(seed),
+        "samples_per_cell": int(balance["samples_per_cell"]),
+        "total_balanced_samples": int(balance["total_balanced_samples"]),
+        "triple_max_abs_cos": float(result["triple_max_abs_cos"]),
+        "capture_B": {row["name"]: float(row["capture_B"]) for row in triple},
+        "min_capture_B": min(float(row["capture_B"]) for row in triple),
+        "centroid_rmse": float(diagnostics["centroid_rmse"]),
+        "normalized_centroid_rmse": float(diagnostics["normalized_centroid_rmse"]),
+        "max_centroid_error": float(diagnostics["max_centroid_error"]),
+        "min_cell_count": int(diagnostics["min_cell_count"]),
+        "headline_criteria": criteria,
+        "headline_criteria_passed": bool(passed),
+    }
+
+
+def _scalar_summary(values):
+    array = np.asarray(values, dtype=np.float64)
+    if array.size == 0:
+        raise ValueError("Cannot summarize an empty stability series")
+    return {
+        "mean": float(array.mean()),
+        "std": float(array.std(ddof=1)) if array.size > 1 else 0.0,
+        "median": float(np.median(array)),
+        "min": float(array.min()),
+        "max": float(array.max()),
+        "p05": float(np.quantile(array, 0.05)),
+        "p95": float(np.quantile(array, 0.95)),
+    }
+
+
+def _summarize_stability(records, triple_names):
+    if not records:
+        return None
+    scalar_keys = (
+        "triple_max_abs_cos",
+        "min_capture_B",
+        "centroid_rmse",
+        "normalized_centroid_rmse",
+        "max_centroid_error",
+        "min_cell_count",
+    )
+    return {
+        "n_resamples": len(records),
+        "test_balance_seeds": [row["test_balance_seed"] for row in records],
+        "pass_count": sum(row["headline_criteria_passed"] for row in records),
+        "pass_rate": float(np.mean([row["headline_criteria_passed"] for row in records])),
+        "all_resamples_passed": all(row["headline_criteria_passed"] for row in records),
+        "statistics": {
+            key: _scalar_summary([row[key] for row in records]) for key in scalar_keys
+        },
+        "capture_B": {
+            name: _scalar_summary([row["capture_B"][name] for row in records])
+            for name in triple_names
+        },
+        "records": records,
+    }
+
+
+def _write_stability_csv(path, records, triple_names):
+    fieldnames = [
+        "test_balance_seed",
+        "samples_per_cell",
+        "total_balanced_samples",
+        "triple_max_abs_cos",
+        *[f"capture_B_{name}" for name in triple_names],
+        "min_capture_B",
+        "centroid_rmse",
+        "normalized_centroid_rmse",
+        "max_centroid_error",
+        "min_cell_count",
+        "headline_criteria_passed",
+    ]
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for record in records:
+            row = {key: record[key] for key in fieldnames if key in record}
+            row.update(
+                {
+                    f"capture_B_{name}": record["capture_B"][name]
+                    for name in triple_names
+                }
+            )
+            writer.writerow(row)
+
+
 def _rank_balanced_candidates(features, attrs, attr_names, metrics, args):
     candidates = []
     for index, row in enumerate(metrics):
@@ -218,6 +341,40 @@ def _select_balanced_train_triple(features, attrs, attr_names, metrics, args):
     return None, {"selected_candidate": None, "exact_attempts": attempts}
 
 
+def _evaluate_balanced_test_seed(
+    test_features,
+    test_attrs,
+    selected_indices,
+    frozen_triple,
+    test_seed,
+    args,
+):
+    selected, counts, per_cell = H.balanced_joint_indices(
+        test_attrs[:, selected_indices],
+        seed=test_seed,
+        max_per_cell=args.max_test_cell_samples,
+    )
+    balanced_features = H.rewhiten(test_features[selected])
+    balanced_attrs = test_attrs[selected][:, selected_indices]
+    result = H.analyze(
+        balanced_features,
+        balanced_attrs,
+        frozen_triple,
+        min_class_frac=args.min_class_frac,
+        viz_triple=frozen_triple,
+        compute_capture=True,
+        min_capture=args.min_capture,
+        cos_ceiling=args.cos_ceiling,
+    )
+    balance = {
+        "seed": int(test_seed),
+        "original_cell_counts": counts,
+        "samples_per_cell": per_cell,
+        "total_balanced_samples": 8 * per_cell,
+    }
+    return result, balance
+
+
 @torch.no_grad()
 def _transform_on_device(estimator, features, device, batch_size):
     """Apply the fitted SSL map in GPU chunks without retaining a second CPU copy."""
@@ -281,6 +438,14 @@ def _analyze_dataset(
 
 def main(args):
     set_seed(args.seed)
+    if args.test_balance_seeds and not args.joint_balance:
+        raise ValueError("--test_balance_seeds requires --joint_balance")
+    if args.test_balance_seeds and len(set(args.test_balance_seeds)) != len(
+        args.test_balance_seeds
+    ):
+        raise ValueError("--test_balance_seeds must not contain duplicates")
+    if args.max_test_cell_samples is not None and args.max_test_cell_samples <= 0:
+        raise ValueError("--max_test_cell_samples must be positive")
     cfg = dict_to_namespace(load_config(args.config))
     data_cfg = CelebACfg(**namespace_to_dict(cfg.data))
     data_cfg.method = cfg.method.name
@@ -397,6 +562,8 @@ def main(args):
 
     print("\n=== HELD-OUT TEST EVALUATION (TRIPLE FROZEN) ===")
     test_balance_record = None
+    test_stability_records = []
+    primary_test_seed = None
     if args.joint_balance:
         _natural_test, test_features, test_attrs = _analyze_dataset(
             data_module.ds_test,
@@ -409,29 +576,43 @@ def main(args):
             retain_tensors=True,
         )
         selected_indices = [attr_names.index(name) for name in frozen_triple]
-        selected, counts, per_cell = H.balanced_joint_indices(
-            test_attrs[:, selected_indices],
-            seed=args.seed + 1,
-        )
-        balanced_test_features = H.rewhiten(test_features[selected])
-        balanced_test_attrs = test_attrs[selected][:, selected_indices]
-        test_result = H.analyze(
-            balanced_test_features,
-            balanced_test_attrs,
-            frozen_triple,
-            min_class_frac=args.min_class_frac,
-            viz_triple=frozen_triple,
-            compute_capture=True,
-            min_capture=args.min_capture,
-            cos_ceiling=args.cos_ceiling,
-        )
-        test_balance_record = {
-            "original_cell_counts": counts,
-            "samples_per_cell": per_cell,
-            "total_balanced_samples": 8 * per_cell,
-        }
+        test_seeds = args.test_balance_seeds or [args.seed + 1]
+        primary_test_seed = test_seeds[0]
+        for position, test_seed in enumerate(test_seeds):
+            seed_result, seed_balance = _evaluate_balanced_test_seed(
+                test_features,
+                test_attrs,
+                selected_indices,
+                frozen_triple,
+                test_seed,
+                args,
+            )
+            seed_diagnostics, _seed_triple, seed_criteria, seed_passed = (
+                _evaluate_headline(seed_result, args)
+            )
+            test_stability_records.append(
+                _compact_stability_record(
+                    test_seed,
+                    seed_result,
+                    seed_balance,
+                    seed_diagnostics,
+                    seed_criteria,
+                    seed_passed,
+                )
+            )
+            print(
+                f"  test seed {test_seed}: max|cos|="
+                f"{seed_result['triple_max_abs_cos']:.4f}, "
+                f"min B={test_stability_records[-1]['min_capture_B']:.4f}, "
+                f"norm RMSE={seed_diagnostics['normalized_centroid_rmse']:.4f}, "
+                f"passed={seed_passed}"
+            )
+            if position == 0:
+                test_result = seed_result
+                test_balance_record = seed_balance
+            else:
+                del seed_result
         del _natural_test, test_features, test_attrs
-        del balanced_test_features, balanced_test_attrs
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     else:
@@ -445,37 +626,11 @@ def main(args):
             args,
             viz_triple=frozen_triple,
         )
-    diagnostics = H.box_prediction_diagnostics(
-        test_result["box"], test_result["predicted_box"]
+    diagnostics, test_triple, headline_criteria, headline_passed = _evaluate_headline(
+        test_result,
+        args,
     )
-    test_triple = _triple_summary(test_result)
-    test_min_capture = min(float(row["capture_B"]) for row in test_triple)
-    headline_criteria = {
-        "max_pairwise_abs_cos": {
-            "target": args.test_cos_target,
-            "observed": float(test_result["triple_max_abs_cos"]),
-            "passed": float(test_result["triple_max_abs_cos"]) <= args.test_cos_target,
-        },
-        "min_capture_B": {
-            "target": args.test_min_capture,
-            "observed": test_min_capture,
-            "passed": test_min_capture >= args.test_min_capture,
-        },
-        "normalized_centroid_rmse": {
-            "target": args.max_normalized_centroid_rmse,
-            "observed": diagnostics["normalized_centroid_rmse"],
-            "passed": (
-                diagnostics["normalized_centroid_rmse"]
-                <= args.max_normalized_centroid_rmse
-            ),
-        },
-        "min_cell_count": {
-            "target": args.min_test_cell_count,
-            "observed": diagnostics["min_cell_count"],
-            "passed": diagnostics["min_cell_count"] >= args.min_test_cell_count,
-        },
-    }
-    headline_passed = all(item["passed"] for item in headline_criteria.values())
+    test_stability = _summarize_stability(test_stability_records, frozen_triple)
     print(f"Test triple: {test_result['triple_names']}")
     print(f"Test max pairwise |cos|: {test_result['triple_max_abs_cos']:.4f}")
     for row in test_triple:
@@ -494,6 +649,15 @@ def main(args):
         print(
             f"  {name}: observed={item['observed']:.4f}, "
             f"target={item['target']}, passed={item['passed']}"
+        )
+    if test_stability and test_stability["n_resamples"] > 1:
+        cos_stats = test_stability["statistics"]["triple_max_abs_cos"]
+        rmse_stats = test_stability["statistics"]["normalized_centroid_rmse"]
+        print(
+            f"Test-resampling stability: {test_stability['pass_count']}/"
+            f"{test_stability['n_resamples']} passed; "
+            f"max|cos| mean={cos_stats['mean']:.4f} (max={cos_stats['max']:.4f}); "
+            f"norm RMSE mean={rmse_stats['mean']:.4f} (max={rmse_stats['max']:.4f})"
         )
 
     method = str(cfg.method.name)
@@ -515,7 +679,7 @@ def main(args):
             test_result["coords"],
             test_result["granular_task"],
             frozen_triple,
-            args.seed + 1,
+            primary_test_seed if primary_test_seed is not None else args.seed + 1,
         )
         plot_points_record["artifact"] = os.path.relpath(
             plot_points_path,
@@ -544,6 +708,13 @@ def main(args):
             "cos_ceiling": args.cos_ceiling,
             "constraints_satisfied": constraints_ok,
             "rewhitening": "label-free, fitted independently within each analysis split",
+            "primary_test_balance_seed": primary_test_seed,
+            "test_balance_seeds": (
+                [row["test_balance_seed"] for row in test_stability_records]
+                if test_stability_records
+                else None
+            ),
+            "max_test_cell_samples": args.max_test_cell_samples,
             "preregistered_test_criteria": {
                 "max_pairwise_abs_cos": args.test_cos_target,
                 "min_capture_B": args.test_min_capture,
@@ -558,6 +729,7 @@ def main(args):
         "train_selection": train_payload,
         "test_balance": test_balance_record,
         "test_evaluation": _serializable_result(test_result),
+        "test_stability": test_stability,
         "plot_points": plot_points_record,
         "test_box_diagnostics": diagnostics,
         "headline_criteria": headline_criteria,
@@ -568,6 +740,10 @@ def main(args):
         payload,
     )
     print(f"Saved JSON: {json_path}")
+    if test_stability_records:
+        stability_csv_path = os.path.join(metrics_dir, f"stability_{stem}.csv")
+        _write_stability_csv(stability_csv_path, test_stability_records, frozen_triple)
+        print(f"Saved stability CSV: {stability_csv_path}")
 
     figure_paths = [
         os.path.join(figure_dir, f"hyperrect_box_{stem}.png"),
@@ -611,12 +787,25 @@ if __name__ == "__main__":
     parser.add_argument("--balance_candidate_pool", type=int, default=12)
     parser.add_argument("--min_train_cell_count", type=int, default=1000)
     parser.add_argument("--max_train_cell_samples", type=int, default=5000)
+    parser.add_argument(
+        "--max_test_cell_samples",
+        type=int,
+        default=None,
+        help="Optional per-cell cap enabling repeated stratified test subsampling",
+    )
     parser.add_argument("--proxy_cos_ceiling", type=float, default=0.25)
     parser.add_argument("--max_exact_candidates", type=int, default=10)
     parser.add_argument("--test_cos_target", type=float, default=0.15)
     parser.add_argument("--test_min_capture", type=float, default=0.10)
     parser.add_argument("--max_normalized_centroid_rmse", type=float, default=0.25)
     parser.add_argument("--min_test_cell_count", type=int, default=100)
+    parser.add_argument(
+        "--test_balance_seeds",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Evaluate the frozen triple across multiple held-out balancing seeds",
+    )
     parser.add_argument("--show_samples", action="store_true")
     parser.add_argument(
         "--export_plot_points",
