@@ -7,6 +7,7 @@ import torch
 
 from analysis.celeba_hyperrect_crossfit import (
     _evaluate_balanced_test_seed,
+    _rank_balanced_candidates,
     _summarize_stability,
     _write_stability_csv,
 )
@@ -153,3 +154,42 @@ def test_balanced_test_seed_uses_fixed_triple_and_per_cell_cap():
     assert result["box_reference_split"] == "train"
     assert result["crossfit_probe_geometry"]["n_a"] == 40
     assert result["crossfit_probe_geometry"]["n_b"] == 40
+
+
+def test_candidate_ranking_can_require_distinct_semantic_groups():
+    combos = torch.tensor(
+        [[(cell >> bit) & 1 for bit in (3, 2, 1, 0)] for cell in range(16)]
+    )
+    features = 2.0 * combos.float() - 1.0
+    names = [
+        "primary_color=black",
+        "primary_color=white",
+        "wing_color=black",
+        "bill_length=short",
+    ]
+    metrics = [
+        {"usable": True, "capture_B": 0.4, "pos_frac": 0.5}
+        for _ in names
+    ]
+    args = SimpleNamespace(
+        candidate_min_class_frac=0.10,
+        candidate_min_capture=0.03,
+        balance_candidate_pool=4,
+        min_train_cell_count=2,
+        proxy_cos_ceiling=1.0,
+    )
+
+    ranked = _rank_balanced_candidates(
+        features,
+        combos,
+        names,
+        metrics,
+        args,
+        candidate_groups=["primary_color", "primary_color", "wing_color", "bill_length"],
+    )
+
+    assert ranked
+    assert all(
+        len({names[index].split("=", maxsplit=1)[0] for index in row["indices"]}) == 3
+        for row in ranked
+    )
