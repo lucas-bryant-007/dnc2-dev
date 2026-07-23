@@ -101,8 +101,16 @@ test -s "$JSON" && echo "JSON OK"
 ls -lh "$OUT/metrics" "$OUT/paper_figures"
 ```
 
-The primary publishability check is that all 20 resamples pass, with narrow
-spread and ample margin from every fixed threshold.
+The render commands produce three paper-facing views:
+
+- `celeba_balanced_cube_*`: clean held-out mini-batch centroid clouds;
+- `celeba_train_predicted_box_*`: held-out box versus the frozen train prediction;
+- `celeba_*_crossfit_stability.*`: capture, orthogonality, and corner fidelity
+  across held-out resamples.
+
+The primary publishability check is consistent capture and corner fidelity,
+plus a stable aggregate signed-Gram orthogonality estimate. Per-resample maxima
+are retained as a stress test rather than hidden.
 
 ## Experiment 2: matched I-JEPA stability
 

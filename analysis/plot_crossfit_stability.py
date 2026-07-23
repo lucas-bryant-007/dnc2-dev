@@ -114,6 +114,18 @@ def plot_stability(payload: dict, output_stem: Path) -> list[Path]:
         linewidth=1.2,
         label=f"criterion ({cosine_target:g})",
     )
+    aggregate_geometry = payload["test_stability"].get(
+        "aggregate_crossfit_probe_geometry"
+    )
+    if aggregate_geometry and aggregate_geometry.get("max_abs_cos") is not None:
+        aggregate_cosine = float(aggregate_geometry["max_abs_cos"])
+        axes[1].axhline(
+            aggregate_cosine,
+            color="#009E73",
+            linestyle=":",
+            linewidth=1.5,
+            label=f"aggregate signed Gram ({aggregate_cosine:.3f})",
+        )
     axes[1].set_xlabel("held-out stratified resample")
     axes[1].set_ylabel("maximum pairwise $|\\cos|$")
     axes[1].set_title("Factor orthogonality")

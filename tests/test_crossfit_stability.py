@@ -22,6 +22,11 @@ TRIPLE = ["Smiling", "Heavy_Makeup", "Black_Hair"]
 
 
 def _record(seed, offset=0.0, passed=True):
+    gram = [
+        [0.50 + offset, 0.02 + offset, -0.01],
+        [0.02 + offset, 0.45 + offset, 0.03],
+        [-0.01, 0.03, 0.40 + offset],
+    ]
     return {
         "test_balance_seed": seed,
         "samples_per_cell": 500,
@@ -43,6 +48,8 @@ def _record(seed, offset=0.0, passed=True):
             "normalized_centroid_rmse": {"target": 0.25},
         },
         "headline_criteria_passed": passed,
+        "crossfit_gram_matrix": gram,
+        "crossfit_positive_diagonal": True,
     }
 
 
@@ -58,6 +65,10 @@ def test_stability_summary_records_spread_and_pass_rate():
     assert summary["statistics"]["triple_max_abs_cos"]["mean"] == pytest.approx(0.04)
     assert summary["capture_B"]["Black_Hair"]["min"] == pytest.approx(0.40)
     assert summary["test_balance_seeds"] == [7, 8, 9]
+    aggregate = summary["aggregate_crossfit_probe_geometry"]
+    assert aggregate["n_splits"] == 3
+    assert aggregate["capture_B"]["Smiling"] == pytest.approx(0.51)
+    assert aggregate["max_abs_cos"] < 0.15
 
 
 def test_stability_csv_has_one_row_per_seed_and_named_capture_columns(tmp_path):

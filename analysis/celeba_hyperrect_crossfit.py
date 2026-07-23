@@ -158,6 +158,7 @@ def _evaluate_headline(result, args):
 
 def _compact_stability_record(seed, result, balance, diagnostics, criteria, passed):
     triple = _triple_summary(result)
+    crossfit_geometry = result.get("crossfit_probe_geometry") or {}
     return {
         "test_balance_seed": int(seed),
         "samples_per_cell": int(balance["samples_per_cell"]),
@@ -171,6 +172,10 @@ def _compact_stability_record(seed, result, balance, diagnostics, criteria, pass
         "min_cell_count": int(diagnostics["min_cell_count"]),
         "headline_criteria": criteria,
         "headline_criteria_passed": bool(passed),
+        "crossfit_gram_matrix": crossfit_geometry.get("gram_matrix"),
+        "crossfit_positive_diagonal": crossfit_geometry.get(
+            "valid_positive_diagonal"
+        ),
     }
 
 
@@ -200,6 +205,45 @@ def _summarize_stability(records, triple_names):
         "max_centroid_error",
         "min_cell_count",
     )
+    crossfit_grams = [
+        row["crossfit_gram_matrix"]
+        for row in records
+        if row.get("crossfit_gram_matrix") is not None
+    ]
+    aggregate_geometry = None
+    if len(crossfit_grams) == len(records):
+        aggregate_gram = np.asarray(crossfit_grams, dtype=np.float64).mean(axis=0)
+        aggregate_capture = np.diag(aggregate_gram)
+        positive = bool(np.all(aggregate_capture > 0))
+        aggregate_cosine = None
+        aggregate_max_abs_cos = None
+        if positive:
+            denominator = np.sqrt(
+                aggregate_capture[:, None] * aggregate_capture[None, :]
+            )
+            aggregate_cosine = aggregate_gram / denominator
+            np.fill_diagonal(aggregate_cosine, 1.0)
+            aggregate_max_abs_cos = float(
+                np.abs(aggregate_cosine[np.triu_indices(3, k=1)]).max()
+            )
+        aggregate_geometry = {
+            "estimator": "mean_signed_cross_gram_across_repeated_splits",
+            "n_splits": len(records),
+            "valid_positive_diagonal": positive,
+            "gram_matrix": aggregate_gram.tolist(),
+            "capture_B": {
+                name: float(aggregate_capture[index])
+                for index, name in enumerate(triple_names)
+            },
+            "cosine_matrix": (
+                aggregate_cosine.tolist() if aggregate_cosine is not None else None
+            ),
+            "max_abs_cos": aggregate_max_abs_cos,
+            "note": (
+                "Signed Gram entries are averaged before normalization and "
+                "absolute-value/max operations."
+            ),
+        }
     return {
         "n_resamples": len(records),
         "test_balance_seeds": [row["test_balance_seed"] for row in records],
@@ -213,6 +257,7 @@ def _summarize_stability(records, triple_names):
             name: _scalar_summary([row["capture_B"][name] for row in records])
             for name in triple_names
         },
+        "aggregate_crossfit_probe_geometry": aggregate_geometry,
         "records": records,
     }
 
@@ -795,6 +840,16 @@ def main(args):
             f"max|cos| mean={cos_stats['mean']:.4f} (max={cos_stats['max']:.4f}); "
             f"norm RMSE mean={rmse_stats['mean']:.4f} (max={rmse_stats['max']:.4f})"
         )
+        aggregate_geometry = test_stability.get(
+            "aggregate_crossfit_probe_geometry"
+        )
+        if aggregate_geometry and aggregate_geometry["valid_positive_diagonal"]:
+            aggregate_capture = aggregate_geometry["capture_B"]
+            print(
+                "Aggregate signed cross-Gram: "
+                f"max|cos|={aggregate_geometry['max_abs_cos']:.4f}; "
+                f"min B={min(aggregate_capture.values()):.4f}"
+            )
 
     method = str(cfg.method.name)
     tag = (args.tag or "crossfit").strip()

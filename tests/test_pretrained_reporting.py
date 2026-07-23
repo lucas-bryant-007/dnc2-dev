@@ -143,6 +143,8 @@ def test_crossfit_json_renders_proposal_cube_with_genuine_point_sidecar(tmp_path
     outputs = render_crossfit_json(json_path, tmp_path / "paper")
 
     assert {path.suffix for path in outputs} == {".png", ".pdf"}
+    assert len(outputs) == 4
+    assert any("train_predicted_box" in path.name for path in outputs)
     assert all(path.stat().st_size > 0 for path in outputs)
 
 

@@ -108,7 +108,12 @@ def render_crossfit_json(
     epoch = payload["epoch"]
     stem = f"celeba_balanced_cube_{method}_epoch_{epoch}"
     output_dir.mkdir(parents=True, exist_ok=True)
-    outputs = [output_dir / f"{stem}.png", output_dir / f"{stem}.pdf"]
+    cloud_outputs = [output_dir / f"{stem}.png", output_dir / f"{stem}.pdf"]
+    prediction_stem = f"celeba_train_predicted_box_{method}_epoch_{epoch}"
+    prediction_outputs = [
+        output_dir / f"{prediction_stem}.png",
+        output_dir / f"{prediction_stem}.pdf",
+    ]
     raw_coords, raw_task = _load_plot_points(json_path, payload, plot_points_path)
     if cloud_mode == "centroid_batches":
         coords, granular_task = _centroid_batch_cloud(
@@ -131,7 +136,7 @@ def render_crossfit_json(
         test["box"],
         granular_task,
         triple,
-        [str(path) for path in outputs],
+        [str(path) for path in cloud_outputs],
         predicted_box=None,
         per_task=clouds_per_cell if cloud_mode == "centroid_batches" else 160,
         axis_labels=[name.replace("_", " ") for name in triple],
@@ -143,7 +148,24 @@ def render_crossfit_json(
         sample_size=sample_size,
         sample_alpha=sample_alpha,
     )
-    return outputs
+    # The second view is the actual held-out theory check: black is the observed
+    # test box, while red dashed edges/diamonds are axes and corners fitted only
+    # on the balanced training population. Keep clouds out of this panel so the
+    # train-to-test discrepancy remains immediately legible.
+    plot_box_3d(
+        np.empty((0, 3), dtype=np.float32),
+        test["box"],
+        np.empty((0,), dtype=np.int64),
+        triple,
+        [str(path) for path in prediction_outputs],
+        predicted_box=test["predicted_box"],
+        axis_labels=[name.replace("_", " ") for name in triple],
+        level_labels=[_CELEBA_LEVEL_LABELS.get(name, ("absent", "present")) for name in triple],
+        show_samples=False,
+        show_centroid_se=False,
+        publication_compact=True,
+    )
+    return cloud_outputs + prediction_outputs
 
 
 def main(args: argparse.Namespace) -> None:
