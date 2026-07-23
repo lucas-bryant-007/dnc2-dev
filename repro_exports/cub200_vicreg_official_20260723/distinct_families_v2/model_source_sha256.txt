@@ -1,0 +1,2 @@
+79e76b12b2df1ce338c018468197a0b2b0c461581f400231a7b2d60772a1657c  /home/lucas_bryant1/dnc2_s1/cache/torch/hub/facebookresearch_vicreg_main/resnet.py
+c8b03dc443a6fc88dd788c0d982fc6bbeffb9c5765a6c99869ebc27e16987c6b  /home/lucas_bryant1/dnc2_s1/cache/torch/hub/facebookresearch_vicreg_main/hubconf.py
