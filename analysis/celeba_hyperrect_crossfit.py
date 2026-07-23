@@ -322,7 +322,16 @@ def _inject_crossfit_probe_geometry(result, geometry):
     return result
 
 
-def _rank_balanced_candidates(features, attrs, attr_names, metrics, args):
+def _rank_balanced_candidates(
+    features,
+    attrs,
+    attr_names,
+    metrics,
+    args,
+    candidate_groups=None,
+):
+    if candidate_groups is not None and len(candidate_groups) != len(attr_names):
+        raise ValueError("candidate_groups must align with attr_names")
     candidates = []
     for index, row in enumerate(metrics):
         if not row.get("usable") or row.get("capture_B") is None:
@@ -339,6 +348,10 @@ def _rank_balanced_candidates(features, attrs, attr_names, metrics, args):
 
     ranked = []
     for combo in itertools.combinations([index for index, _ in candidates], 3):
+        if candidate_groups is not None:
+            groups = {candidate_groups[index] for index in combo}
+            if len(groups) != len(combo):
+                continue
         proxy = H.balanced_triple_proxy(features, attrs[:, combo])
         if proxy["min_cell_count"] < args.min_train_cell_count:
             continue
@@ -364,8 +377,22 @@ def _rank_balanced_candidates(features, attrs, attr_names, metrics, args):
     return ranked
 
 
-def _select_balanced_train_triple(features, attrs, attr_names, metrics, args):
-    ranked = _rank_balanced_candidates(features, attrs, attr_names, metrics, args)
+def _select_balanced_train_triple(
+    features,
+    attrs,
+    attr_names,
+    metrics,
+    args,
+    candidate_groups=None,
+):
+    ranked = _rank_balanced_candidates(
+        features,
+        attrs,
+        attr_names,
+        metrics,
+        args,
+        candidate_groups=candidate_groups,
+    )
     attempts = []
     for rank, candidate in enumerate(ranked[:args.max_exact_candidates], start=1):
         indices = candidate["indices"]

@@ -10,6 +10,8 @@ The experiment uses:
 - the official bird bounding boxes for a declared foreground crop;
 - the official ImageNet-1K pretrained VICReg ResNet-50 from Meta;
 - train-only attribute selection, ZCA fitting, task axes, and predicted corners;
+- selection constrained to three distinct semantic attribute families (for
+  example, at most one value from `primary_color`);
 - split-half cross-Gram estimates of capture and task cosines on held-out test
   samples.
 

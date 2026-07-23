@@ -155,6 +155,9 @@ def main(args):
         metadata.attribute_names,
         natural_train["metrics"],
         args,
+        candidate_groups=[
+            name.split("=", maxsplit=1)[0] for name in metadata.attribute_names
+        ],
     )
     if train_result is None:
         raise SystemExit(
@@ -291,6 +294,10 @@ def main(args):
             "triple_frozen_before_test_label_analysis": True,
             "crop_to_official_bounding_box": args.crop_to_bbox,
             "attribute_source": "official image_attribute_labels.txt",
+            "attribute_family_constraint": (
+                "selected binary attributes must come from three distinct "
+                "CUB attribute families"
+            ),
             "train_constraints_satisfied": constraints_ok,
             "rewhitening": (
                 "ZCA fitted once on selected balanced train population and "
