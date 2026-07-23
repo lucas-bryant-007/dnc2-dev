@@ -43,13 +43,20 @@ def _require_consecutive(ids: np.ndarray, name: str) -> None:
 def load_cub200_metadata(root: str | Path) -> CUB200Metadata:
     """Parse metadata distributed in the official CUB_200_2011 archive."""
     root = Path(root).expanduser().resolve()
-    # The official archive stores the attribute-name table at its root while
-    # the per-image annotations live in the ``attributes`` subdirectory.
-    # Accept the older nested layout too, since some repackaged copies move the
-    # name table alongside the annotations.
-    attribute_names_path = root / "attributes.txt"
-    if not attribute_names_path.is_file():
-        attribute_names_path = root / "attributes" / "attributes.txt"
+    # Caltech's tarball stores the attribute-name table as a top-level archive
+    # member, next to the ``CUB_200_2011`` directory, while the per-image
+    # annotations live inside that directory.  Repackaged copies commonly move
+    # the name table into the dataset root or its ``attributes`` subdirectory,
+    # so accept all three layouts in a deterministic order.
+    attribute_name_candidates = (
+        root / "attributes.txt",
+        root / "attributes" / "attributes.txt",
+        root.parent / "attributes.txt",
+    )
+    attribute_names_path = next(
+        (path for path in attribute_name_candidates if path.is_file()),
+        attribute_name_candidates[0],
+    )
     required = (
         "images.txt",
         "image_class_labels.txt",

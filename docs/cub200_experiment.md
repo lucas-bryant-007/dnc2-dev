@@ -31,6 +31,7 @@ if [ ! -d "$CUB_ROOT/images" ]; then
 fi
 
 test -s "$CUB_ROOT/attributes/image_attribute_labels.txt"
+test -s "$CUB_PARENT/attributes.txt"
 test -d "$CUB_ROOT/images"
 ```
 

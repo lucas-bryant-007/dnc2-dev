@@ -65,6 +65,16 @@ def test_load_cub200_metadata_accepts_nested_attribute_names(tmp_path):
     assert metadata.attribute_names[0] == "bill_shape=curved"
 
 
+def test_load_cub200_metadata_accepts_archive_sibling_attribute_names(tmp_path):
+    root = tmp_path / "CUB_200_2011"
+    _tiny_cub(root)
+    (root / "attributes.txt").replace(tmp_path / "attributes.txt")
+
+    metadata = load_cub200_metadata(root)
+
+    assert metadata.attribute_names[-1] == "size=small"
+
+
 def test_cub200_dataset_uses_official_split_attributes_and_bbox(tmp_path):
     _tiny_cub(tmp_path)
     metadata = load_cub200_metadata(tmp_path)
