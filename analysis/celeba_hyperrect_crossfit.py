@@ -278,7 +278,7 @@ def _write_stability_csv(path, records, triple_names):
     ]
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         for record in records:
             row = {key: record[key] for key in fieldnames if key in record}
@@ -554,6 +554,20 @@ def _transform_on_device(estimator, features, device, batch_size):
     return torch.cat(chunks, dim=0)
 
 
+def _permute_attribute_columns(attrs: torch.Tensor, seed: int) -> torch.Tensor:
+    """Independently permute binary attribute columns while preserving prevalence."""
+    if attrs.ndim != 2 or attrs.shape[0] < 2:
+        raise ValueError("attrs must have shape [N, A] with at least two rows")
+    generator = torch.Generator(device="cpu").manual_seed(int(seed))
+    permuted = torch.empty_like(attrs)
+    for column in range(attrs.shape[1]):
+        order = torch.randperm(attrs.shape[0], generator=generator).to(attrs.device)
+        permuted[:, column] = attrs[order, column]
+    if not torch.equal(permuted.sum(dim=0), attrs.sum(dim=0)):
+        raise RuntimeError("Attribute permutation changed column prevalence")
+    return permuted
+
+
 @torch.no_grad()
 def _extract_dataset_coordinates(
     dataset,
@@ -595,6 +609,7 @@ def _analyze_dataset(
     args,
     viz_triple=None,
     retain_tensors=False,
+    attribute_permutation_seed=None,
 ):
     features_dev, attrs_dev = _extract_dataset_coordinates(
         dataset,
@@ -605,6 +620,15 @@ def _analyze_dataset(
         estimator,
         args,
     )
+    if attribute_permutation_seed is not None:
+        attrs_dev = _permute_attribute_columns(
+            attrs_dev,
+            attribute_permutation_seed,
+        )
+        print(
+            "Applied independent train attribute-column permutations "
+            f"with seed {attribute_permutation_seed}"
+        )
     analysis_features = H.rewhiten(
         features_dev,
         ridge_rel=args.analysis_whiten_ridge_rel,
@@ -640,6 +664,8 @@ def main(args):
         raise ValueError("--max_test_cell_samples must be positive")
     if args.analysis_whiten_ridge_rel <= 0:
         raise ValueError("--analysis_whiten_ridge_rel must be positive")
+    if args.label_permutation_seed is not None and not args.joint_balance:
+        raise ValueError("--label_permutation_seed requires --joint_balance")
     cfg = dict_to_namespace(load_config(args.config))
     data_cfg = CelebACfg(**namespace_to_dict(cfg.data))
     data_cfg.method = cfg.method.name
@@ -703,6 +729,7 @@ def main(args):
             estimator,
             args,
             retain_tensors=True,
+            attribute_permutation_seed=args.label_permutation_seed,
         )
         natural_train_screen = {
             "metrics": natural_train_result["metrics"],
@@ -726,9 +753,56 @@ def main(args):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         if train_result is None:
-            raise SystemExit(
-                "No jointly balanced training triple satisfied the declared constraints."
+            if args.label_permutation_seed is None:
+                raise SystemExit(
+                    "No jointly balanced training triple satisfied the declared "
+                    "constraints."
+                )
+            method = str(cfg.method.name)
+            tag = (args.tag or "crossfit").strip()
+            stem = (
+                f"crossfit_{mio.slug(method)}_celeba_epoch_{args.epoch}_"
+                f"{mio.slug(tag)}"
             )
+            metrics_dir = os.path.join(args.out_dir, "metrics")
+            failure_payload = {
+                "method": method,
+                "dataset": "celeba",
+                "epoch": args.epoch,
+                "tag": tag,
+                "config": args.config,
+                "ckpt_path": ckpt_path,
+                "ssl_subspace_k_eff": estimator.k_eff,
+                "protocol": {
+                    "name": "full_pipeline_independent_column_label_permutation",
+                    "selection_split": "train",
+                    "evaluation_split": "test_not_reached",
+                    "train_label_permutation_seed": args.label_permutation_seed,
+                    "test_label_permutation_seed": args.label_permutation_seed + 1_000_003,
+                    "permutation": (
+                        "each attribute column independently permuted within split; "
+                        "column prevalence preserved exactly"
+                    ),
+                    "selection_constraints_unchanged_from_strict_real_label_run": True,
+                    "allow_constraint_fallback": False,
+                },
+                "selection_succeeded": False,
+                "failure_reason": (
+                    "no jointly balanced training triple satisfied the fixed "
+                    "capture and orthogonality constraints"
+                ),
+                "natural_train_screen": natural_train_screen,
+                "train_balance": train_balance_record,
+                "test_evaluation": None,
+            }
+            json_path = mio.write_json(
+                os.path.join(metrics_dir, f"hyperrect_{stem}.json"),
+                failure_payload,
+            )
+            print("Permutation-null train selection failed under fixed constraints.")
+            print(f"Saved null result: {json_path}")
+            print("Finished.")
+            return
         if train_rewhitener is None:
             raise RuntimeError("Selected training triple is missing its fitted rewhitener")
         if train_box_reference is None:
@@ -781,6 +855,16 @@ def main(args):
             estimator,
             args,
         )
+        if args.label_permutation_seed is not None:
+            test_permutation_seed = args.label_permutation_seed + 1_000_003
+            test_attrs = _permute_attribute_columns(
+                test_attrs,
+                test_permutation_seed,
+            )
+            print(
+                "Applied independent test attribute-column permutations "
+                f"with seed {test_permutation_seed}"
+            )
         selected_indices = [attr_names.index(name) for name in frozen_triple]
         test_seeds = args.test_balance_seeds or [args.seed + 1]
         primary_test_seed = test_seeds[0]
@@ -963,6 +1047,17 @@ def main(args):
                 if args.joint_balance
                 else "diagnostic"
             ),
+            "label_randomization": (
+                {
+                    "name": "full_pipeline_independent_column_label_permutation",
+                    "train_seed": args.label_permutation_seed,
+                    "test_seed": args.label_permutation_seed + 1_000_003,
+                    "column_prevalence_preserved_exactly": True,
+                    "selection_constraints_unchanged": True,
+                }
+                if args.label_permutation_seed is not None
+                else None
+            ),
             "fixed_test_criteria": {
                 "max_pairwise_abs_cos": args.test_cos_target,
                 "min_capture_B": args.test_min_capture,
@@ -1036,6 +1131,15 @@ if __name__ == "__main__":
     parser.add_argument("--transform_batch_size", type=int, default=8192)
     parser.add_argument("--allow_constraint_fallback", action="store_true")
     parser.add_argument("--joint_balance", action="store_true")
+    parser.add_argument(
+        "--label_permutation_seed",
+        type=int,
+        default=None,
+        help=(
+            "Full-pipeline null: independently permute each attribute column "
+            "within train and test before selection/evaluation"
+        ),
+    )
     parser.add_argument("--candidate_min_class_frac", type=float, default=0.10)
     parser.add_argument("--candidate_min_capture", type=float, default=0.05)
     parser.add_argument("--balance_candidate_pool", type=int, default=12)

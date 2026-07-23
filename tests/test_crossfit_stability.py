@@ -7,6 +7,7 @@ import torch
 
 from analysis.celeba_hyperrect_crossfit import (
     _evaluate_balanced_test_seed,
+    _permute_attribute_columns,
     _rank_balanced_candidates,
     _summarize_stability,
     _write_stability_csv,
@@ -83,6 +84,7 @@ def test_stability_csv_has_one_row_per_seed_and_named_capture_columns(tmp_path):
     assert [int(row["test_balance_seed"]) for row in rows] == [7, 8]
     assert float(rows[1]["capture_B_Black_Hair"]) == pytest.approx(0.41)
     assert rows[0]["headline_criteria_passed"] == "True"
+    assert b"\r\n" not in path.read_bytes()
 
 
 def test_stability_plot_writes_png_and_pdf(tmp_path):
@@ -193,3 +195,23 @@ def test_candidate_ranking_can_require_distinct_semantic_groups():
         len({names[index].split("=", maxsplit=1)[0] for index in row["indices"]}) == 3
         for row in ranked
     )
+
+
+def test_attribute_column_permutation_is_deterministic_and_preserves_prevalence():
+    attrs = torch.tensor(
+        [
+            [0, 0, 1],
+            [0, 1, 0],
+            [1, 0, 0],
+            [1, 1, 1],
+            [0, 0, 0],
+            [1, 1, 0],
+        ]
+    )
+
+    first = _permute_attribute_columns(attrs, seed=91)
+    second = _permute_attribute_columns(attrs, seed=91)
+
+    assert torch.equal(first, second)
+    assert torch.equal(first.sum(dim=0), attrs.sum(dim=0))
+    assert not torch.equal(first, attrs)
