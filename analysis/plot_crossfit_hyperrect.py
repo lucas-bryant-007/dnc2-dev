@@ -4,7 +4,7 @@ The headline rendering intentionally uses the same visual grammar as the
 synthetic-data cube figures: colour, marker shape, and fill encode the three
 binary factors.  The numerical observed/predicted overlay remains available in
 the original run output; it is deliberately omitted here so it does not obscure
-the eight observed CelebA centroids.  When point coordinates are available, the
+the eight held-out centroids.  When point coordinates are available, the
 headline cloud consists of deterministic mini-batch centroids rather than raw
 individual embeddings; this shows centroid stability without implying neural
 collapse of the within-cell distributions.
@@ -105,11 +105,13 @@ def render_crossfit_json(
         raise ValueError("Cross-fit record does not contain both observed and predicted boxes")
 
     method = mio.slug(payload["method"])
+    dataset = mio.slug(payload.get("dataset") or "celeba")
     epoch = payload["epoch"]
-    stem = f"celeba_balanced_cube_{method}_epoch_{epoch}"
+    epoch_suffix = f"_epoch_{epoch}" if isinstance(epoch, int) else ""
+    stem = f"{dataset}_balanced_cube_{method}{epoch_suffix}"
     output_dir.mkdir(parents=True, exist_ok=True)
     cloud_outputs = [output_dir / f"{stem}.png", output_dir / f"{stem}.pdf"]
-    prediction_stem = f"celeba_train_predicted_box_{method}_epoch_{epoch}"
+    prediction_stem = f"{dataset}_train_predicted_box_{method}{epoch_suffix}"
     prediction_outputs = [
         output_dir / f"{prediction_stem}.png",
         output_dir / f"{prediction_stem}.pdf",
@@ -140,7 +142,10 @@ def render_crossfit_json(
         predicted_box=None,
         per_task=clouds_per_cell if cloud_mode == "centroid_batches" else 160,
         axis_labels=[name.replace("_", " ") for name in triple],
-        level_labels=[_CELEBA_LEVEL_LABELS.get(name, ("absent", "present")) for name in triple],
+        level_labels=[
+            _CELEBA_LEVEL_LABELS.get(name, ("absent", "present"))
+            for name in triple
+        ],
         show_samples=coords.shape[0] > 0,
         show_centroid_se=False,
         publication_compact=False,

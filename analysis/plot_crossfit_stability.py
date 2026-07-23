@@ -1,4 +1,4 @@
-"""Plot held-out resampling stability from a cross-fitted CelebA metrics JSON."""
+"""Plot held-out resampling stability from a cross-fitted metrics JSON."""
 
 from __future__ import annotations
 
@@ -14,6 +14,21 @@ import numpy as np
 
 
 CAPTURE_COLORS = ("#0072B2", "#E69F00", "#009E73")
+
+
+def _display_names(payload: dict) -> tuple[str, str]:
+    method_key = str(payload["method"]).lower()
+    method = {
+        "ijepa": "I-JEPA",
+        "vicreg": "VICReg",
+        "vicreg_official_imagenet1k": "VICReg (ImageNet-1K)",
+    }.get(method_key, str(payload["method"]))
+    dataset_key = str(payload.get("dataset") or "celeba").lower()
+    dataset = {
+        "celeba": "CelebA",
+        "cub200": "CUB-200",
+    }.get(dataset_key, str(payload.get("dataset") or "CelebA"))
+    return method, dataset
 
 
 def load_stability(json_path: Path) -> dict:
@@ -50,7 +65,7 @@ def _panel_label(axis: plt.Axes, label: str) -> None:
 def plot_stability(payload: dict, output_stem: Path) -> list[Path]:
     records = payload["test_stability"]["records"]
     triple = payload["selected_triple"]
-    method = str(payload["method"]).upper().replace("IJEPA", "I-JEPA")
+    method, dataset = _display_names(payload)
     x = np.arange(1, len(records) + 1)
 
     plt.rcParams.update(
@@ -150,7 +165,8 @@ def plot_stability(payload: dict, output_stem: Path) -> list[Path]:
 
     pass_count = sum(row["headline_criteria_passed"] for row in records)
     fig.suptitle(
-        f"{method} CelebA: {pass_count}/{len(records)} held-out resamples pass all criteria",
+        f"{method} {dataset}: {pass_count}/{len(records)} "
+        "held-out resamples pass all criteria",
         fontsize=12,
         fontweight="bold",
         y=1.01,
@@ -172,10 +188,15 @@ def main(args: argparse.Namespace) -> None:
         raise SystemExit(f"Metrics JSON does not exist: {json_path}")
     payload = load_stability(json_path)
     method = str(payload["method"]).lower()
+    dataset = str(payload.get("dataset") or "celeba").lower()
     output_stem = (
         Path(args.output_stem).expanduser().resolve()
         if args.output_stem
-        else json_path.parent.parent / "paper_figures" / f"celeba_{method}_crossfit_stability"
+        else (
+            json_path.parent.parent
+            / "paper_figures"
+            / f"{dataset}_{method}_crossfit_stability"
+        )
     )
     for path in plot_stability(payload, output_stem):
         print(f"Saved: {path}")
