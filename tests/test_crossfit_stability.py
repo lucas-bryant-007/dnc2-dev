@@ -10,6 +10,11 @@ from analysis.celeba_hyperrect_crossfit import (
     _summarize_stability,
     _write_stability_csv,
 )
+from analysis.hyperrect import (
+    apply_rewhitener,
+    fit_box_reference,
+    fit_rewhitener,
+)
 from analysis.plot_crossfit_stability import load_stability, plot_stability
 
 
@@ -107,6 +112,16 @@ def test_balanced_test_seed_uses_fixed_triple_and_per_cell_cap():
         min_capture=0.10,
         cos_ceiling=0.12,
     )
+    train_features = features + 0.05 * torch.randn(
+        features.shape,
+        generator=generator,
+    )
+    train_rewhitener = fit_rewhitener(train_features)
+    train_box_reference = fit_box_reference(
+        apply_rewhitener(train_features, train_rewhitener),
+        attrs,
+        TRIPLE,
+    )
 
     result, balance = _evaluate_balanced_test_seed(
         features,
@@ -115,6 +130,8 @@ def test_balanced_test_seed_uses_fixed_triple_and_per_cell_cap():
         TRIPLE,
         test_seed=17,
         args=args,
+        train_rewhitener=train_rewhitener,
+        train_box_reference=train_box_reference,
     )
 
     assert result["triple_names"] == TRIPLE
@@ -122,3 +139,6 @@ def test_balanced_test_seed_uses_fixed_triple_and_per_cell_cap():
     assert balance["seed"] == 17
     assert balance["samples_per_cell"] == 10
     assert balance["total_balanced_samples"] == 80
+    assert result["box_reference_split"] == "train"
+    assert result["crossfit_probe_geometry"]["n_a"] == 40
+    assert result["crossfit_probe_geometry"]["n_b"] == 40

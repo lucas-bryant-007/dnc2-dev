@@ -20,6 +20,7 @@ corners of an axis-aligned box (a hyper-rectangle).
 """
 import itertools
 import math
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import torch
@@ -45,24 +46,115 @@ def capture_proxy(m: Dict) -> float:
     return 1.0 / (1.0 + 2.0 * dv)
 
 
+@dataclass
+class RewhiteningTransform:
+    """Frozen affine ZCA map fitted on one declared reference population."""
+
+    mean: torch.Tensor
+    zca: torch.Tensor
+    n_fit: int
+    feature_dim: int
+    ridge_rel: float
+    ridge: float
+    lambda_max: float
+
+    def metadata(self) -> Dict:
+        """Return JSON-safe fit diagnostics without serializing large tensors."""
+        return {
+            "kind": "zca",
+            "n_fit": self.n_fit,
+            "feature_dim": self.feature_dim,
+            "ridge_rel": self.ridge_rel,
+            "ridge": self.ridge,
+            "lambda_max": self.lambda_max,
+        }
+
+
+@dataclass
+class BoxReference:
+    """Training-fitted task axes and predicted corners for held-out plotting."""
+
+    triple_names: List[str]
+    basis: torch.Tensor
+    probes: torch.Tensor
+    deltas: torch.Tensor
+    predicted_box: List[Dict]
+    n_fit: int
+
+    def metadata(self) -> Dict:
+        probe_gram = self.probes.T @ self.probes
+        return {
+            "fit_split": "train",
+            "n_fit": self.n_fit,
+            "triple_names": self.triple_names,
+            "probe_gram": probe_gram.tolist(),
+            "predicted_box": self.predicted_box,
+        }
+
+
+def fit_rewhitener(
+    features: torch.Tensor, ridge_rel: float = 1e-3
+) -> RewhiteningTransform:
+    """Fit a regularized ZCA map on a reference feature population."""
+    if features.ndim != 2:
+        raise ValueError(f"features must be 2D, got {features.ndim}D")
+    if features.shape[0] < 2:
+        raise ValueError("At least two samples are required to fit rewhitening")
+    if ridge_rel <= 0:
+        raise ValueError(f"ridge_rel must be positive, got {ridge_rel}")
+
+    features = features.float()
+    mean = features.mean(dim=0, keepdim=True)
+    centered = features - mean
+    covariance = (centered.T @ centered) / centered.shape[0]
+    evals, evecs = torch.linalg.eigh(covariance)
+    evals = evals.clamp_min(0.0)
+    lambda_max = float(evals.max().item())
+    if not math.isfinite(lambda_max) or lambda_max <= 0:
+        raise ValueError("Cannot fit rewhitening to zero-variance features")
+    ridge = ridge_rel * lambda_max
+    inv_sqrt = (evals + ridge).rsqrt()
+    zca = (evecs * inv_sqrt) @ evecs.T
+    return RewhiteningTransform(
+        mean=mean,
+        zca=zca,
+        n_fit=int(features.shape[0]),
+        feature_dim=int(features.shape[1]),
+        ridge_rel=float(ridge_rel),
+        ridge=float(ridge),
+        lambda_max=lambda_max,
+    )
+
+
+def apply_rewhitener(
+    features: torch.Tensor, transform: RewhiteningTransform
+) -> torch.Tensor:
+    """Apply a previously fitted ZCA map without using target-split statistics."""
+    if features.ndim != 2:
+        raise ValueError(f"features must be 2D, got {features.ndim}D")
+    if features.shape[1] != transform.feature_dim:
+        raise ValueError(
+            f"feature dimension {features.shape[1]} does not match fitted "
+            f"dimension {transform.feature_dim}"
+        )
+    return (features.float() - transform.mean) @ transform.zca
+
+
 def rewhiten(features: torch.Tensor, ridge_rel: float = 1e-3) -> torch.Tensor:
-    """ZCA-whiten features by their OWN covariance so E[F]=0, Cov(F)=I.
+    """ZCA-whiten features by their OWN covariance so E[F]=0, Cov(F)≈I.
 
     The SSL-subspace map whitens w.r.t. the augmented-train distribution, not the
     labeled-eval distribution, so E[psi psi^T] != I and the raw capture
     ||E[Y psi]||^2 can exceed 1. Rewhitening (the Mahalanobis metric of App. A /
     the Thm 4.5 remark) restores Cov=I, so B(F) <= 1, directional CDNV obeys
     Prop 4.1, and the multitask box is axis-aligned rather than a parallelepiped.
+
+    This convenience wrapper intentionally fits and applies on the same tensor.
+    Cross-split evaluation must instead call :func:`fit_rewhitener` on training
+    data and :func:`apply_rewhitener` on held-out data.
     """
-    mu = features.mean(dim=0, keepdim=True)
-    fc = features - mu
-    cov = (fc.T @ fc) / fc.shape[0]
-    evals, evecs = torch.linalg.eigh(cov)
-    evals = evals.clamp_min(0.0)
-    ridge = ridge_rel * float(evals.max().item())
-    inv_sqrt = (evals + ridge).rsqrt()
-    zca = (evecs * inv_sqrt) @ evecs.T  # Cov^{-1/2}
-    return fc @ zca
+    transform = fit_rewhitener(features, ridge_rel=ridge_rel)
+    return apply_rewhitener(features, transform)
 
 
 def to_binary01(labels: torch.Tensor) -> torch.Tensor:
@@ -373,6 +465,109 @@ def task_probe(features: torch.Tensor, labels01: torch.Tensor) -> torch.Tensor:
     """
     y_pm = (2 * labels01.reshape(-1).float() - 1.0)
     return (y_pm.unsqueeze(1) * features).mean(dim=0)
+
+
+def fit_box_reference(
+    features: torch.Tensor,
+    attr3: torch.Tensor,
+    triple_names: Sequence[str],
+) -> BoxReference:
+    """Fit task axes and predicted box corners on training observations only."""
+    if attr3.ndim != 2 or attr3.shape != (features.shape[0], 3):
+        raise ValueError("attr3 must have shape [N,3] matching features")
+    if len(triple_names) != 3:
+        raise ValueError("triple_names must contain exactly three names")
+    labels = [to_binary01(attr3[:, index]) for index in range(3)]
+    probes = torch.stack(
+        [task_probe(features, label) for label in labels],
+        dim=1,
+    )
+    deltas = []
+    for label in labels:
+        mu_pos, mu_neg, _n_pos, _n_neg = class_means(features, label)
+        if mu_pos is None or mu_neg is None:
+            raise ValueError("Every reference task must contain both classes")
+        deltas.append(mu_pos - mu_neg)
+    deltas_tensor = torch.stack(deltas, dim=1)
+    basis = task_axis_basis(deltas_tensor)
+    return BoxReference(
+        triple_names=list(triple_names),
+        basis=basis,
+        probes=probes,
+        deltas=deltas_tensor,
+        predicted_box=predicted_box_corners(probes, basis),
+        n_fit=int(features.shape[0]),
+    )
+
+
+def crossfit_probe_geometry(
+    features_a: torch.Tensor,
+    attr3_a: torch.Tensor,
+    features_b: torch.Tensor,
+    attr3_b: torch.Tensor,
+    triple_names: Sequence[str],
+) -> Dict:
+    """Estimate capture and task cosines from independent sample halves.
+
+    For probes ``w_a`` and ``w_b`` fit on disjoint samples, the symmetrized
+    cross-Gram matrix is an unbiased estimator of ``w_t^T w_u``. In particular,
+    its diagonal avoids the ``D/N`` noise inflation in the same-sample estimator
+    ``||w_hat||^2``.
+    """
+    if features_a.ndim != 2 or features_b.ndim != 2:
+        raise ValueError("features_a and features_b must be 2D")
+    if features_a.shape[1] != features_b.shape[1]:
+        raise ValueError("Cross-fit feature dimensions must match")
+    if attr3_a.shape != (features_a.shape[0], 3):
+        raise ValueError("attr3_a must have shape [N_a,3]")
+    if attr3_b.shape != (features_b.shape[0], 3):
+        raise ValueError("attr3_b must have shape [N_b,3]")
+    if len(triple_names) != 3:
+        raise ValueError("triple_names must contain exactly three names")
+
+    probes_a = torch.stack(
+        [
+            task_probe(features_a, to_binary01(attr3_a[:, index]))
+            for index in range(3)
+        ],
+        dim=1,
+    )
+    probes_b = torch.stack(
+        [
+            task_probe(features_b, to_binary01(attr3_b[:, index]))
+            for index in range(3)
+        ],
+        dim=1,
+    )
+    gram_ab = probes_a.T @ probes_b
+    gram = 0.5 * (gram_ab + gram_ab.T)
+    capture = torch.diagonal(gram)
+    valid = bool(torch.all(capture > 0).item())
+    if valid:
+        denominator = torch.sqrt(capture[:, None] * capture[None, :])
+        cosine = gram / denominator
+        cosine.fill_diagonal_(1.0)
+        offdiag = cosine.abs()[
+            torch.triu_indices(3, 3, offset=1, device=cosine.device).unbind()
+        ]
+        max_abs_cos = float(offdiag.max().item())
+        cosine_list = cosine.tolist()
+    else:
+        max_abs_cos = None
+        cosine_list = None
+    return {
+        "estimator": "symmetrized_split_half_cross_gram",
+        "n_a": int(features_a.shape[0]),
+        "n_b": int(features_b.shape[0]),
+        "valid_positive_diagonal": valid,
+        "capture_B": {
+            name: float(capture[index].item())
+            for index, name in enumerate(triple_names)
+        },
+        "gram_matrix": gram.tolist(),
+        "cosine_matrix": cosine_list,
+        "max_abs_cos": max_abs_cos,
+    }
 
 
 def predicted_box_corners(w_cols: torch.Tensor, basis: torch.Tensor) -> List[Dict]:

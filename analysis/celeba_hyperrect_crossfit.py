@@ -61,7 +61,14 @@ def _serializable_result(result):
     }
 
 
-def _write_plot_points(path, coords, granular_task, triple_names, balance_seed):
+def _write_plot_points(
+    path,
+    coords,
+    granular_task,
+    triple_names,
+    balance_seed,
+    coordinate_system,
+):
     """Save genuine held-out 3D coordinates for deterministic post-hoc figures."""
     coords_np = coords.detach().cpu().numpy().astype(np.float32, copy=False)
     task_np = granular_task.detach().cpu().numpy().astype(np.int8, copy=False)
@@ -85,10 +92,7 @@ def _write_plot_points(path, coords, granular_task, triple_names, balance_seed):
         "contains_raw_images": False,
         "split": "test",
         "balance_seed": int(balance_seed),
-        "coordinate_system": (
-            "projection onto normalized held-out task mean-difference axes after "
-            "rewhitening"
-        ),
+        "coordinate_system": coordinate_system,
     }
 
 
@@ -242,6 +246,37 @@ def _write_stability_csv(path, records, triple_names):
             writer.writerow(row)
 
 
+def _split_balanced_sample(selected, samples_per_cell):
+    """Split every cell's randomized draw into two non-overlapping halves."""
+    if samples_per_cell < 2:
+        raise ValueError("Cross-fit evaluation needs at least two samples per cell")
+    first_size = samples_per_cell // 2
+    first = []
+    second = []
+    for cell in range(8):
+        start = cell * samples_per_cell
+        cell_indices = selected[start:start + samples_per_cell]
+        first.append(cell_indices[:first_size])
+        second.append(cell_indices[first_size:])
+    return torch.cat(first), torch.cat(second)
+
+
+def _inject_crossfit_probe_geometry(result, geometry):
+    """Replace noisy same-sample capture/cosines with split-half estimates."""
+    by_name = {row["name"]: row for row in result["metrics"]}
+    for name, capture in geometry["capture_B"].items():
+        by_name[name]["capture_B"] = capture
+        by_name[name]["capture_B_estimator"] = geometry["estimator"]
+    result["crossfit_probe_geometry"] = geometry
+    if geometry["valid_positive_diagonal"]:
+        result["cosine_matrix"] = geometry["cosine_matrix"]
+        result["triple_max_abs_cos"] = geometry["max_abs_cos"]
+    else:
+        result["cosine_matrix"] = None
+        result["triple_max_abs_cos"] = 1.0
+    return result
+
+
 def _rank_balanced_candidates(features, attrs, attr_names, metrics, args):
     candidates = []
     for index, row in enumerate(metrics):
@@ -294,8 +329,20 @@ def _select_balanced_train_triple(features, attrs, attr_names, metrics, args):
             seed=args.seed,
             max_per_cell=args.max_train_cell_samples,
         )
-        balanced_features = H.rewhiten(features[selected])
+        rewhitener = H.fit_rewhitener(
+            features[selected],
+            ridge_rel=args.analysis_whiten_ridge_rel,
+        )
+        balanced_features = H.apply_rewhitener(features[selected], rewhitener)
         balanced_attrs = attrs[selected][:, indices]
+        first, second = _split_balanced_sample(selected, per_cell)
+        crossfit_geometry = H.crossfit_probe_geometry(
+            H.apply_rewhitener(features[first], rewhitener),
+            attrs[first][:, indices],
+            H.apply_rewhitener(features[second], rewhitener),
+            attrs[second][:, indices],
+            candidate["names"],
+        )
         result = H.analyze(
             balanced_features,
             balanced_attrs,
@@ -306,6 +353,7 @@ def _select_balanced_train_triple(features, attrs, attr_names, metrics, args):
             min_capture=args.min_capture,
             cos_ceiling=args.cos_ceiling,
         )
+        _inject_crossfit_probe_geometry(result, crossfit_geometry)
         passed = _constraints_satisfied(
             result,
             args.min_class_frac,
@@ -329,16 +377,34 @@ def _select_balanced_train_triple(features, attrs, attr_names, metrics, args):
             f"max|cos|={result['triple_max_abs_cos']:.3f} passed={passed}"
         )
         if passed:
+            box_reference = H.fit_box_reference(
+                balanced_features,
+                balanced_attrs,
+                candidate["names"],
+            )
             return result, {
                 "selected_candidate": candidate,
                 "original_cell_counts": counts,
                 "samples_per_cell": per_cell,
                 "exact_attempts": attempts,
-            }
-        del result, balanced_features, balanced_attrs
+                "rewhitener": {
+                    **rewhitener.metadata(),
+                    "fit_split": "train",
+                    "fit_population": "uniform_over_selected_eight_label_cells",
+                    "frozen_for_test": True,
+                },
+                "probe_estimator": crossfit_geometry["estimator"],
+                "box_reference": box_reference.metadata(),
+            }, rewhitener, box_reference
+        del result, balanced_features, balanced_attrs, rewhitener
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-    return None, {"selected_candidate": None, "exact_attempts": attempts}
+    return (
+        None,
+        {"selected_candidate": None, "exact_attempts": attempts},
+        None,
+        None,
+    )
 
 
 def _evaluate_balanced_test_seed(
@@ -348,14 +414,29 @@ def _evaluate_balanced_test_seed(
     frozen_triple,
     test_seed,
     args,
+    train_rewhitener,
+    train_box_reference,
 ):
+    if train_rewhitener is None:
+        raise ValueError("Held-out evaluation requires a frozen train-fitted rewhitener")
     selected, counts, per_cell = H.balanced_joint_indices(
         test_attrs[:, selected_indices],
         seed=test_seed,
         max_per_cell=args.max_test_cell_samples,
     )
-    balanced_features = H.rewhiten(test_features[selected])
+    balanced_features = H.apply_rewhitener(
+        test_features[selected],
+        train_rewhitener,
+    )
     balanced_attrs = test_attrs[selected][:, selected_indices]
+    first, second = _split_balanced_sample(selected, per_cell)
+    crossfit_geometry = H.crossfit_probe_geometry(
+        H.apply_rewhitener(test_features[first], train_rewhitener),
+        test_attrs[first][:, selected_indices],
+        H.apply_rewhitener(test_features[second], train_rewhitener),
+        test_attrs[second][:, selected_indices],
+        frozen_triple,
+    )
     result = H.analyze(
         balanced_features,
         balanced_attrs,
@@ -366,11 +447,24 @@ def _evaluate_balanced_test_seed(
         min_capture=args.min_capture,
         cos_ceiling=args.cos_ceiling,
     )
+    _inject_crossfit_probe_geometry(result, crossfit_geometry)
+    coords, box, granular_task = H.subclass_box(
+        balanced_features,
+        balanced_attrs,
+        train_box_reference.basis,
+    )
+    result["coords"] = coords
+    result["box"] = box
+    result["granular_task"] = granular_task
+    result["predicted_box"] = train_box_reference.predicted_box
+    result["box_reference_split"] = "train"
     balance = {
         "seed": int(test_seed),
         "original_cell_counts": counts,
         "samples_per_cell": per_cell,
         "total_balanced_samples": 8 * per_cell,
+        "crossfit_samples_per_cell_a": per_cell // 2,
+        "crossfit_samples_per_cell_b": per_cell - per_cell // 2,
     }
     return result, balance
 
@@ -389,7 +483,7 @@ def _transform_on_device(estimator, features, device, batch_size):
 
 
 @torch.no_grad()
-def _analyze_dataset(
+def _extract_dataset_coordinates(
     dataset,
     data_cfg,
     transforms,
@@ -397,8 +491,6 @@ def _analyze_dataset(
     model,
     estimator,
     args,
-    viz_triple=None,
-    retain_tensors=False,
 ):
     loader = _loader(dataset, data_cfg, transforms, attr_names)
     features, attr_matrix = extract_features_and_attrs(
@@ -415,10 +507,38 @@ def _analyze_dataset(
         args.transform_batch_size,
     )
     print(f"Mapped to whitened SSL coordinates {tuple(features_dev.shape)}")
-    features_dev = H.rewhiten(features_dev)
     attrs_dev = attr_matrix.to(args.device)
-    result = H.analyze(
+    del features, attr_matrix
+    return features_dev, attrs_dev
+
+
+@torch.no_grad()
+def _analyze_dataset(
+    dataset,
+    data_cfg,
+    transforms,
+    attr_names,
+    model,
+    estimator,
+    args,
+    viz_triple=None,
+    retain_tensors=False,
+):
+    features_dev, attrs_dev = _extract_dataset_coordinates(
+        dataset,
+        data_cfg,
+        transforms,
+        attr_names,
+        model,
+        estimator,
+        args,
+    )
+    analysis_features = H.rewhiten(
         features_dev,
+        ridge_rel=args.analysis_whiten_ridge_rel,
+    )
+    result = H.analyze(
+        analysis_features,
         attrs_dev,
         attr_names,
         min_class_frac=args.min_class_frac,
@@ -427,10 +547,10 @@ def _analyze_dataset(
         min_capture=args.min_capture,
         cos_ceiling=args.cos_ceiling,
     )
-    del features, attr_matrix
     if retain_tensors:
+        del analysis_features
         return result, features_dev, attrs_dev
-    del features_dev, attrs_dev
+    del analysis_features, features_dev, attrs_dev
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     return result
@@ -446,6 +566,8 @@ def main(args):
         raise ValueError("--test_balance_seeds must not contain duplicates")
     if args.max_test_cell_samples is not None and args.max_test_cell_samples <= 0:
         raise ValueError("--max_test_cell_samples must be positive")
+    if args.analysis_whiten_ridge_rel <= 0:
+        raise ValueError("--analysis_whiten_ridge_rel must be positive")
     cfg = dict_to_namespace(load_config(args.config))
     data_cfg = CelebACfg(**namespace_to_dict(cfg.data))
     data_cfg.method = cfg.method.name
@@ -496,6 +618,8 @@ def main(args):
 
     print("\n=== TRAIN-ONLY TRIPLE SELECTION ===")
     train_balance_record = None
+    train_rewhitener = None
+    train_box_reference = None
     natural_train_screen = None
     if args.joint_balance:
         natural_train_result, train_features, train_attrs = _analyze_dataset(
@@ -512,20 +636,31 @@ def main(args):
             "metrics": natural_train_result["metrics"],
             "mean_abs_offdiag_cosine": natural_train_result["mean_abs_offdiag_cosine"],
         }
-        train_result, train_balance_record = _select_balanced_train_triple(
-            train_features,
-            train_attrs,
-            attr_names,
-            natural_train_result["metrics"],
-            args,
+        (
+            train_result,
+            train_balance_record,
+            train_rewhitener,
+            train_box_reference,
+        ) = (
+            _select_balanced_train_triple(
+                train_features,
+                train_attrs,
+                attr_names,
+                natural_train_result["metrics"],
+                args,
+            )
         )
         del natural_train_result, train_features, train_attrs
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         if train_result is None:
             raise SystemExit(
-                "No jointly balanced training triple satisfied the preregistered constraints."
+                "No jointly balanced training triple satisfied the declared constraints."
             )
+        if train_rewhitener is None:
+            raise RuntimeError("Selected training triple is missing its fitted rewhitener")
+        if train_box_reference is None:
+            raise RuntimeError("Selected training triple is missing its box reference")
     else:
         train_result = _analyze_dataset(
             data_module.ds_train,
@@ -552,7 +687,7 @@ def main(args):
         )
     if not constraints_ok and not args.allow_constraint_fallback:
         raise SystemExit(
-            "No triple satisfied the preregistered train constraints. "
+            "No triple satisfied the declared train constraints. "
             "Use --allow_constraint_fallback only for a clearly labeled diagnostic run."
         )
     frozen_triple = list(train_result["triple_names"])
@@ -565,7 +700,7 @@ def main(args):
     test_stability_records = []
     primary_test_seed = None
     if args.joint_balance:
-        _natural_test, test_features, test_attrs = _analyze_dataset(
+        test_features, test_attrs = _extract_dataset_coordinates(
             data_module.ds_test,
             data_cfg,
             data_module.test_tfms,
@@ -573,7 +708,6 @@ def main(args):
             model,
             estimator,
             args,
-            retain_tensors=True,
         )
         selected_indices = [attr_names.index(name) for name in frozen_triple]
         test_seeds = args.test_balance_seeds or [args.seed + 1]
@@ -586,6 +720,8 @@ def main(args):
                 frozen_triple,
                 test_seed,
                 args,
+                train_rewhitener,
+                train_box_reference,
             )
             seed_diagnostics, _seed_triple, seed_criteria, seed_passed = (
                 _evaluate_headline(seed_result, args)
@@ -612,7 +748,7 @@ def main(args):
                 test_balance_record = seed_balance
             else:
                 del seed_result
-        del _natural_test, test_features, test_attrs
+        del test_features, test_attrs
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     else:
@@ -644,7 +780,7 @@ def main(args):
         f"max error={diagnostics['max_centroid_error']:.4f}; "
         f"min test cell count={diagnostics['min_cell_count']}"
     )
-    print(f"Preregistered headline criteria passed: {headline_passed}")
+    print(f"Fixed headline criteria passed: {headline_passed}")
     for name, item in headline_criteria.items():
         print(
             f"  {name}: observed={item['observed']:.4f}, "
@@ -680,6 +816,15 @@ def main(args):
             test_result["granular_task"],
             frozen_triple,
             primary_test_seed if primary_test_seed is not None else args.seed + 1,
+            (
+                "projection onto normalized train-fitted task mean-difference "
+                "axes after frozen train-fitted ZCA rewhitening"
+                if args.joint_balance
+                else (
+                    "projection onto normalized held-out task mean-difference axes "
+                    "after evaluation-split rewhitening"
+                )
+            ),
         )
         plot_points_record["artifact"] = os.path.relpath(
             plot_points_path,
@@ -707,7 +852,23 @@ def main(args):
             "min_capture": args.min_capture,
             "cos_ceiling": args.cos_ceiling,
             "constraints_satisfied": constraints_ok,
-            "rewhitening": "label-free, fitted independently within each analysis split",
+            "rewhitening": (
+                "ZCA fitted once on the selected jointly balanced training "
+                "population and frozen for every held-out test resample"
+                if args.joint_balance
+                else "ZCA fitted independently within each analysis split"
+            ),
+            "test_statistics_used_to_fit_rewhitening": False if args.joint_balance else True,
+            "capture_and_cosine_estimator": (
+                "symmetrized split-half cross-Gram within every balanced sample"
+                if args.joint_balance
+                else "same-sample plug-in estimate"
+            ),
+            "box_axes_and_predicted_corners": (
+                "fit on selected balanced train population and frozen for test"
+                if args.joint_balance
+                else "fit within each analysis split"
+            ),
             "primary_test_balance_seed": primary_test_seed,
             "test_balance_seeds": (
                 [row["test_balance_seed"] for row in test_stability_records]
@@ -715,7 +876,12 @@ def main(args):
                 else None
             ),
             "max_test_cell_samples": args.max_test_cell_samples,
-            "preregistered_test_criteria": {
+            "criteria_status": (
+                "fixed_before_strict_rerun_but_not_formally_preregistered"
+                if args.joint_balance
+                else "diagnostic"
+            ),
+            "fixed_test_criteria": {
                 "max_pairwise_abs_cos": args.test_cos_target,
                 "min_capture_B": args.test_min_capture,
                 "max_normalized_centroid_rmse": args.max_normalized_centroid_rmse,
@@ -779,6 +945,12 @@ if __name__ == "__main__":
     parser.add_argument("--max_samples", type=int, default=None)
     parser.add_argument("--rel_eig_threshold", type=float, default=1e-3)
     parser.add_argument("--whiten_ridge_rel", type=float, default=1e-3)
+    parser.add_argument(
+        "--analysis_whiten_ridge_rel",
+        type=float,
+        default=1e-3,
+        help="Ridge for analysis-space ZCA; the joint-balance protocol fits it on train only",
+    )
     parser.add_argument("--transform_batch_size", type=int, default=8192)
     parser.add_argument("--allow_constraint_fallback", action="store_true")
     parser.add_argument("--joint_balance", action="store_true")
