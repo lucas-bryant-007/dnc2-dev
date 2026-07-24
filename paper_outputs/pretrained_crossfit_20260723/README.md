@@ -3,7 +3,7 @@
 ## Bottom line
 
 **CelebA is the positive result.** Train-selected and train-fitted geometry
-transfers to held-out images for both VICReg and I-JEPA, and its frozen-corner
+transfers to held-out images for both VICReg and I-JEPA, and its training-only corner
 error beats all 5,000 conditional label permutations.
 
 **CUB-200 is the boundary result.** Its factor directions are strongly captured
@@ -11,24 +11,39 @@ and nearly orthogonal, but the additive corners do not transfer.
 
 ## Read this package in order
 
-1. [Main CelebA figure](figures/main/figure1_celeba_transfer.png) — the complete
-   positive result and both label-randomization controls.
-2. [CUB-200 boundary figure](figures/supplement/figure_s1_cub_boundary.png) —
-   what transfers and what fails.
-3. [Figure gallery](FIGURES.md) — short names and plain-language reading notes
+1. [CelebA train-to-test result](figures/main/figure1_celeba_test_generalization.png)
+   — a three-step explanation and the decisive comparison with 5,000 shuffled-label
+   controls.
+2. [What transfers across datasets](figures/main/figure2_scope_across_datasets.png)
+   — a plain-language result matrix separating factor directions from cube composition.
+3. [Figure gallery](FIGURES.md) — reading notes and optional 3-D box views
    for the cube visualizations.
 4. [Results text and captions](text/RESULTS.md) — paper-ready wording plus the
    interpretation guardrails.
 5. [Metrics table](tables/pretrained_crossfit_metrics.csv) — plotted values in
    machine-readable form.
 
+## What to send
+
+Send Figure 1 first. It contains the question, protocol, result, and chance
+comparison in one image. Add Figure 2 when discussing whether the phenomenon
+extends beyond faces.
+
+Suggested accompanying text:
+
+> I tested whether attribute geometry learned from training images predicts the
+> organization of unseen images without test-time refitting. On CelebA, VICReg
+> and I-JEPA have four-to-five times lower corner error than 5,000 shuffled-label
+> controls. CUB-200 retains strong, separate factor directions but not reliable
+> cube-like composition, which gives us a useful boundary case.
+
 ## Layout
 
 ```text
 pretrained_crossfit_20260723/
 |-- figures/
-|   |-- main/           # claim-carrying figure
-|   `-- supplement/     # CUB boundary and cube visualizations
+|   |-- main/           # two self-contained, claim-carrying figures
+|   `-- supplement/     # optional observed-versus-predicted box views
 |-- tables/             # compact values used in text and figures
 |-- text/               # results paragraph and captions
 |-- controls/
@@ -60,6 +75,6 @@ python analysis/plot_strict_pretrained_paper.py \
   --out_dir paper_outputs/pretrained_crossfit_20260723
 ```
 
-The 20 balance seeds reuse fixed test features and are not independent model
+The 20 balance seeds reuse the same saved test features and are not independent model
 training seeds. The invalid same-family CUB diagnostic is excluded from every
 paper-facing figure and table.

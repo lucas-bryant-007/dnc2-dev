@@ -1,4 +1,4 @@
-"""Build the navigable paper package for strict pretrained cross-fit results."""
+"""Build simple, paper-facing figures for strict pretrained cross-fit results."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.lines import Line2D
+from matplotlib.patches import FancyBboxPatch
 
 
 COLORS = {
@@ -34,9 +34,6 @@ class RunSummary:
     capture: tuple[float, float, float]
     aggregate_max_cos: float
     rmse: tuple[float, ...]
-    capture_target: float
-    cosine_target: float
-    rmse_target: float
     pass_count: int
     n_resamples: int
     feasible_train_candidates: int | None
@@ -103,11 +100,10 @@ def load_run(path: str | Path) -> RunSummary:
     if not aggregate["valid_positive_diagonal"]:
         raise ValueError(f"Aggregate cross-fit geometry is invalid in {path}")
     triple = tuple(str(value) for value in payload["selected_triple"])
-    capture_by_name = aggregate["capture_B"]
-    criteria = payload["protocol"]["fixed_test_criteria"]
     records = stability["records"]
     if len(triple) != 3 or len(records) == 0:
         raise ValueError(f"Incomplete strict result in {path}")
+    capture_by_name = aggregate["capture_B"]
     return RunSummary(
         dataset=str(payload["dataset"]),
         method=str(payload["method"]),
@@ -116,9 +112,6 @@ def load_run(path: str | Path) -> RunSummary:
         capture=tuple(float(capture_by_name[name]) for name in triple),
         aggregate_max_cos=float(aggregate["max_abs_cos"]),
         rmse=tuple(float(row["normalized_centroid_rmse"]) for row in records),
-        capture_target=float(criteria["min_capture_B"]),
-        cosine_target=float(criteria["max_pairwise_abs_cos"]),
-        rmse_target=float(criteria["max_normalized_centroid_rmse"]),
         pass_count=int(stability["pass_count"]),
         n_resamples=int(stability["n_resamples"]),
         feasible_train_candidates=_real_run_feasible_count(path),
@@ -162,278 +155,416 @@ def load_full_pipeline_null(path: str | Path) -> FullPipelineNull:
     )
 
 
-def _style_axis(axis: plt.Axes, panel: str) -> None:
-    axis.spines[["top", "right"]].set_visible(False)
-    axis.tick_params(labelsize=8.5)
-    axis.text(
-        -0.16,
-        1.10,
-        panel,
+def _protocol_card(
+    axis: plt.Axes,
+    y: float,
+    number: int,
+    title: str,
+    body: str,
+    color: str,
+) -> None:
+    card = FancyBboxPatch(
+        (0.03, y - 0.105),
+        0.94,
+        0.20,
+        boxstyle="round,pad=0.012,rounding_size=0.025",
         transform=axis.transAxes,
-        fontsize=11,
+        facecolor="#F7F9FC",
+        edgecolor="#D8DEE8",
+        linewidth=1.2,
+    )
+    axis.add_patch(card)
+    axis.scatter(
+        [0.105],
+        [y],
+        s=520,
+        color=color,
+        edgecolor="white",
+        linewidth=1.5,
+        transform=axis.transAxes,
+        zorder=3,
+    )
+    axis.text(
+        0.105,
+        y,
+        str(number),
+        color="white",
+        fontsize=13,
         fontweight="bold",
+        ha="center",
+        va="center",
+        transform=axis.transAxes,
+        zorder=4,
+    )
+    axis.text(
+        0.19,
+        y + 0.035,
+        title,
+        fontsize=11.5,
+        fontweight="bold",
+        ha="left",
+        va="center",
+        transform=axis.transAxes,
+    )
+    axis.text(
+        0.19,
+        y - 0.035,
+        body,
+        fontsize=9.2,
+        color="#46505E",
+        ha="left",
+        va="center",
+        transform=axis.transAxes,
+        linespacing=1.25,
     )
 
 
-def _shade_pass_region(
-    axis: plt.Axes, target: float, higher_is_better: bool
-) -> None:
-    if higher_is_better:
-        axis.axvspan(target, axis.get_xlim()[1], color="#E7F4EC", zorder=0)
-    else:
-        axis.axvspan(axis.get_xlim()[0], target, color="#E7F4EC", zorder=0)
-    axis.axvline(target, color="#4B5563", linewidth=1.15, linestyle=(0, (3, 2)))
-
-
-def plot_celeba_main(
+def plot_celeba_generalization(
     runs: list[RunSummary],
     nulls: list[dict[str, Any]],
-    full_nulls: list[FullPipelineNull],
     output_stem: Path,
 ) -> list[Path]:
     celeba_runs = [run for run in runs if run.dataset.lower() == "celeba"]
     if len(celeba_runs) != 2:
         raise ValueError("The main figure expects exactly two CelebA runs")
-    for field in ("capture_target", "cosine_target", "rmse_target"):
-        if len({getattr(run, field) for run in celeba_runs}) != 1:
-            raise ValueError(f"CelebA runs disagree on {field}")
-    run_by_method = {run.method: run for run in celeba_runs}
     null_by_method = {str(item["method"]): item for item in nulls}
-    full_null_by_method = {item.method: item for item in full_nulls}
 
-    figure = plt.figure(figsize=(11.0, 6.6))
-    grid = figure.add_gridspec(2, 3, wspace=0.44, hspace=0.72)
-    axes = [
-        figure.add_subplot(grid[0, 0]),
-        figure.add_subplot(grid[0, 1]),
-        figure.add_subplot(grid[0, 2]),
-        figure.add_subplot(grid[1, :2]),
-        figure.add_subplot(grid[1, 2]),
-    ]
+    figure = plt.figure(figsize=(12.0, 5.25))
+    grid = figure.add_gridspec(1, 2, width_ratios=(0.92, 1.48), wspace=0.22)
+    protocol_axis = figure.add_subplot(grid[0, 0])
+    result_axis = figure.add_subplot(grid[0, 1])
 
-    axis = axes[0]
-    factor_rows: list[tuple[str, float, str]] = []
-    for run in celeba_runs:
-        factor_rows.extend(
-            (
-                f"{_method_label(run.method)}: {_friendly_factor(name)}",
-                value,
-                run.method,
-            )
-            for name, value in zip(run.triple, run.capture, strict=True)
-        )
-    y = np.arange(len(factor_rows))[::-1]
-    axis.set_xlim(0.0, max(value for _, value, _ in factor_rows) * 1.22)
-    _shade_pass_region(axis, celeba_runs[0].capture_target, higher_is_better=True)
-    for row, (_label, value, method) in zip(y, factor_rows, strict=True):
-        axis.scatter(value, row, s=44, color=COLORS[method], zorder=3)
-        axis.text(value + 0.008, row, f"{value:.2f}", va="center", fontsize=7.5)
-    axis.axhline(2.5, color="#D1D5DB", linewidth=0.8)
-    axis.set_yticks(y, [label for label, _, _ in factor_rows], fontsize=7.3)
-    axis.set_xlabel("aggregate captured energy B\n(higher is better)")
-    axis.set_title("Factor capture", fontsize=10.5)
-    _style_axis(axis, "a")
+    protocol_axis.set_axis_off()
+    protocol_axis.set_title(
+        "One train-to-test question",
+        loc="left",
+        fontsize=14,
+        fontweight="bold",
+        pad=14,
+    )
+    _protocol_card(
+        protocol_axis,
+        0.76,
+        1,
+        "TRAIN",
+        "Choose 3 attributes and learn\ntheir 8 corner locations.",
+        "#486FAE",
+    )
+    _protocol_card(
+        protocol_axis,
+        0.48,
+        2,
+        "STOP LEARNING",
+        "Do not change the directions or\ncorner predictions using test data.",
+        "#667085",
+    )
+    _protocol_card(
+        protocol_axis,
+        0.20,
+        3,
+        "TEST ON UNSEEN IMAGES",
+        "Group 4,000 unseen images into 8 groups.\nCompare their centers with the predictions.",
+        "#188A55",
+    )
+    protocol_axis.text(
+        0.03,
+        0.025,
+        "Test labels form the 8 groups; they never refit the geometry.",
+        fontsize=8.3,
+        color="#667085",
+        transform=protocol_axis.transAxes,
+    )
 
-    axis = axes[1]
     y = np.arange(len(celeba_runs))[::-1]
-    axis.set_xlim(0.0, 0.18)
-    _shade_pass_region(axis, celeba_runs[0].cosine_target, higher_is_better=False)
-    for row, run in zip(y, celeba_runs, strict=True):
-        color = COLORS[run.method]
-        axis.plot([0, run.aggregate_max_cos], [row, row], color=color, alpha=0.4)
-        axis.scatter(run.aggregate_max_cos, row, s=52, color=color, zorder=3)
-        axis.text(
-            run.aggregate_max_cos + 0.005,
-            row,
-            f"{run.aggregate_max_cos:.3f}",
-            va="center",
-            fontsize=8,
-        )
-    axis.set_yticks(y, [_method_label(run.method) for run in celeba_runs])
-    axis.set_xlabel("aggregate max |cos(theta)|\n(lower is better)")
-    axis.set_title("Direction orthogonality", fontsize=10.5)
-    _style_axis(axis, "b")
+    result_axis.set_xlim(0.0, 1.12)
+    result_axis.set_ylim(-0.58, 1.58)
+    result_axis.spines[["top", "right", "left"]].set_visible(False)
+    result_axis.tick_params(axis="y", length=0, labelsize=12)
+    result_axis.tick_params(axis="x", labelsize=9)
+    result_axis.grid(axis="x", color="#E6E9EF", linewidth=0.8)
+    result_axis.set_axisbelow(True)
+    result_axis.set_yticks(y, [_method_label(run.method) for run in celeba_runs])
+    result_axis.set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
+    result_axis.set_xlabel(
+        "corner mismatch     0 = perfect match     1 = shuffled-label baseline",
+        fontsize=10.5,
+        labelpad=10,
+    )
+    result_axis.set_title(
+        "Unseen face groups land much closer than chance",
+        fontsize=14,
+        fontweight="bold",
+        pad=14,
+    )
 
-    axis = axes[2]
-    y = np.arange(len(celeba_runs))[::-1]
-    all_rmse = np.concatenate([np.asarray(run.rmse) for run in celeba_runs])
-    axis.set_xlim(max(0.0, float(all_rmse.min()) - 0.02), float(all_rmse.max()) + 0.025)
-    axis.set_ylim(-0.45, 1.45)
-    _shade_pass_region(axis, celeba_runs[0].rmse_target, higher_is_better=False)
-    jitter = np.linspace(-0.18, 0.18, max(run.n_resamples for run in celeba_runs))
-    for row, run in zip(y, celeba_runs, strict=True):
-        values = np.asarray(run.rmse)
-        color = COLORS[run.method]
-        axis.scatter(
-            values,
-            row + jitter[: len(values)],
-            s=20,
-            color=color,
-            alpha=0.60,
-            edgecolor="none",
-        )
-        mean = float(values.mean())
-        axis.scatter(mean, row, marker="D", s=48, color="#202124", zorder=4)
-        axis.text(
-            axis.get_xlim()[1] - 0.002,
-            row - 0.29,
-            f"mean {mean:.3f}",
-            ha="right",
-            fontsize=7.5,
-        )
-    axis.set_yticks(y, [_method_label(run.method) for run in celeba_runs])
-    axis.set_xlabel("normalized frozen-corner RMSE\n(lower is better)")
-    axis.set_title("Held-out corner prediction", fontsize=10.5)
-    _style_axis(axis, "c")
-
-    axis = axes[3]
-    y = np.arange(len(celeba_runs))[::-1]
-    axis.set_xlim(0.15, 1.08)
-    for row, run in zip(y, celeba_runs, strict=True):
+    for index, (row, run) in enumerate(zip(y, celeba_runs, strict=True)):
         item = null_by_method[run.method]
         null_values = np.asarray(item["null_statistics"], dtype=np.float64)
         q05, median, q95 = np.quantile(null_values, [0.05, 0.5, 0.95])
         observed = float(item["observed_normalized_centroid_rmse"])
-        axis.plot([q05, q95], [row, row], color="#AEB4BA", linewidth=8, alpha=0.9)
-        axis.scatter(median, row, marker="|", s=120, color="#374151", zorder=3)
-        axis.scatter(
+        color = COLORS[run.method]
+        result_axis.plot(
+            [observed, median],
+            [row, row],
+            color="#C9CFD8",
+            linewidth=2.0,
+            zorder=1,
+        )
+        result_axis.plot(
+            [q05, q95],
+            [row, row],
+            color="#AEB5BF",
+            linewidth=14,
+            solid_capstyle="butt",
+            zorder=2,
+        )
+        result_axis.scatter(
+            median,
+            row,
+            marker="|",
+            s=180,
+            color="#374151",
+            linewidth=2,
+            zorder=3,
+        )
+        result_axis.scatter(
             observed,
             row,
-            s=62,
-            color=COLORS[run.method],
+            s=165,
+            color=color,
             edgecolor="white",
-            linewidth=0.8,
+            linewidth=1.5,
             zorder=4,
         )
-        axis.text(observed + 0.018, row, f"observed {observed:.3f}", va="center", fontsize=8)
-    axis.set_yticks(y, [_method_label(run.method) for run in celeba_runs])
-    axis.set_xlabel("normalized frozen-corner RMSE")
-    axis.set_title("Held-out label randomization (5,000 permutations)", fontsize=10.5)
-    axis.legend(
-        handles=[
-            Line2D([0], [0], marker="o", color="none", markerfacecolor="#6B7280", label="observed"),
-            Line2D([0], [0], color="#AEB4BA", linewidth=7, label="null 5-95%"),
-        ],
-        frameon=False,
-        fontsize=8,
-        loc="lower center",
-        ncol=2,
-    )
-    _style_axis(axis, "d")
+        result_axis.text(
+            observed,
+            row + 0.20,
+            f"actual labels\n{observed:.2f}",
+            color=color,
+            fontsize=9.5,
+            fontweight="bold",
+            ha="center",
+            va="bottom",
+        )
+        ratio = median / observed
+        result_axis.text(
+            0.5 * (observed + median),
+            row + 0.08,
+            f"{ratio:.1f}x lower error",
+            color="#46505E",
+            fontsize=9.2,
+            ha="center",
+            va="bottom",
+        )
+        if index == 0:
+            result_axis.text(
+                median,
+                row + 0.20,
+                "shuffled labels\nabout 1.00",
+                color="#5F6875",
+                fontsize=9.5,
+                fontweight="bold",
+                ha="center",
+                va="bottom",
+            )
 
-    axis = axes[4]
-    methods = [run.method for run in celeba_runs]
-    x = np.arange(len(methods))
-    real_counts = [run_by_method[method].feasible_train_candidates for method in methods]
-    if any(value is None for value in real_counts):
-        raise ValueError("Real-run logs do not report train-feasible candidate counts")
-    perm_counts = [full_null_by_method[method].feasible_train_candidates for method in methods]
-    width = 0.34
-    bars = axis.bar(
-        x - width / 2,
-        real_counts,
-        width,
-        color=[COLORS[method] for method in methods],
-        alpha=0.9,
-        label="real labels",
+    result_axis.text(
+        0.98,
+        0.08,
+        "0 of 5,000 shuffles\nmatched this well\np = 0.0002 (both models)",
+        transform=result_axis.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=10,
+        fontweight="bold",
+        color="#273142",
+        bbox={
+            "boxstyle": "round,pad=0.55",
+            "facecolor": "#F3F6FA",
+            "edgecolor": "#D8DEE8",
+        },
     )
-    axis.bar(
-        x + width / 2,
-        perm_counts,
-        width,
-        color="#D1D5DB",
-        edgecolor="#6B7280",
-        label="permuted labels",
-    )
-    for bar, value in zip(bars, real_counts, strict=True):
-        axis.text(bar.get_x() + bar.get_width() / 2, value + 3, str(value), ha="center", fontsize=9)
-    for xpos, value in zip(x + width / 2, perm_counts, strict=True):
-        axis.scatter(xpos, value, marker="x", color="#374151", s=42, zorder=4)
-        axis.text(xpos, value + 4, str(value), ha="center", fontsize=9)
-    axis.set_ylim(0, max(real_counts) * 1.22)
-    axis.set_xticks(x, [_method_label(method) for method in methods])
-    axis.set_ylabel("train-feasible triples")
-    axis.set_title(
-        "Full-pipeline train-label control\n(one fixed permutation)", fontsize=10.0
-    )
-    axis.legend(frameon=False, fontsize=7.5, loc="upper right")
-    _style_axis(axis, "e")
 
     figure.suptitle(
-        "Pretrained CelebA geometry transfers without test-time refitting",
-        fontsize=13,
-        y=0.99,
+        "Geometry learned on training faces predicts unseen faces",
+        fontsize=18,
         fontweight="bold",
-    )
-    figure.text(
-        0.5,
-        0.012,
-        "Green regions satisfy the fixed criterion. Resamples reuse one frozen feature set; they are not training seeds.",
-        ha="center",
-        fontsize=8,
-        color="#4B5563",
+        y=1.01,
     )
     outputs = [output_stem.with_suffix(".png"), output_stem.with_suffix(".pdf")]
     for output in outputs:
         output.parent.mkdir(parents=True, exist_ok=True)
-        figure.savefig(output, dpi=260, bbox_inches="tight", pad_inches=0.08)
+        figure.savefig(output, dpi=260, bbox_inches="tight", pad_inches=0.10)
     plt.close(figure)
     return outputs
 
 
-def plot_cub_boundary(run: RunSummary, output_stem: Path) -> list[Path]:
-    figure, axes = plt.subplots(1, 3, figsize=(9.6, 3.25))
-    color = COLORS[run.method]
+def _matrix_cell(
+    axis: plt.Axes,
+    left: float,
+    bottom: float,
+    width: float,
+    height: float,
+    text: str,
+    *,
+    facecolor: str = "#F7F9FC",
+    textcolor: str = "#273142",
+    fontsize: float = 15,
+    fontweight: str = "bold",
+) -> None:
+    patch = FancyBboxPatch(
+        (left, bottom),
+        width,
+        height,
+        boxstyle="round,pad=0.008,rounding_size=0.018",
+        transform=axis.transAxes,
+        facecolor=facecolor,
+        edgecolor="#E0E5EC",
+        linewidth=1.0,
+    )
+    axis.add_patch(patch)
+    axis.text(
+        left + width / 2,
+        bottom + height / 2,
+        text,
+        transform=axis.transAxes,
+        ha="center",
+        va="center",
+        fontsize=fontsize,
+        color=textcolor,
+        fontweight=fontweight,
+        linespacing=1.15,
+    )
 
-    axis = axes[0]
-    y = np.arange(3)[::-1]
-    axis.set_xlim(0.0, max(run.capture) * 1.18)
-    _shade_pass_region(axis, run.capture_target, higher_is_better=True)
-    for row, _name, value in zip(y, run.triple, run.capture, strict=True):
-        axis.scatter(value, row, s=48, color=color, zorder=3)
-        axis.text(value + 0.015, row, f"{value:.3f}", va="center", fontsize=8)
-    axis.set_yticks(y, [_friendly_factor(name) for name in run.triple], fontsize=7.5)
-    axis.set_xlabel("aggregate captured energy B")
-    axis.set_title("Directions are captured", fontsize=10.5)
-    _style_axis(axis, "a")
 
-    axis = axes[1]
-    axis.set_xlim(0.0, run.cosine_target * 1.18)
-    _shade_pass_region(axis, run.cosine_target, higher_is_better=False)
-    axis.plot([0, run.aggregate_max_cos], [0, 0], color=color, alpha=0.4)
-    axis.scatter(run.aggregate_max_cos, 0, s=58, color=color, zorder=3)
-    axis.text(run.aggregate_max_cos + 0.008, 0, f"{run.aggregate_max_cos:.3f}", va="center", fontsize=9)
-    axis.set_yticks([0], ["max |cos(theta)|"])
-    axis.set_xlabel("lower is more orthogonal")
-    axis.set_title("Directions remain distinct", fontsize=10.5)
-    _style_axis(axis, "b")
+def plot_scope_matrix(runs: list[RunSummary], output_stem: Path) -> list[Path]:
+    if len(runs) != 3:
+        raise ValueError("The scope figure expects two CelebA runs and one CUB run")
 
-    axis = axes[2]
-    values = np.asarray(run.rmse)
-    axis.set_xlim(min(run.rmse_target - 0.04, float(values.min()) - 0.02), float(values.max()) + 0.025)
-    axis.set_ylim(-0.42, 0.42)
-    _shade_pass_region(axis, run.rmse_target, higher_is_better=False)
-    jitter = np.linspace(-0.18, 0.18, len(values))
-    axis.scatter(values, jitter, s=24, color=color, alpha=0.65, edgecolor="none")
-    mean = float(values.mean())
-    axis.scatter(mean, 0, marker="D", s=55, color="#202124", zorder=4)
-    axis.text(mean - 0.003, -0.29, f"mean {mean:.3f}", ha="center", fontsize=8)
-    axis.set_yticks([0], [f"{run.pass_count}/{run.n_resamples} pass"])
-    axis.set_xlabel("frozen-corner RMSE\n(lower is better)")
-    axis.set_title("Corners do not transfer", fontsize=10.5, color="#A33A2B")
-    _style_axis(axis, "c")
-
-    figure.suptitle(
-        "CUB-200 boundary: factor directions transfer, additive corners do not",
-        fontsize=12,
-        y=1.03,
+    figure, axis = plt.subplots(figsize=(11.6, 4.8))
+    axis.set_axis_off()
+    axis.text(
+        0.5,
+        1.03,
+        "What transfers beyond faces?",
+        transform=axis.transAxes,
+        ha="center",
+        fontsize=18,
         fontweight="bold",
     )
-    figure.tight_layout(w_pad=2.0, rect=(0.0, 0.03, 1.0, 0.96))
+    axis.text(
+        0.5,
+        0.955,
+        "CUB-200 keeps strong, separate factor directions - but loses their cube-like composition.",
+        transform=axis.transAxes,
+        ha="center",
+        fontsize=10.5,
+        color="#586273",
+    )
+
+    columns = [
+        (0.02, 0.245),
+        (0.285, 0.18),
+        (0.485, 0.17),
+        (0.675, 0.18),
+        (0.875, 0.105),
+    ]
+    headers = [
+        "MODEL / DATASET",
+        "FACTOR SIGNAL\nweakest of 3\nhigher = stronger",
+        "DIRECTION\nOVERLAP\n0 = perpendicular",
+        "CORNER\nMISMATCH\n0 perfect; shuffled ~ 1",
+        "MEANING",
+    ]
+    for (left, width), header in zip(columns, headers, strict=True):
+        axis.text(
+            left + width / 2,
+            0.84,
+            header,
+            transform=axis.transAxes,
+            ha="center",
+            va="center",
+            fontsize=8.4,
+            fontweight="bold",
+            color="#4A5565",
+            linespacing=1.2,
+        )
+
+    row_bottoms = [0.59, 0.36, 0.13]
+    for run, bottom in zip(runs, row_bottoms, strict=True):
+        color = COLORS[run.method]
+        dataset = _dataset_label(run.dataset)
+        label = f"{_method_label(run.method)} / {dataset}"
+        triple = "\n".join(_friendly_factor(name) for name in run.triple)
+        _matrix_cell(
+            axis,
+            columns[0][0],
+            bottom,
+            columns[0][1],
+            0.18,
+            f"{label}\n{triple}",
+            facecolor="#FFFFFF",
+            textcolor=color,
+            fontsize=9.3,
+        )
+        _matrix_cell(
+            axis,
+            columns[1][0],
+            bottom,
+            columns[1][1],
+            0.18,
+            f"{min(run.capture):.3f}",
+            fontsize=17,
+        )
+        _matrix_cell(
+            axis,
+            columns[2][0],
+            bottom,
+            columns[2][1],
+            0.18,
+            f"{run.aggregate_max_cos:.3f}",
+            fontsize=17,
+        )
+        mismatch = float(np.mean(run.rmse))
+        _matrix_cell(
+            axis,
+            columns[3][0],
+            bottom,
+            columns[3][1],
+            0.18,
+            f"{mismatch:.3f}",
+            fontsize=17,
+        )
+        is_celeba = run.dataset.lower() == "celeba"
+        _matrix_cell(
+            axis,
+            columns[4][0],
+            bottom,
+            columns[4][1],
+            0.18,
+            "CUBE\nTRANSFERS" if is_celeba else "NO RELIABLE\nCUBE TRANSFER",
+            facecolor="#E8F4EC" if is_celeba else "#FFF0E5",
+            textcolor="#16643B" if is_celeba else "#A44613",
+            fontsize=9.8 if is_celeba else 8.4,
+        )
+
+    axis.text(
+        0.5,
+        0.035,
+        (
+            "The CUB failure is specific: factor information and direction separation remain strong, "
+            "while the eight combined groups miss the training-predicted corners."
+        ),
+        transform=axis.transAxes,
+        ha="center",
+        fontsize=9.2,
+        color="#586273",
+    )
+
     outputs = [output_stem.with_suffix(".png"), output_stem.with_suffix(".pdf")]
     for output in outputs:
         output.parent.mkdir(parents=True, exist_ok=True)
-        figure.savefig(output, dpi=260, bbox_inches="tight", pad_inches=0.08)
+        figure.savefig(output, dpi=260, bbox_inches="tight", pad_inches=0.10)
     plt.close(figure)
     return outputs
 
@@ -461,7 +592,9 @@ def write_metrics_table(runs: list[RunSummary], output: Path) -> None:
                 {
                     "model_dataset": run.label,
                     "selected_triple": " | ".join(run.triple),
-                    "aggregate_capture_B": " | ".join(f"{value:.4f}" for value in run.capture),
+                    "aggregate_capture_B": " | ".join(
+                        f"{value:.4f}" for value in run.capture
+                    ),
                     "aggregate_min_capture_B": f"{min(run.capture):.4f}",
                     "aggregate_max_abs_cos": f"{run.aggregate_max_cos:.4f}",
                     "mean_normalized_centroid_rmse": f"{np.mean(run.rmse):.4f}",
@@ -496,7 +629,9 @@ def write_train_null_table(
             writer.writerow(
                 {
                     "model": item.label,
-                    "real_label_feasible_triples": real[item.method].feasible_train_candidates,
+                    "real_label_feasible_triples": real[
+                        item.method
+                    ].feasible_train_candidates,
                     "permuted_label_feasible_triples": item.feasible_train_candidates,
                     "permutation_seed": item.seed,
                     "selection_succeeded_under_null": item.selection_succeeded,
@@ -515,94 +650,109 @@ def write_results_note(
     real = {run.method: run for run in celeba}
     vicreg = real["vicreg"]
     ijepa = real["ijepa"]
+    null_by_method = {str(item["method"]): item for item in nulls}
+    vicreg_null = null_by_method["vicreg"]
+    ijepa_null = null_by_method["ijepa"]
     lines = [
         "# Strict pretrained hyperrectangle results",
         "",
-        "## Bottom line",
+        "## Plain-language result",
         "",
         (
-            "Train-fitted CelebA factor geometry transfers to held-out images in both "
-            "VICReg and I-JEPA. CUB-200 retains captured, nearly orthogonal factor "
-            "directions but fails the frozen additive-corner prediction, making it a "
-            "useful boundary case rather than a second positive result."
+            "Using training images only, we chose three attributes and learned where "
+            "their eight combinations should lie. We then stopped learning and asked "
+            "whether groups of unseen images landed near those eight predicted corners. "
+            "They did on CelebA for both VICReg and I-JEPA: corner mismatch was "
+            f"{vicreg_null['observed_normalized_centroid_rmse']:.3f} and "
+            f"{ijepa_null['observed_normalized_centroid_rmse']:.3f}, compared with "
+            "approximately 1.0 after shuffling the held-out "
+            "labels. None of 5,000 shuffles matched the observed result for either model."
         ),
         "",
-        "| Model / dataset | Min B | Max |cos| | Mean corner RMSE | Passing resamples |",
-        "|---|---:|---:|---:|---:|",
+        (
+            "CUB-200 provides the boundary case. Bird attributes still produce strong, "
+            "nearly perpendicular directions, but their eight combinations have much "
+            "larger corner mismatch (mean 0.503). Thus, recoverable factor directions do "
+            "not by themselves guarantee cube-like additive composition."
+        ),
+        "",
+        "| Model / dataset | Weakest factor signal | Direction overlap | Mean corner mismatch |",
+        "|---|---:|---:|---:|",
     ]
     for run in runs:
         lines.append(
-            f"| {run.label} | {min(run.capture):.3f} | {run.aggregate_max_cos:.3f} | "
-            f"{np.mean(run.rmse):.3f} | {run.pass_count}/{run.n_resamples} |"
+            f"| {run.label} | {min(run.capture):.3f} | "
+            f"{run.aggregate_max_cos:.3f} | {np.mean(run.rmse):.3f} |"
         )
     lines.extend(["", "## Controls", ""])
     for item in nulls:
         lines.append(
             f"- {_method_label(str(item['method']))} held-out randomization: observed "
-            f"RMSE {item['observed_normalized_centroid_rmse']:.3f}, null mean "
+            f"mismatch {item['observed_normalized_centroid_rmse']:.3f}, shuffled mean "
             f"{item['null_mean']:.3f}, finite-permutation p="
             f"{item['empirical_lower_tail_p']:.6f}."
         )
     for item in full_nulls:
         lines.append(
-            f"- {item.label} full-pipeline train-label null (seed {item.seed}): "
-            f"{real[item.method].feasible_train_candidates} real-label feasible "
-            f"triples versus {item.feasible_train_candidates} after independent "
-            "attribute-column permutation; no null triple was selected."
+            f"- {item.label} training-label control (one permutation, seed "
+            f"{item.seed}): {real[item.method].feasible_train_candidates} candidate "
+            f"triples with real labels versus {item.feasible_train_candidates} after "
+            "independently shuffling each attribute column."
         )
     lines.extend(
         [
             "",
             "## Paper-ready results paragraph",
             "",
-            f"We next asked whether factor geometry identified on the training split "
-            "transfers without refitting to held-out natural images. Attribute "
-            "triples, whitening maps, task axes, and additive corner predictions "
-            "were fitted on CelebA training images and frozen before test evaluation. "
-            "Across balanced held-out resamples, VICReg and I-JEPA retained aggregate "
-            f"minimum captured energies of {min(vicreg.capture):.3f} and "
-            f"{min(ijepa.capture):.3f} and aggregate maximum inter-axis cosines of "
-            f"{vicreg.aggregate_max_cos:.3f} and {ijepa.aggregate_max_cos:.3f}, "
-            f"respectively. Mean normalized frozen-corner errors were "
-            f"{np.mean(vicreg.rmse):.3f} and {np.mean(ijepa.rmse):.3f}. Both observed "
-            "errors were below every one of 5,000 conditional held-out label "
-            "permutations (finite-permutation p=0.0002). Under an unchanged "
-            "full-pipeline train-selection screen, independently permuted attribute "
-            "columns yielded zero feasible triples for either encoder, compared with "
-            f"{vicreg.feasible_train_candidates} for VICReg and "
-            f"{ijepa.feasible_train_candidates} for I-JEPA under the real labels.",
+            f"We tested whether attribute geometry learned on the training split predicts "
+            "the organization of unseen natural images without test-time refitting. "
+            "For each encoder, training images determined the attribute triple, "
+            "whitening transform, three directions, and eight predicted corners. On "
+            "CelebA, held-out group centroids showed normalized corner mismatches of "
+            f"{vicreg_null['observed_normalized_centroid_rmse']:.3f} for VICReg and "
+            f"{ijepa_null['observed_normalized_centroid_rmse']:.3f} for "
+            "I-JEPA. Both were below every one of 5,000 independent held-out label "
+            f"shuffles (shuffled means {vicreg_null['null_mean']:.3f} and "
+            f"{ijepa_null['null_mean']:.3f}; finite-permutation p=0.0002). "
+            f"Across balanced held-out resamples, minimum factor signal was "
+            f"{min(vicreg.capture):.3f} and {min(ijepa.capture):.3f}, maximum direction "
+            f"overlap was {vicreg.aggregate_max_cos:.3f} and "
+            f"{ijepa.aggregate_max_cos:.3f}, and mean corner mismatch was "
+            f"{np.mean(vicreg.rmse):.3f} and {np.mean(ijepa.rmse):.3f}. CUB-200 retained "
+            f"strong factor signal ({min(cub.capture):.3f}) and low direction overlap "
+            f"({cub.aggregate_max_cos:.3f}) but had substantially larger corner mismatch "
+            f"({np.mean(cub.rmse):.3f}), separating directional structure from additive "
+            "corner composition.",
             "",
             "## Figure 1 caption",
             "",
             (
-                "Train-fitted factor geometry transfers to held-out CelebA images. "
-                "(a) Aggregate split-half captured energy for the selected factors. "
-                "(b) Maximum absolute cosine after averaging signed cross-Gram matrices "
-                "over held-out balance resamples. (c) Normalized error between held-out "
-                "cell centroids and corners predicted entirely from training data. "
-                "Diamonds denote resample means. (d) Conditional held-out label "
-                "randomization; gray intervals show the 5th-95th percentiles over 5,000 "
-                "permutations. (e) Full-pipeline train-label control under the unchanged "
-                "selection screen using one fixed permutation (seed 3101). Green regions "
-                "mark fixed criteria. Balance resamples "
-                "reuse frozen model features and are not independent training seeds."
+                "Training-only attribute geometry predicts unseen CelebA images. Three "
+                "attributes and their eight predicted corners are learned from training "
+                "images; no directions or corners are adjusted on test data. Colored "
+                "points show mismatch between the predicted corners and the eight actual "
+                "held-out group centers. Gray intervals show the 5th-95th percentiles "
+                "after independently shuffling the three held-out label columns 5,000 "
+                "times. Zero shuffles achieved lower mismatch for either encoder "
+                "(finite-permutation p=0.0002)."
             ),
             "",
-            "## Figure S1 caption",
+            "## Figure 2 caption",
             "",
             (
-                "CUB-200 delimits the additive-geometry claim. The distinct-family "
-                f"triple ({', '.join(_friendly_factor(name) for name in cub.triple)}) "
-                "shows strong captured energy and aggregate orthogonality, but its "
-                f"mean normalized frozen-corner error is {np.mean(cub.rmse):.3f} and "
-                f"none of {cub.n_resamples} balanced resamples meets all fixed criteria."
+                "Factor directions and cube composition are distinct properties. CelebA "
+                "representations show factor signal, low direction overlap, and low "
+                "corner mismatch for both encoders. CUB-200 preserves the first two "
+                "properties but has substantially larger corner mismatch, demonstrating "
+                "that strong, separate factor directions need not compose additively."
             ),
             "",
             "## Interpretation guardrails",
             "",
-            "- The 20 balance seeds are overlapping resamples of fixed test features, not training seeds.",
-            "- The 5,000-draw test is conditional on the frozen train geometry and held-out sample.",
-            "- The full-pipeline permutation control currently uses one fixed permutation seed per encoder.",
+            "- Corner mismatch is normalized so 0 is perfect and shuffled held-out labels are approximately 1.",
+            "- The 20 balance seeds are overlapping resamples of the same saved test features, not training seeds.",
+            "- The 5,000-draw test is conditional on the training-learned geometry and one held-out sample.",
+            "- The full training-pipeline control currently uses one label permutation per encoder.",
             "- The invalid same-family CUB diagnostic is excluded from every paper-facing figure and table.",
             "",
         ]
@@ -616,16 +766,14 @@ def main(args: argparse.Namespace) -> None:
     nulls = [load_null(path) for path in args.null_json]
     full_nulls = [load_full_pipeline_null(path) for path in args.full_null_json]
     output_dir = Path(args.out_dir).expanduser().resolve()
-    celeba_outputs = plot_celeba_main(
+    figure1_outputs = plot_celeba_generalization(
         runs,
         nulls,
-        full_nulls,
-        output_dir / "figures" / "main" / "figure1_celeba_transfer",
+        output_dir / "figures" / "main" / "figure1_celeba_test_generalization",
     )
-    cub_run = next(run for run in runs if run.dataset.lower() == "cub200")
-    cub_outputs = plot_cub_boundary(
-        cub_run,
-        output_dir / "figures" / "supplement" / "figure_s1_cub_boundary",
+    figure2_outputs = plot_scope_matrix(
+        runs,
+        output_dir / "figures" / "main" / "figure2_scope_across_datasets",
     )
     metrics_output = output_dir / "tables" / "pretrained_crossfit_metrics.csv"
     train_null_output = output_dir / "tables" / "train_selection_null.csv"
@@ -634,8 +782,8 @@ def main(args: argparse.Namespace) -> None:
     write_train_null_table(runs, full_nulls, train_null_output)
     write_results_note(runs, nulls, full_nulls, note_output)
     for output in [
-        *celeba_outputs,
-        *cub_outputs,
+        *figure1_outputs,
+        *figure2_outputs,
         metrics_output,
         train_null_output,
         note_output,

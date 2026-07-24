@@ -1,44 +1,46 @@
 # Figure gallery
 
-This page is the visual reading order. PDF versions sit beside each PNG.
+These first two figures are designed to be sent without additional explanation.
+PDF versions sit beside each PNG.
 
-## Main result: CelebA transfer
+## Figure 1: does training geometry predict unseen images?
 
-![CelebA strict cross-fit summary](figures/main/figure1_celeba_transfer.png)
+![CelebA train-to-test generalization](figures/main/figure1_celeba_test_generalization.png)
 
-Read from left to right: all six selected factors are captured; the aggregate
-directions meet the orthogonality target; frozen train-predicted corners remain
-close on held-out resamples; observed errors are far below the conditional
-label-permutation null; and the full train-selection pipeline finds no feasible
-triple after label-column permutation.
+Training images choose the three attributes and determine all eight predicted
+corners. Learning then stops. On 4,000 unseen images, the eight actual group
+centers have roughly four-to-five times lower error than when the same held-out
+labels are shuffled. None of 5,000 shuffles matches either observed result.
 
-## Supplement S1: CUB-200 boundary
+## Figure 2: what part of the structure transfers?
 
-![CUB-200 boundary summary](figures/supplement/figure_s1_cub_boundary.png)
+![Scope across datasets](figures/main/figure2_scope_across_datasets.png)
 
-CUB-200 separates directional structure from additive composition. The factors
-are captured and distinct, but the frozen corners fail to transfer.
+CelebA has all three ingredients: factor signal, separate directions, and low
+corner mismatch. CUB-200 retains the first two but has much worse corner
+mismatch. This is the clean scientific distinction: finding useful factor
+directions is not sufficient for cube-like additive composition.
 
-## Supplement S2-S4: observed and train-predicted boxes
+<details>
+<summary>Optional 3-D observed-versus-predicted boxes</summary>
+
+These are supporting visualizations, not the primary explanation. Black edges
+join held-out group centers; red dashed edges are predicted from training data.
 
 ### VICReg / CelebA
 
-![VICReg observed and train-predicted box](figures/supplement/figure_s2_vicreg_observed_vs_train_prediction.png)
+![VICReg observed and train-predicted box](figures/supplement/figure_s1_vicreg_observed_vs_train_prediction.png)
 
 ### I-JEPA / CelebA
 
-![I-JEPA observed and train-predicted box](figures/supplement/figure_s3_ijepa_observed_vs_train_prediction.png)
+![I-JEPA observed and train-predicted box](figures/supplement/figure_s2_ijepa_observed_vs_train_prediction.png)
 
 ### VICReg / CUB-200
 
-![CUB observed and train-predicted box](figures/supplement/figure_s4_cub_observed_vs_train_prediction.png)
+![CUB observed and train-predicted box](figures/supplement/figure_s3_cub_observed_vs_train_prediction.png)
 
-Black edges are held-out centroids. Red dashed edges are corners predicted
-entirely from the training split. The CUB discrepancy is the negative result,
-not a rendering failure.
+</details>
 
-## Control-only plots
-
-The standalone conditional-null histograms are retained under
+The standalone permutation histograms remain under
 [`controls/heldout_label_permutation/`](controls/heldout_label_permutation/).
-They are already summarized in panel d of the main figure.
+They are summarized more directly in Figure 1.
