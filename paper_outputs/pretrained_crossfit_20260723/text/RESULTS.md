@@ -1,16 +1,16 @@
 # Strict pretrained hyperrectangle results
 
-## Plain-language result
+## Result
 
-Using training images only, we chose three attributes and learned where their eight combinations should lie. We then stopped learning and asked whether groups of unseen images landed near those eight predicted corners. They did on CelebA for both VICReg and I-JEPA: corner mismatch was 0.203 and 0.252, compared with approximately 1.0 after shuffling the held-out labels. None of 5,000 shuffles matched the observed result for either model.
+Attribute geometry learned only from training images predicts the eight held-out CelebA group centroids. Primary-sample normalized corner mismatch was 0.203 for VICReg and 0.252 for I-JEPA, versus shuffled-label means of 1.004 and 1.006. None of 5,000 held-out label permutations matched either observed result (finite-permutation p=0.0002).
 
-CUB-200 provides the boundary case. Bird attributes still produce strong, nearly perpendicular directions, but their eight combinations have much larger corner mismatch (mean 0.503). Thus, recoverable factor directions do not by themselves guarantee cube-like additive composition.
+CUB-200 is a useful boundary case. Its attribute directions remain strong (minimum capture 0.373) and separate (maximum cosine 0.122), but its mean corner mismatch is 0.503. Recoverable directions therefore do not guarantee additive cube composition.
 
-| Model / dataset | Weakest factor signal | Direction overlap | Mean corner mismatch |
-|---|---:|---:|---:|
-| VICReg / CelebA | 0.150 | 0.090 | 0.218 |
-| I-JEPA / CelebA | 0.112 | 0.117 | 0.247 |
-| VICReg / CUB-200 | 0.373 | 0.122 | 0.503 |
+| Model / dataset | Weakest factor signal | Direction overlap | Primary mismatch | Mean mismatch |
+|---|---:|---:|---:|---:|
+| VICReg / CelebA | 0.150 | 0.090 | 0.203 | 0.218 |
+| I-JEPA / CelebA | 0.112 | 0.117 | 0.252 | 0.247 |
+| VICReg / CUB-200 | 0.373 | 0.122 | 0.533 | 0.503 |
 
 ## Controls
 
@@ -19,17 +19,13 @@ CUB-200 provides the boundary case. Bird attributes still produce strong, nearly
 - VICReg training-label control (one permutation, seed 3101): 99 candidate triples with real labels versus 0 after independently shuffling each attribute column.
 - I-JEPA training-label control (one permutation, seed 3101): 47 candidate triples with real labels versus 0 after independently shuffling each attribute column.
 
-## Paper-ready results paragraph
-
-We tested whether attribute geometry learned on the training split predicts the organization of unseen natural images without test-time refitting. For each encoder, training images determined the attribute triple, whitening transform, three directions, and eight predicted corners. On CelebA, held-out group centroids showed normalized corner mismatches of 0.203 for VICReg and 0.252 for I-JEPA. Both were below every one of 5,000 independent held-out label shuffles (shuffled means 1.004 and 1.006; finite-permutation p=0.0002). Across balanced held-out resamples, minimum factor signal was 0.150 and 0.112, maximum direction overlap was 0.090 and 0.117, and mean corner mismatch was 0.218 and 0.247. CUB-200 retained strong factor signal (0.373) and low direction overlap (0.122) but had substantially larger corner mismatch (0.503), separating directional structure from additive corner composition.
-
 ## Figure 1 caption
 
-Training-only attribute geometry predicts unseen CelebA images. Three attributes and their eight predicted corners are learned from training images; no directions or corners are adjusted on test data. Colored points show mismatch between the predicted corners and the eight actual held-out group centers. Gray intervals show the 5th-95th percentiles after independently shuffling the three held-out label columns 5,000 times. Zero shuffles achieved lower mismatch for either encoder (finite-permutation p=0.0002).
+Training geometry predicts held-out face groups. Each panel projects 4,000 held-out CelebA images onto three directions fitted using the training split. Faint points are deterministic, disjoint mini-batch means within the eight held-out attribute groups; colored markers and solid black edges show the eight full group centroids; red dashed edges and open diamonds show their training-predicted locations. No test geometry is refit. Primary-sample corner mismatch is 0.203 for VICReg and 0.252 for I-JEPA, versus approximately 1.0 after shuffling held-out labels. None of 5,000 permutations produced lower mismatch for either encoder (finite-permutation p=0.0002).
 
 ## Figure 2 caption
 
-Factor directions and cube composition are distinct properties. CelebA representations show factor signal, low direction overlap, and low corner mismatch for both encoders. CUB-200 preserves the first two properties but has substantially larger corner mismatch, demonstrating that strong, separate factor directions need not compose additively.
+CUB-200 provides a boundary case for VICReg. Faint points are deterministic, disjoint mini-batch means within the eight held-out attribute groups; the solid black box joins their full centroids; and the red dashed box is predicted from training data. The displayed balanced sample has normalized corner mismatch 0.533 (CelebA: 0.203); the means across 20 overlapping balanced test resamples are 0.503 and 0.219. CUB-200 nevertheless retains strong, separate attribute directions, showing that directional structure and additive corner composition are distinct properties.
 
 ## Interpretation guardrails
 

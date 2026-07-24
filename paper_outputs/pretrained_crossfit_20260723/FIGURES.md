@@ -1,31 +1,23 @@
 # Figure gallery
 
-These first two figures are designed to be sent without additional explanation.
-PDF versions sit beside each PNG.
+## Figure 1: held-out CelebA cubes
 
-## Figure 1: does training geometry predict unseen images?
+![Held-out CelebA cubes](figures/main/figure1_celeba_heldout_cubes.png)
 
-![CelebA train-to-test generalization](figures/main/figure1_celeba_test_generalization.png)
+Faint points show the eight held-out groups. The solid black cube joins their
+centers; the red dashed cube was predicted from training images. Lower prediction
+error is better, and shuffled held-out labels give approximately 1.0.
 
-Training images choose the three attributes and determine all eight predicted
-corners. Learning then stops. On 4,000 unseen images, the eight actual group
-centers have roughly four-to-five times lower error than when the same held-out
-labels are shuffled. None of 5,000 shuffles matches either observed result.
+## Figure 2: CUB-200 boundary case
 
-## Figure 2: what part of the structure transfers?
+![CUB-200 boundary case](figures/main/figure2_cub_boundary_case.png)
 
-![Scope across datasets](figures/main/figure2_scope_across_datasets.png)
-
-CelebA has all three ingredients: factor signal, separate directions, and low
-corner mismatch. CUB-200 retains the first two but has much worse corner
-mismatch. This is the clean scientific distinction: finding useful factor
-directions is not sufficient for cube-like additive composition.
+The held-out bird groups retain a structured box, but it is much smaller and
+farther from the training prediction. This separates strong attribute directions
+from accurate additive composition.
 
 <details>
-<summary>Optional 3-D observed-versus-predicted boxes</summary>
-
-These are supporting visualizations, not the primary explanation. Black edges
-join held-out group centers; red dashed edges are predicted from training data.
+<summary>Supplementary individual box views</summary>
 
 ### VICReg / CelebA
 
@@ -37,10 +29,9 @@ join held-out group centers; red dashed edges are predicted from training data.
 
 ### VICReg / CUB-200
 
-![CUB observed and train-predicted box](figures/supplement/figure_s3_cub_observed_vs_train_prediction.png)
+![CUB-200 observed and train-predicted box](figures/supplement/figure_s3_cub_observed_vs_train_prediction.png)
 
 </details>
 
-The standalone permutation histograms remain under
+Permutation details remain under
 [`controls/heldout_label_permutation/`](controls/heldout_label_permutation/).
-They are summarized more directly in Figure 1.
