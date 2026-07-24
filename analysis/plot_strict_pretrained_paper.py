@@ -228,7 +228,7 @@ def load_full_pipeline_null(path: str | Path) -> FullPipelineNull:
 def _centroid_batch_cloud(
     coords: np.ndarray,
     granular_task: np.ndarray,
-    batches_per_cell: int = 24,
+    batches_per_cell: int = 16,
     seed: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Means of disjoint deterministic mini-batches within each held-out cell."""
@@ -302,9 +302,9 @@ def _plot_cube(axis: plt.Axes, run: RunSummary) -> None:
             points[:, 0],
             points[:, 1],
             points[:, 2],
-            s=19,
+            s=18,
             color=color,
-            alpha=0.34,
+            alpha=0.30,
             edgecolors="none",
             depthshade=False,
             rasterized=True,
@@ -474,6 +474,11 @@ def plot_celeba_cubes(
 
 
 def plot_cub_boundary(runs: list[RunSummary], output_stem: Path) -> list[Path]:
+    celeba = next(
+        run
+        for run in runs
+        if run.dataset.lower() == "celeba" and run.method.lower() == "vicreg"
+    )
     cub = next(run for run in runs if run.dataset.lower() == "cub200")
 
     figure = plt.figure(figsize=(7.2, 5.4), facecolor="white")
@@ -490,7 +495,7 @@ def plot_cub_boundary(runs: list[RunSummary], output_stem: Path) -> list[Path]:
     axis.text2D(
         0.5,
         -0.025,
-        f"prediction error ↓  {cub.rmse[0]:.2f}     CelebA  0.20",
+        f"prediction error ↓  {cub.rmse[0]:.2f}     CelebA  {celeba.rmse[0]:.2f}",
         transform=axis.transAxes,
         ha="center",
         va="top",
@@ -590,6 +595,8 @@ def write_results_note(
     celeba = [run for run in runs if run.dataset.lower() == "celeba"]
     cub = next(run for run in runs if run.dataset.lower() == "cub200")
     real = {run.method: run for run in celeba}
+    vicreg = real["vicreg"]
+    ijepa = real["ijepa"]
     null_by_method = {str(item["method"]): item for item in nulls}
     vicreg_null = null_by_method["vicreg"]
     ijepa_null = null_by_method["ijepa"]
@@ -647,13 +654,14 @@ def write_results_note(
             "",
             (
                 "Training geometry predicts held-out face groups. Each panel projects "
-                "4,000 held-out CelebA images onto three directions fitted using the "
-                "training split. Faint points are deterministic, disjoint mini-batch "
+                "a balanced held-out CelebA sample onto three directions fitted using "
+                "the training split. Faint points are deterministic, disjoint mini-batch "
                 "means within the eight held-out attribute groups; colored markers and "
                 "solid black edges show the eight full group centroids; red dashed edges "
                 "and open diamonds show their training-predicted locations. No test "
-                "geometry is refit. Primary-sample corner mismatch is 0.203 for VICReg "
-                "and 0.252 for I-JEPA, versus approximately 1.0 after shuffling held-out "
+                f"geometry is refit. Primary-sample corner mismatch is {vicreg.rmse[0]:.3f} "
+                f"for VICReg and {ijepa.rmse[0]:.3f} for I-JEPA, versus approximately "
+                "1.0 after shuffling held-out "
                 "labels. None of 5,000 permutations produced lower mismatch for either "
                 "encoder (finite-permutation p=0.0002)."
             ),
@@ -665,9 +673,11 @@ def write_results_note(
                 "deterministic, disjoint mini-batch means within the eight held-out "
                 "attribute groups; the solid black box joins their full centroids; and "
                 "the red dashed box is predicted from training data. The displayed "
-                "balanced sample has normalized corner mismatch 0.533 (CelebA: 0.203); "
-                "the means across 20 overlapping balanced test resamples are 0.503 and "
-                "0.219. CUB-200 nevertheless retains strong, separate attribute "
+                f"balanced sample has normalized corner mismatch {cub.rmse[0]:.3f} "
+                f"(CelebA: {vicreg.rmse[0]:.3f}); the means across 20 overlapping "
+                f"balanced test resamples are {np.mean(cub.rmse):.3f} and "
+                f"{np.mean(vicreg.rmse):.3f}. CUB-200 nevertheless retains strong, "
+                "separate attribute "
                 "directions, showing that directional structure and additive corner "
                 "composition are distinct properties."
             ),
