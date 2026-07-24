@@ -332,8 +332,23 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
 
     # Zoom so the box fills the frame; drop the axis frame entirely so the figure
     # crops tight to the box (no empty 3D floor pane / whitespace).
-    lim = max(0.8, cext * zoom)
-    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_zlim(-lim, lim)
+    if publication_compact:
+        # Compact theory-check panels have no origin arrows, so framing them
+        # around the global origin only adds whitespace when the observed box
+        # is translated. Fit the camera to the union of observed and frozen
+        # train-predicted corners while preserving equal scale in x/y/z.
+        frame_points = list(centers.values()) + list(pcent.values())
+        frame = np.asarray(frame_points, dtype=np.float64)
+        lower = frame.min(axis=0)
+        upper = frame.max(axis=0)
+        center = 0.5 * (lower + upper)
+        half_span = max(0.2, 0.5 * float(np.max(upper - lower)) * zoom)
+        ax.set_xlim(center[0] - half_span, center[0] + half_span)
+        ax.set_ylim(center[1] - half_span, center[1] + half_span)
+        ax.set_zlim(center[2] - half_span, center[2] + half_span)
+    else:
+        lim = max(0.8, cext * zoom)
+        ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_zlim(-lim, lim)
     ax.view_init(elev=18, azim=-55)
     ax.set_box_aspect((1, 1, 1))  # equal aspect (undistorted cube)
     ax.set_axis_off()             # drop the frame -> tight crop, no floor whitespace
@@ -397,7 +412,7 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
         if publication_compact:
             fig.legend(
                 box_handles,
-                ["observed", r"predicted $\sqrt{B_t}$"],
+                ["held-out observed", "train-predicted"],
                 loc="upper center",
                 ncol=2,
                 fontsize=9.5,
@@ -405,7 +420,7 @@ def plot_box_3d(coords, box, granular_task, triple_names, save_path,
                 bbox_to_anchor=(0.5, 0.99),
             )
         else:
-            ax.legend(box_handles, ["observed", r"predicted $\sqrt{B_t}$"],
+            ax.legend(box_handles, ["held-out observed", "train-predicted"],
                       loc="upper right", fontsize=13, framealpha=0.9)
     for pth in (save_path if isinstance(save_path, (list, tuple)) else [save_path]):
         fig.savefig(pth, bbox_inches="tight", pad_inches=0.02)

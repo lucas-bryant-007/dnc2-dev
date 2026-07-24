@@ -5,6 +5,14 @@ representation learning. The repository includes SSL training, directional-CDNV
 and few-shot bounds, multi-task hyper-rectangle geometry, shared-bottleneck
 interference, and Push-T future-factor recoverability experiments.
 
+## Paper results: start here
+
+The curated pretrained natural-image result is in the
+[paper package](paper_outputs/pretrained_crossfit_20260723/README.md). It contains
+one main CelebA figure, one CUB-200 boundary figure, short paper-ready text, and
+links back to every raw metric and control artifact. The larger `repro_exports/`
+tree is the immutable audit trail; it is not the recommended entry point.
+
 The implemented training methods are:
 
 - VICReg
