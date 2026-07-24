@@ -16,12 +16,16 @@ reading guide; `controls/` and `provenance/` contain the audit trail.
 
 Geometry selected and fitted on training images predicts the eight held-out
 CelebA attribute groups for both pretrained encoders. Prediction error is 0.20
-for VICReg and 0.25 for I-JEPA, compared with about 1.0 after shuffling held-out
+for VICReg and 0.24 for I-JEPA, compared with about 1.0 after shuffling held-out
 labels. None of 5,000 shuffles performs as well.
 
 CUB-200 keeps strong, separate attribute directions but has substantially worse
-corner prediction (0.53 on the displayed balanced sample). It is a useful
+corner prediction (0.50 on the displayed balanced sample). It is a useful
 boundary case: directions can be present without additive cube composition.
+
+The displayed balanced samples use all available support up to the rarest cell:
+788 images per corner for VICReg/CelebA, 648 for I-JEPA/CelebA, and 350 for
+VICReg/CUB-200.
 
 ## What to send
 
@@ -56,12 +60,13 @@ From the repository root:
 ```bash
 python analysis/plot_strict_pretrained_paper.py \
   --run_json \
-    repro_exports/celeba_strict_crossfit_20260723/vicreg/metrics/hyperrect_crossfit_vicreg_celeba_epoch_1000_strict_crossfit_20x500.json \
-    repro_exports/celeba_strict_crossfit_20260723/ijepa/metrics/hyperrect_crossfit_ijepa_celeba_epoch_1000_strict_crossfit_20x500.json \
-    repro_exports/cub200_vicreg_official_20260723/distinct_families_v2/metrics/hyperrect_crossfit_vicreg_official_imagenet1k_cub200_bbox_distinct_families_v2.json \
+    repro_exports/high_support_crossfit_20260723/celeba_vicreg/metrics/hyperrect_crossfit_vicreg_celeba_epoch_1000_full_support_20x_v1.json \
+    repro_exports/high_support_crossfit_20260723/celeba_ijepa/metrics/hyperrect_crossfit_ijepa_celeba_epoch_1000_full_support_20x_v1.json \
+    repro_exports/high_support_crossfit_20260723/cub200_vicreg/metrics/hyperrect_crossfit_vicreg_official_imagenet1k_cub200_bbox_distinct_families_full_support_v3.json \
   --null_json \
     paper_outputs/pretrained_crossfit_20260723/controls/heldout_label_permutation/vicreg/heldout_permutation_null_vicreg_celeba.json \
     paper_outputs/pretrained_crossfit_20260723/controls/heldout_label_permutation/ijepa/heldout_permutation_null_ijepa_celeba.json \
+    paper_outputs/pretrained_crossfit_20260723/controls/heldout_label_permutation/cub200_vicreg/heldout_permutation_null_vicreg_official_imagenet1k_cub200.json \
   --full_null_json \
     paper_outputs/pretrained_crossfit_20260723/controls/full_pipeline_label_permutation/vicreg_seed3101/metrics/hyperrect_crossfit_vicreg_celeba_epoch_1000_full_pipeline_label_null_seed3101.json \
     paper_outputs/pretrained_crossfit_20260723/controls/full_pipeline_label_permutation/ijepa_seed3101/metrics/hyperrect_crossfit_ijepa_celeba_epoch_1000_full_pipeline_label_null_seed3101.json \

@@ -49,6 +49,7 @@ class RunSummary:
     rmse: tuple[float, ...]
     pass_count: int
     n_resamples: int
+    samples_per_cell: int
     feasible_train_candidates: int | None
     plot_coords: np.ndarray
     granular_task: np.ndarray
@@ -180,6 +181,7 @@ def load_run(path: str | Path) -> RunSummary:
         rmse=tuple(float(row["normalized_centroid_rmse"]) for row in records),
         pass_count=int(stability["pass_count"]),
         n_resamples=int(stability["n_resamples"]),
+        samples_per_cell=int(payload["test_balance"]["samples_per_cell"]),
         feasible_train_candidates=_real_run_feasible_count(path),
         plot_coords=coords,
         granular_task=granular_task,
@@ -518,6 +520,7 @@ def write_metrics_table(runs: list[RunSummary], output: Path) -> None:
     fieldnames = [
         "model_dataset",
         "selected_triple",
+        "primary_samples_per_cell",
         "aggregate_capture_B",
         "aggregate_min_capture_B",
         "aggregate_max_abs_cos",
@@ -538,6 +541,7 @@ def write_metrics_table(runs: list[RunSummary], output: Path) -> None:
                 {
                     "model_dataset": run.label,
                     "selected_triple": " | ".join(run.triple),
+                    "primary_samples_per_cell": run.samples_per_cell,
                     "aggregate_capture_B": " | ".join(
                         f"{value:.4f}" for value in run.capture
                     ),
@@ -623,19 +627,20 @@ def write_results_note(
             "additive cube composition."
         ),
         "",
-        "| Model / dataset | Weakest factor signal | Direction overlap | Primary mismatch | Mean mismatch |",
-        "|---|---:|---:|---:|---:|",
+        "| Model / dataset | Images / corner | Weakest factor signal | Direction overlap | Primary mismatch | Mean mismatch |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
     for run in runs:
         lines.append(
-            f"| {run.label} | {min(run.capture):.3f} | "
+            f"| {run.label} | {run.samples_per_cell} | {min(run.capture):.3f} | "
             f"{run.aggregate_max_cos:.3f} | {run.rmse[0]:.3f} | "
             f"{np.mean(run.rmse):.3f} |"
         )
     lines.extend(["", "## Controls", ""])
     for item in nulls:
         lines.append(
-            f"- {_method_label(str(item['method']))} held-out randomization: observed "
+            f"- {_method_label(str(item['method']))} / "
+            f"{_dataset_label(str(item['dataset']))} held-out randomization: observed "
             f"mismatch {item['observed_normalized_centroid_rmse']:.3f}, shuffled mean "
             f"{item['null_mean']:.3f}, finite-permutation p="
             f"{item['empirical_lower_tail_p']:.6f}."

@@ -7,6 +7,7 @@
 Faint points show the eight held-out groups. The solid black cube joins their
 centers; the red dashed cube was predicted from training images. Lower prediction
 error is better, and shuffled held-out labels give approximately 1.0.
+The displayed errors are 0.20 for VICReg and 0.24 for I-JEPA.
 
 ## Figure 2: CUB-200 boundary case
 
@@ -14,7 +15,8 @@ error is better, and shuffled held-out labels give approximately 1.0.
 
 The held-out bird groups retain a structured box, but it is much smaller and
 farther from the training prediction. This separates strong attribute directions
-from accurate additive composition.
+from accurate additive composition. Its error is 0.50, although its association
+with the held-out labels remains far beyond the shuffled control (about 1.0).
 
 <details>
 <summary>Supplementary individual box views</summary>
