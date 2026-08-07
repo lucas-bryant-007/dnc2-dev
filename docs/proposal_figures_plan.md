@@ -166,8 +166,8 @@ The clean cube comes from: **exact** pairing + **keep_levels** extreme-level
 filtering on size/posX/posY (config `configs/vicreg/dsprites.yaml`).
 
 ## Standing constraints (do not break)
-- **Never** stage/commit `configs/vicreg/celebA.yaml` — it's Lucas's pre-existing
-  uncommitted local edit. Always `git add` specific files, never `git add -A`.
+- Use the canonical lowercase `configs/vicreg/celeba.yaml`; the obsolete
+  case-colliding `celebA.yaml` was removed for Windows compatibility.
 - Server `s2`; `export PY=/home/lucas_bryant1/dnc2_s2/dnc2_env/bin/python`
   (re-export each login or via `.bashrc`). Now allocated **2 GPUs** (cuda:0, cuda:1).
 - Workflow: edit + CPU smoke-test on laptop → push → Lucas runs on server → push
