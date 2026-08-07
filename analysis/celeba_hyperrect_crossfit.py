@@ -449,10 +449,20 @@ def _select_balanced_train_triple(
             f"max|cos|={result['triple_max_abs_cos']:.3f} passed={passed}"
         )
         if passed:
+            # Size the predicted corners from the split-half capture. The
+            # plug-in probe norm carries a ~D/N noise term that inflates the
+            # predicted box, badly so whenever N is comparable to D.
+            predicted_capture = None
+            if crossfit_geometry["valid_positive_diagonal"]:
+                predicted_capture = [
+                    crossfit_geometry["capture_B"][name]
+                    for name in candidate["names"]
+                ]
             box_reference = H.fit_box_reference(
                 balanced_features,
                 balanced_attrs,
                 candidate["names"],
+                capture=predicted_capture,
             )
             return result, {
                 "selected_candidate": candidate,
@@ -466,6 +476,11 @@ def _select_balanced_train_triple(
                     "frozen_for_test": True,
                 },
                 "probe_estimator": crossfit_geometry["estimator"],
+                "predicted_box_capture_estimator": (
+                    crossfit_geometry["estimator"]
+                    if predicted_capture is not None
+                    else "plug_in_same_sample"
+                ),
                 "box_reference": box_reference.metadata(),
             }, rewhitener, box_reference
         del result, balanced_features, balanced_attrs, rewhitener

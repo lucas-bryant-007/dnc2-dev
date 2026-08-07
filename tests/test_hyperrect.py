@@ -11,6 +11,7 @@ from analysis.hyperrect import (
     fit_box_reference,
     fit_rewhitener,
     orthonormal_basis,
+    rescale_probes_to_capture,
     subclass_box,
     task_axis_basis,
 )
@@ -92,6 +93,53 @@ def test_box_reference_freezes_train_axes_and_corners():
     assert reference.n_fit == 40
     assert torch.allclose(reference.basis[:3], torch.eye(3))
     assert len(reference.predicted_box) == 8
+
+
+def test_predicted_corners_use_unbiased_capture_instead_of_plug_in_norm():
+    """The plug-in probe norm inflates the box by ~D/N; capture must override it."""
+    generator = torch.Generator().manual_seed(101)
+    dimension = 200
+    per_cell = 50
+    attrs = torch.tensor(
+        [[(cell >> bit) & 1 for bit in (2, 1, 0)] for cell in range(8)]
+    ).repeat_interleave(per_cell, dim=0)
+    signs = 2.0 * attrs.float() - 1.0
+    true_half_side = 0.30
+    features = torch.randn(
+        attrs.shape[0], dimension, generator=generator
+    )
+    features[:, :3] = true_half_side * signs
+
+    plug_in = fit_box_reference(features, attrs, ["a", "b", "c"])
+    unbiased = fit_box_reference(
+        features,
+        attrs,
+        ["a", "b", "c"],
+        capture=[true_half_side**2] * 3,
+    )
+
+    def radius(reference):
+        centers = torch.tensor(
+            [entry["center"] for entry in reference.predicted_box]
+        )
+        return float(centers.norm(dim=1).mean().item())
+
+    exact = math.sqrt(3.0) * true_half_side
+    # D/N here is 200/400, so the plug-in box is visibly too large.
+    assert radius(plug_in) > 1.25 * exact
+    assert abs(radius(unbiased) - exact) < 0.02 * exact
+    assert torch.allclose(plug_in.basis, unbiased.basis)
+    assert unbiased.metadata()["predicted_box_capture_estimator"] == "unbiased_supplied"
+    assert plug_in.metadata()["predicted_box_capture_estimator"] == "plug_in_same_sample"
+
+
+def test_rescale_probes_to_capture_rejects_wrong_length():
+    try:
+        rescale_probes_to_capture(torch.randn(10, 3), [0.1, 0.2])
+    except ValueError as error:
+        assert "one value per task column" in str(error)
+    else:
+        raise AssertionError("mismatched capture length should fail")
 
 
 def test_task_axis_basis_normalizes_without_qr_rotation():

@@ -80,6 +80,7 @@ class BoxReference:
     deltas: torch.Tensor
     predicted_box: List[Dict]
     n_fit: int
+    capture: Optional[List[float]] = None
 
     def metadata(self) -> Dict:
         probe_gram = self.probes.T @ self.probes
@@ -88,6 +89,11 @@ class BoxReference:
             "n_fit": self.n_fit,
             "triple_names": self.triple_names,
             "probe_gram": probe_gram.tolist(),
+            "plug_in_capture_B": torch.diagonal(probe_gram).tolist(),
+            "predicted_box_capture_B": self.capture,
+            "predicted_box_capture_estimator": (
+                "plug_in_same_sample" if self.capture is None else "unbiased_supplied"
+            ),
             "predicted_box": self.predicted_box,
         }
 
@@ -471,12 +477,20 @@ def fit_box_reference(
     features: torch.Tensor,
     attr3: torch.Tensor,
     triple_names: Sequence[str],
+    capture: Optional[Sequence[float]] = None,
 ) -> BoxReference:
-    """Fit task axes and predicted box corners on training observations only."""
+    """Fit task axes and predicted box corners on training observations only.
+
+    Pass ``capture`` (per task, in ``triple_names`` order) to size the predicted
+    corners from an unbiased capture estimate instead of the plug-in probe norm,
+    which is inflated by roughly ``D/N``.
+    """
     if attr3.ndim != 2 or attr3.shape != (features.shape[0], 3):
         raise ValueError("attr3 must have shape [N,3] matching features")
     if len(triple_names) != 3:
         raise ValueError("triple_names must contain exactly three names")
+    if capture is not None and len(capture) != 3:
+        raise ValueError("capture must contain exactly three values")
     labels = [to_binary01(attr3[:, index]) for index in range(3)]
     probes = torch.stack(
         [task_probe(features, label) for label in labels],
@@ -495,8 +509,9 @@ def fit_box_reference(
         basis=basis,
         probes=probes,
         deltas=deltas_tensor,
-        predicted_box=predicted_box_corners(probes, basis),
+        predicted_box=predicted_box_corners(probes, basis, capture=capture),
         n_fit=int(features.shape[0]),
+        capture=None if capture is None else [float(value) for value in capture],
     )
 
 
@@ -570,7 +585,42 @@ def crossfit_probe_geometry(
     }
 
 
-def predicted_box_corners(w_cols: torch.Tensor, basis: torch.Tensor) -> List[Dict]:
+def rescale_probes_to_capture(
+    w_cols: torch.Tensor, capture: Sequence[float]
+) -> torch.Tensor:
+    """Rescale plug-in probe columns so column t has half-side sqrt(B_t).
+
+    The plug-in probe ``w_hat_t = mean(Y_t F)`` satisfies
+    ``E ||w_hat_t||^2 = B_t + tr(Cov(F))/N``, i.e. in whitened coordinates it
+    over-estimates the capture by roughly ``D/N``. Because the box axis is
+    ``w_hat_t/||w_hat_t||``, that bias lands directly on the predicted corner
+    coordinate and inflates the predicted hyper-rectangle. Supplying an
+    unbiased ``capture`` (e.g. the split-half cross-Gram diagonal from
+    :func:`crossfit_probe_geometry`) restores the correct scale while keeping
+    the plug-in directions, which are unaffected by the isotropic noise term.
+    """
+    if w_cols.ndim != 2:
+        raise ValueError(f"w_cols must be 2D, got {w_cols.ndim}D")
+    target = torch.as_tensor(
+        list(capture), dtype=w_cols.dtype, device=w_cols.device
+    )
+    if target.shape != (w_cols.shape[1],):
+        raise ValueError(
+            f"capture must supply one value per task column, got {tuple(target.shape)}"
+        )
+    if not bool(torch.all(torch.isfinite(target)).item()):
+        raise ValueError("capture values must be finite")
+    norms = w_cols.norm(dim=0)
+    if bool(torch.any(norms <= 1e-12).item()):
+        raise ValueError("Probe columns must be nonzero to rescale")
+    return w_cols * (target.clamp_min(0.0).sqrt() / norms)
+
+
+def predicted_box_corners(
+    w_cols: torch.Tensor,
+    basis: torch.Tensor,
+    capture: Optional[Sequence[float]] = None,
+) -> List[Dict]:
     """Predicted hyper-rectangle corners (Thm 4.4) for the 3 chosen tasks.
 
     ``w_cols`` is [D, 3] (column t = capture vector w_t); the predicted centroid
@@ -578,7 +628,12 @@ def predicted_box_corners(w_cols: torch.Tensor, basis: torch.Tensor) -> List[Dic
     With orthogonal tasks the corners sit at (+-||w_0||, +-||w_1||, +-||w_2||).
     For non-orthogonal tasks, projecting onto the actual normalized task axes
     exposes the cross-task terms instead of hiding them with a QR rotation.
+
+    ``capture`` optionally supplies unbiased per-task ``B_t`` values; see
+    :func:`rescale_probes_to_capture` for why the plug-in norms are biased.
     """
+    if capture is not None:
+        w_cols = rescale_probes_to_capture(w_cols, capture)
     corners: List[Dict] = []
     for combo in itertools.product((0, 1), repeat=3):
         signs = torch.tensor([2 * b - 1 for b in combo],
