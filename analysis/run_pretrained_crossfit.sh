@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Launch the paper-facing high-support reruns on three GPUs.
+# Launch the matched pretrained cross-fit experiments on three GPUs.
 #
-# Usage on S1:
-#   bash analysis/run_high_support_reruns.sh --detach
+# Usage:
+#   bash analysis/run_pretrained_crossfit.sh --detach
 #
 # Optional overrides: ROOT, PY, OUT_BASE, VICREG_GPU, IJEPA_GPU, CUB_GPU.
 
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 ROOT="${ROOT:-/home/lucas_bryant1/dnc2_s1}"
 PY="${PY:-$ROOT/dnc2_env/bin/python}"
-OUT_BASE="${OUT_BASE:-$ROOT/results/pretrained_20260723/high_support_reruns_v1}"
+OUT_BASE="${OUT_BASE:-$ROOT/results/pretrained_crossfit}"
 VICREG_GPU="${VICREG_GPU:-0}"
 IJEPA_GPU="${IJEPA_GPU:-1}"
 CUB_GPU="${CUB_GPU:-2}"
@@ -20,9 +20,9 @@ HF_HOME="${HF_HOME:-$ROOT/cache/huggingface}"
 HF_DATASETS_CACHE="${HF_DATASETS_CACHE:-$HF_HOME/datasets}"
 TORCH_HOME="${TORCH_HOME:-$ROOT/cache/torch}"
 
-VICREG_OUT="$OUT_BASE/celeba_vicreg_full_support"
-IJEPA_OUT="$OUT_BASE/celeba_ijepa_full_support"
-CUB_OUT="$OUT_BASE/cub200_vicreg_350_per_cell"
+VICREG_OUT="$OUT_BASE/celeba_vicreg"
+IJEPA_OUT="$OUT_BASE/celeba_ijepa"
+CUB_OUT="$OUT_BASE/cub200_vicreg"
 VICREG_CKPT="$ROOT/hf_models/vicreg-resnet50-celeba/converted_checkpoints"
 IJEPA_CKPT="$ROOT/hf_models/ijepa-resnet50-celeba/repaired_checkpoints"
 CUB_ROOT="$ROOT/data/CUB_200_2011"
@@ -193,5 +193,5 @@ if [[ -s "$TORCH_HOME/hub/checkpoints/resnet50.pth" ]]; then
 fi
 
 date --iso-8601=seconds >"$OUT_BASE/COMPLETE"
-printf 'All high-support runs and permutation controls finished.\n'
+printf 'All cross-fit runs and permutation controls finished.\n'
 printf 'Results: %s\n' "$OUT_BASE"

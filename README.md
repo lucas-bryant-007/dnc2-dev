@@ -1,25 +1,10 @@
 # Directional Neural Collapse
 
-Lean implementation for studying which task directions survive self-supervised
-representation learning. This branch contains runnable code, configurations,
-tests, and experiment protocols. Generated figures, metrics, logs, checkpoints,
-and paper bundles are intentionally excluded.
+Lean research implementation for studying which task directions survive
+self-supervised representation learning. Generated results, checkpoints, and
+paper assets are intentionally excluded.
 
-## What is implemented
-
-- SSL training for VICReg, W-MSE, and I-JEPA.
-- Directional-CDNV evaluation and few-shot bounds.
-- Multi-task hyper-rectangle geometry with train/test cross-fitting.
-- Split-half capture and task-cosine estimation, including unbiased predicted
-  box scaling.
-- Held-out and full-pipeline permutation controls.
-- Shared-bottleneck interference experiments on dSprites, Shapes3D, and MPI3D.
-- Pretrained CelebA and CUB-200 attribute experiments.
-- Push-T future-factor recoverability and regret experiments.
-
-## Setup and verification
-
-Create an isolated Python environment and install the dependencies:
+## Setup
 
 ```bash
 python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -27,55 +12,56 @@ python -m pytest
 ruff check .
 ```
 
-The full CPU test suite covers configuration loading, geometry, bounds,
-cross-fit stability, CUB metadata, permutation controls, checkpoint repair, and
-report generation.
-
-## Run experiments
-
 Train from a checked-in configuration:
 
 ```bash
 python training/train.py --config configs/ijepa/celeba.yaml
 ```
 
-The main experiment entry points are:
+## Code map
 
-- `analysis/celeba_hyperrect_crossfit.py` — strict pretrained CelebA cross-fit.
-- `analysis/cub200_hyperrect_crossfit.py` — official CUB-200 attribute geometry.
-- `analysis/permutation_box_null.py` — held-out label-permutation controls.
-- `analysis/dsprites_hyperrect.py` and `analysis/wide_interference.py` —
-  controlled synthetic-data geometry and interference.
-- `analysis/pusht/` — action-conditioned future-factor experiments.
+Core geometry and estimators:
 
-Operational details are kept in:
+- `analysis/hyperrect.py` - task probes, cross-fit geometry, and box diagnostics.
+- `analysis/bounds.py` - directional-CDNV and few-shot bounds.
+- `analysis/interference_core.py` - shared-bottleneck interference estimators.
+- `analysis/br/` - directional-collapse estimators and SSL subspace utilities.
+
+Experiment drivers:
+
+- `analysis/celeba_hyperrect_crossfit.py` - strict CelebA evaluation.
+- `analysis/cub200_hyperrect_crossfit.py` - official CUB-200 evaluation.
+- `analysis/permutation_box_null.py` - held-out permutation controls.
+- `analysis/dsprites_hyperrect.py` and `analysis/wide_interference.py` -
+  controlled synthetic experiments.
+- `analysis/run_pretrained_crossfit.sh` - matched pretrained batch run.
+- `analysis/pusht/` - future-factor recoverability and regret.
+
+Supporting packages:
+
+- `models/` - VICReg, W-MSE, and I-JEPA implementations.
+- `data_utils/` - CelebA, CUB-200, dSprites, Shapes3D, and MPI3D loaders.
+- `training/` - configuration loading, training, callbacks, and export utilities.
+- `configs/` - training and evaluation configurations.
+- `tests/` - focused behavioral regression tests.
+
+## Experiment guides
 
 - `docs/training_from_scratch.md`
-- `docs/pretrained_celeba_next_experiments.md`
+- `docs/celeba_experiment.md`
 - `docs/cub200_experiment.md`
 - `analysis/pusht/README.md`
 
 ## Current state
 
-The implemented evaluation path freezes attribute selection, whitening, task
-axes, and box predictions on training data before held-out evaluation. CelebA
-supports VICReg and I-JEPA checkpoints; CUB-200 uses the official split,
-attributes, bounding boxes, and distinct semantic attribute families. Generated
-evidence from the July 2026 runs remains available on the archival
-`integrate-paper-dev-20260807` branch but is not duplicated here.
+The strict evaluation path freezes attribute selection, whitening, task axes,
+and box predictions on training data before held-out evaluation. Capture and
+task cosines use split-half estimates, and predicted corners use the unbiased
+capture scale. CUB-200 additionally enforces distinct semantic attribute
+families.
 
-Experiment commands write to ignored output directories such as `figures/`,
-`metrics/`, `logs/`, `runs/`, `paper_outputs/`, and `repro_exports/`. Promote an
-artifact deliberately rather than committing a complete run directory.
+Experiment output belongs in ignored directories such as `figures/`, `metrics/`,
+`logs/`, `runs/`, and `results/`. The full July 2026 evidence remains on the
+archival `integrate-paper-dev-20260807` branch.
 
-## Repository layout
-
-- `analysis/` — estimators, experiment drivers, controls, and plots.
-- `configs/` — training and evaluation configurations.
-- `data_utils/` — dataset and augmentation implementations.
-- `models/` — SSL model implementations.
-- `training/` — training entry point and callbacks.
-- `tests/` — behavioral regression tests.
-
-The project is active research code; citation metadata has not yet been
-released.
+The project is active research code; citation metadata has not been released.

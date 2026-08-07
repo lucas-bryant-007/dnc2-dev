@@ -1,6 +1,6 @@
-"""RO3: observability Obs(f) vs bottleneck capture B_f(G), per future factor.
+"""Estimate observability Obs(f) and bottleneck capture B_f(G) by factor.
 
-Emits the `factors` block of the results.json consumed by ro3_figure.py.
+Writes the per-factor measurements as JSON for downstream analysis.
 
 Obs(f) is estimated by the held-out R^2 of a flexible finite MLP regressor
     (E(X_t), a_{t:t+H-1})  ->  f

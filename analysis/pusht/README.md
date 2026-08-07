@@ -5,8 +5,7 @@ yet fail to preserve the particular future information needed for action
 selection.
 
 Pipeline: `gen_data.py` (counterfactual futures, CPU) → `train_jepa.py`
-(bottleneck sweep, GPU) → `eval_regret.py` (probe + regret + the single
-proposal scatter).
+(bottleneck sweep, GPU) → `eval_regret.py` (probe and regret evaluation).
 
 ## Server runbook (s2)
 
@@ -38,7 +37,7 @@ $PY -u analysis/pusht/gen_data.py --zarr pusht/pusht_cchi_v7_replay.zarr \
 CUDA_VISIBLE_DEVICES=0 $PY -u analysis/pusht/train_jepa.py \
     --data data/pusht_cf.npz --rs 4 8 16 32 --seeds 0 1 2 --device cuda:0
 
-# 4) probe + regret + metrics, then the proposal scatter (deck fonts)
+# 4) probe + regret + metrics, then render the result
 $PY -u analysis/pusht/eval_regret.py --data data/pusht_cf.npz \
     --runs runs/pusht_jepa --device cuda:0 --min_spread 0.05
 $PY -u analysis/pusht/plot_regret.py --metrics metrics/ro3_pusht_regret.json
