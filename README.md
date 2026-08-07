@@ -7,9 +7,7 @@ paper assets are intentionally excluded.
 ## Setup
 
 ```bash
-python -m pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest
-ruff check .
+python -m pip install -r requirements.txt
 ```
 
 Train from a checked-in configuration:
@@ -37,13 +35,21 @@ Experiment drivers:
 - `analysis/run_pretrained_crossfit.sh` - matched pretrained batch run.
 - `analysis/pusht/` - future-factor recoverability and regret.
 
+Required figure generators:
+
+- Meeting 1: `analysis/dsprites_hyperrect.py`,
+  `analysis/meeting1_summary.py`, `analysis/dsprites_taskfamily_spectrum.py`,
+  `analysis/dsprites_interference.py`, `analysis/wide_interference.py`, and
+  `analysis/hyperrect_bounds.py`.
+- Meeting 2 / pretrained hypercubes: `analysis/plot_crossfit_hyperrect.py`
+  renders the current CelebA and CUB-200 cross-fit result JSONs.
+
 Supporting packages:
 
 - `models/` - VICReg, W-MSE, and I-JEPA implementations.
 - `data_utils/` - CelebA, CUB-200, dSprites, Shapes3D, and MPI3D loaders.
 - `training/` - configuration loading, training, callbacks, and export utilities.
 - `configs/` - training and evaluation configurations.
-- `tests/` - focused behavioral regression tests.
 
 ## Experiment guides
 

@@ -93,8 +93,7 @@ venv.bak/
 # Ruff stuff:
 .ruff_cache/
 
-# Local test scratch directories
-.pytest_*/
+# Local scratch directories
 .tmp_*/
 
 # PyPI configuration file

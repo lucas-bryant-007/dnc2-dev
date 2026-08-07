@@ -81,10 +81,9 @@ JSON=$(find "$COUT/metrics" -maxdepth 1 -type f -name '*.json' -print -quit)
 test -s "$JSON" && echo "JSON OK"
 
 "$PY" -u analysis/plot_crossfit_hyperrect.py --json "$JSON"
-"$PY" -u analysis/plot_crossfit_stability.py --json "$JSON"
 
 ls -lh "$COUT/paper_figures"
 ```
 
-The clean centroid-cloud cube, frozen-train-prediction overlay, stability
-figure, JSON, CSV, and plot-point NPZ must all be retained.
+The clean centroid-cloud cube, frozen-train-prediction overlay, JSON, CSV, and
+plot-point NPZ must all be retained.

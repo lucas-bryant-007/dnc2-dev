@@ -57,7 +57,6 @@ launcher argument.
 ## Inspect a completed run
 
 ```bash
-python analysis/plot_crossfit_stability.py --json /path/to/result.json
 python analysis/plot_crossfit_hyperrect.py --json /path/to/result.json
 ```
 
