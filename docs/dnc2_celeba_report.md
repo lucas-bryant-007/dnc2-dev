@@ -1,9 +1,9 @@
 # DNC2 — CelebA SSL Geometry: Findings & Limitations
 
-Date: 2026-06-18 · Server: csce-galanti-s2 · Checkpoints: VICReg ResNet-50 and
+Date: 2026-06-18 · Server: s2 · Checkpoints: VICReg ResNet-50 and
 I-JEPA ViT-B/16, CelebA, epoch 1000 (HF `dlf-ssl/*`, converted to Lightning ckpt).
 
-This evaluates frozen CelebA SSL representations against the two Galanti-group
+This evaluates frozen CelebA SSL representations against the two project
 papers: the **published** "Directional Neural Collapse Explains Few-Shot
 Transfer" (directional CDNV, Thm 4.1 few-shot bound) and the **draft** "Which
 Tasks Survive SSL?" (captured posterior energy `B(F)`, Prop 4.1 collapse law,

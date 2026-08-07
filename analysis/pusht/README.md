@@ -8,7 +8,7 @@ Pipeline: `gen_data.py` (counterfactual futures, CPU) → `train_jepa.py`
 (bottleneck sweep, GPU) → `eval_regret.py` (probe + regret + the single
 proposal scatter).
 
-## Server runbook (csce-galanti-s2)
+## Server runbook (s2)
 
 ```bash
 export PY=/home/lucas_bryant1/dnc2_s2/dnc2_env/bin/python

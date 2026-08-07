@@ -1,7 +1,7 @@
 # I-JEPA CelebA Two-View Full Run on s2
 
 Date: 2026-06-17
-Server: `csce-galanti-s2.engr.tamu.edu`
+Server: `s2` (lab GPU host)
 GPU: H200 NVL, physical GPU 0 via `CUDA_VISIBLE_DEVICES=0`
 
 ## Purpose
