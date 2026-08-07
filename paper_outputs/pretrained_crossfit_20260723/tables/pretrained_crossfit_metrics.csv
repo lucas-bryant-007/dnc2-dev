@@ -1,4 +1,0 @@
-model_dataset,selected_triple,primary_samples_per_cell,aggregate_capture_B,aggregate_min_capture_B,aggregate_max_abs_cos,primary_normalized_centroid_rmse,mean_normalized_centroid_rmse,min_normalized_centroid_rmse,max_normalized_centroid_rmse,resamples_passing,n_resamples,train_feasible_candidates
-VICReg / CelebA,Smiling | Wavy_Hair | Black_Hair,788,0.3279 | 0.1530 | 0.1540,0.1530,0.0803,0.2030,0.2144,0.1872,0.2440,16,20,99
-I-JEPA / CelebA,Black_Hair | Smiling | Arched_Eyebrows,648,0.3018 | 0.1112 | 0.1353,0.1112,0.1042,0.2373,0.2410,0.2262,0.2581,12,20,47
-VICReg / CUB-200,breast_color=white | primary_color=black | breast_pattern=solid,350,0.6551 | 0.4847 | 0.3867,0.3867,0.1150,0.4963,0.4943,0.4806,0.5062,0,20,121

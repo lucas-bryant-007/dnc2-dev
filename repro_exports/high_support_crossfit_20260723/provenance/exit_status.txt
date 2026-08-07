@@ -1,3 +1,0 @@
-vicreg_celeba=0
-ijepa_celeba=0
-vicreg_cub200=0

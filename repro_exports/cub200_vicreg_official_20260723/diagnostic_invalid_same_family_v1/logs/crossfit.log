@@ -1,51 +1,0 @@
-nohup: ignoring input
-CUB-200: train=5994, test=5794, attributes=312, bbox_crop=True
-Loading official ImageNet-pretrained VICReg ResNet-50...
-Downloading: "https://github.com/facebookresearch/vicreg/zipball/main" to /home/lucas_bryant1/dnc2_s1/cache/torch/hub/main.zip
-Downloading: "https://dl.fbaipublicfiles.com/vicreg/resnet50.pth" to /home/lucas_bryant1/dnc2_s1/cache/torch/hub/checkpoints/resnet50.pth
-  0%|          | 0.00/90.0M [00:00<?, ?B/s]  0%|          | 256k/90.0M [00:00<00:53, 1.76MB/s]  1%|          | 1.00M/90.0M [00:00<00:19, 4.70MB/s]  5%|▌         | 4.88M/90.0M [00:00<00:04, 19.3MB/s]  9%|▉         | 8.00M/90.0M [00:00<00:06, 13.6MB/s] 18%|█▊        | 15.8M/90.0M [00:00<00:02, 28.3MB/s] 22%|██▏       | 19.4M/90.0M [00:00<00:02, 28.2MB/s] 27%|██▋       | 24.0M/90.0M [00:01<00:02, 25.5MB/s] 35%|███▌      | 31.5M/90.0M [00:01<00:01, 36.2MB/s] 40%|███▉      | 35.8M/90.0M [00:01<00:01, 33.2MB/s] 44%|████▍     | 40.0M/90.0M [00:01<00:01, 31.4MB/s] 52%|█████▏    | 47.1M/90.0M [00:01<00:01, 40.2MB/s] 57%|█████▋    | 51.5M/90.0M [00:01<00:01, 39.3MB/s] 62%|██████▏   | 55.6M/90.0M [00:01<00:00, 36.0MB/s] 66%|██████▌   | 59.4M/90.0M [00:02<00:01, 28.3MB/s] 71%|███████   | 64.0M/90.0M [00:02<00:00, 27.4MB/s] 79%|███████▊  | 70.8M/90.0M [00:02<00:00, 35.6MB/s] 84%|████████▍ | 75.9M/90.0M [00:02<00:00, 36.8MB/s] 89%|████████▉ | 80.0M/90.0M [00:02<00:00, 29.7MB/s] 98%|█████████▊| 87.8M/90.0M [00:02<00:00, 39.4MB/s]100%|██████████| 90.0M/90.0M [00:03<00:00, 30.5MB/s]
-
-=== TRAIN FEATURE EXTRACTION AND SELECTION ===
-  0%|          | 0/47 [00:00<?, ?it/s]  2%|▏         | 1/47 [00:03<02:25,  3.16s/it] 13%|█▎        | 6/47 [00:03<00:16,  2.45it/s] 23%|██▎       | 11/47 [00:03<00:06,  5.16it/s] 34%|███▍      | 16/47 [00:03<00:03,  8.47it/s] 45%|████▍     | 21/47 [00:03<00:02, 12.33it/s] 55%|█████▌    | 26/47 [00:03<00:01, 16.33it/s] 66%|██████▌   | 31/47 [00:03<00:00, 20.49it/s] 77%|███████▋  | 36/47 [00:03<00:00, 24.72it/s] 87%|████████▋ | 41/47 [00:04<00:00, 24.78it/s] 96%|█████████▌| 45/47 [00:04<00:00, 26.09it/s]100%|██████████| 47/47 [00:04<00:00, 10.76it/s]
-Train features (5994, 2048)
-Balanced candidate pool: ['underparts_color=white', 'bill_length=shorter_than_head', 'belly_color=white', 'shape=perching-like', 'throat_color=white', 'breast_color=white', 'primary_color=black', 'wing_color=black', 'primary_color=white', 'breast_pattern=solid', 'belly_pattern=solid', 'upperparts_color=black']
-Balanced proxy candidates meeting train feasibility: 126
-  balanced candidate 1: ['primary_color=black', 'primary_color=white', 'breast_pattern=solid'] B=[0.162, 0.243, 0.152] max|cos|=0.171 passed=True
-Selected CUB triple: ['primary_color=black', 'primary_color=white', 'breast_pattern=solid']
-Train max pairwise |cos|: 0.1710
-Declared train constraints satisfied: True
-  primary_color=black: B=0.1624, pos_frac=0.500
-  primary_color=white: B=0.2432, pos_frac=0.500
-  breast_pattern=solid: B=0.1518, pos_frac=0.500
-
-=== FROZEN HELD-OUT TEST EVALUATION ===
-  0%|          | 0/46 [00:00<?, ?it/s]  2%|▏         | 1/46 [00:01<00:45,  1.01s/it] 11%|█         | 5/46 [00:01<00:07,  5.76it/s] 22%|██▏       | 10/46 [00:01<00:02, 12.12it/s] 30%|███       | 14/46 [00:01<00:02, 12.96it/s] 41%|████▏     | 19/46 [00:01<00:01, 18.31it/s] 52%|█████▏    | 24/46 [00:01<00:00, 23.48it/s] 61%|██████    | 28/46 [00:02<00:00, 19.24it/s] 72%|███████▏  | 33/46 [00:02<00:00, 23.97it/s] 83%|████████▎ | 38/46 [00:02<00:00, 25.09it/s] 93%|█████████▎| 43/46 [00:02<00:00, 29.14it/s]100%|██████████| 46/46 [00:02<00:00, 18.26it/s]
-Test features (5794, 2048)
-  seed 7: max|cos|=0.0371, min B=0.4435, norm RMSE=0.5162, passed=False
-  seed 8: max|cos|=0.1473, min B=0.2772, norm RMSE=0.5181, passed=False
-  seed 9: max|cos|=0.3814, min B=0.4502, norm RMSE=0.5510, passed=False
-  seed 10: max|cos|=0.4681, min B=0.1811, norm RMSE=0.5014, passed=False
-  seed 11: max|cos|=0.3464, min B=0.2425, norm RMSE=0.5465, passed=False
-  seed 12: max|cos|=0.7229, min B=0.1290, norm RMSE=0.5333, passed=False
-  seed 13: max|cos|=0.2682, min B=0.3670, norm RMSE=0.5240, passed=False
-  seed 14: max|cos|=0.3334, min B=0.2528, norm RMSE=0.5337, passed=False
-  seed 15: max|cos|=0.2339, min B=0.3276, norm RMSE=0.5238, passed=False
-  seed 16: max|cos|=0.1849, min B=0.2832, norm RMSE=0.5020, passed=False
-  seed 17: max|cos|=0.3756, min B=0.2214, norm RMSE=0.4834, passed=False
-  seed 18: max|cos|=0.4082, min B=0.3861, norm RMSE=0.4949, passed=False
-  seed 19: max|cos|=0.2365, min B=0.2720, norm RMSE=0.5179, passed=False
-  seed 20: max|cos|=0.3137, min B=0.2965, norm RMSE=0.5250, passed=False
-  seed 21: max|cos|=0.4278, min B=0.3254, norm RMSE=0.5122, passed=False
-  seed 22: max|cos|=0.0787, min B=0.3351, norm RMSE=0.5174, passed=False
-  seed 23: max|cos|=0.2845, min B=0.3678, norm RMSE=0.5018, passed=False
-  seed 24: max|cos|=0.4025, min B=0.4095, norm RMSE=0.5133, passed=False
-  seed 25: max|cos|=0.5171, min B=0.2963, norm RMSE=0.4993, passed=False
-  seed 26: max|cos|=0.1812, min B=0.4907, norm RMSE=0.4965, passed=False
-Fixed test criteria passed on primary split: False
-Resampling pass rate: 0/20
-Aggregate max|cos|=0.1536; capture={'primary_color=black': 0.4863195203244686, 'primary_color=white': 0.5478689864277839, 'breast_pattern=solid': 0.3710355505347252}
-Saved JSON: /home/lucas_bryant1/dnc2_s1/results/pretrained_20260723/cub200_vicreg_official/metrics/hyperrect_crossfit_vicreg_official_imagenet1k_cub200_bbox_exploratory_v1.json
-Saved stability CSV: /home/lucas_bryant1/dnc2_s1/results/pretrained_20260723/cub200_vicreg_official/metrics/stability_crossfit_vicreg_official_imagenet1k_cub200_bbox_exploratory_v1.csv
-Saved plot points: /home/lucas_bryant1/dnc2_s1/results/pretrained_20260723/cub200_vicreg_official/plot_data/hyperrect_points_crossfit_vicreg_official_imagenet1k_cub200_bbox_exploratory_v1.npz
-Saved figures: ['/home/lucas_bryant1/dnc2_s1/results/pretrained_20260723/cub200_vicreg_official/figures/hyperrect_box_crossfit_vicreg_official_imagenet1k_cub200_bbox_exploratory_v1.png', '/home/lucas_bryant1/dnc2_s1/results/pretrained_20260723/cub200_vicreg_official/figures/hyperrect_box_crossfit_vicreg_official_imagenet1k_cub200_bbox_exploratory_v1.pdf']
-Finished.

@@ -1,5 +1,0 @@
-index, name, memory.used [MiB], memory.total [MiB], utilization.gpu [%]
-0, NVIDIA H100 NVL, 0 MiB, 95830 MiB, 0 %
-1, NVIDIA H100 NVL, 0 MiB, 95830 MiB, 0 %
-2, NVIDIA H100 NVL, 0 MiB, 95830 MiB, 2 %
-3, NVIDIA H100 NVL, 0 MiB, 95830 MiB, 0 %

@@ -95,7 +95,7 @@ venv.bak/
 
 # Local test scratch directories
 .pytest_*/
-.tmp_paper_*/
+.tmp_*/
 
 # PyPI configuration file
 .pypirc
@@ -105,7 +105,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Local experiment inputs and outputs (curated figures/metrics remain tracked)
+# Local experiment inputs
 data/
 checkpoints/
 runs/
@@ -114,3 +114,15 @@ lightning_logs/
 *.ckpt
 *.pth
 *.safetensors
+
+# Generated experiment and presentation outputs
+figures/
+metrics/
+logs/
+results/
+outputs/
+paper_outputs/
+repro_exports/
+artifacts/
+*.tar.gz
+meeting.pdf
