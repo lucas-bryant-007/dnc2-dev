@@ -195,8 +195,6 @@ def test_candidate_ranking_can_require_distinct_semantic_groups():
         len({names[index].split("=", maxsplit=1)[0] for index in row["indices"]}) == 3
         for row in ranked
     )
-
-
 def test_attribute_column_permutation_is_deterministic_and_preserves_prevalence():
     attrs = torch.tensor(
         [
