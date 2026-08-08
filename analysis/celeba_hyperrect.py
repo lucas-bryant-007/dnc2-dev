@@ -157,6 +157,7 @@ def main(args):
     )
     print(f"Extracted features {tuple(features.shape)}, attrs {tuple(attr_matrix.shape)}")
 
+    first_stage_ssl_whitener = None
     # Optional: map into the whitened SSL subspace (paper-faithful geometry).
     # Thm 4.4's sqrt(B_t) hyper-rectangle and the one-scalar B(F) results hold
     # for centered+whitened F; for VICReg/Barlow the raw box is a parallelepiped
@@ -166,19 +167,35 @@ def main(args):
         z1, z2, _ = extract_features(
             paired_loader, model.backbone, device=args.device, both_views=True)
         estimator = fit_ssl_subspace(
-            z1, z2, rel_eig_threshold=args.rel_eig_threshold,
-            whiten_ridge_rel=args.whiten_ridge_rel)
+            z1, z2, rel_eig_threshold=args.rel_eig_threshold)
+        first_stage_ssl_whitener = estimator.first_stage_whitener_provenance(
+            fit_split="train",
+            fit_population="full_training_latent_instance_population",
+            view_marginal=(
+                "equal_weight_empirical_mixture_of_two_augmented_views_per_instance"
+            ),
+            frozen_for_test=(args.split == "test"),
+        )
         features = estimator.transform(features)  # -> psi (whitened SSL coords)
         print(f"Whitened to psi: {tuple(features.shape)} (k_eff={estimator.k_eff})")
 
     # Geometry on GPU if available (40 attributes x ~160k x D).
     feats_dev = features.to(args.device)
+    rewhitening_record = None
     if args.whiten:
         # Rewhiten psi by its OWN covariance (Mahalanobis metric, App. A): the
         # SSL map isn't white on the eval distribution, so without this the
         # capture B can exceed 1 and the box is a skewed parallelepiped.
-        feats_dev = H.rewhiten(feats_dev)
-        print("Re-whitened psi by its own covariance (Cov ~ I; B(F) <= 1).")
+        feats_dev, rewhitener = H.rewhiten(
+            feats_dev,
+            return_transform=True,
+        )
+        rewhitening_record = {
+            **rewhitener.metadata(),
+            "scope": "same_population_fit_and_evaluation",
+            "diagnostics": H.whitening_diagnostics(feats_dev).as_dict(),
+        }
+        print("Exactly re-whitened retained psi coordinates (Cov = I on fit data).")
     attrs_dev = attr_matrix.to(args.device)
     res = H.analyze(
         feats_dev, attrs_dev, attr_names,
@@ -228,6 +245,8 @@ def main(args):
         "split": args.split, "config": args.config, "ckpt_path": ckpt_path,
         "n_samples": res["n_samples"], "feature_dim": res["feature_dim"],
         "whitened": bool(args.whiten),
+        "first_stage_ssl_whitener": first_stage_ssl_whitener,
+        "rewhitening": rewhitening_record,
         **{k: res[k] for k in (
             "attributes", "metrics", "cosine_matrix", "mean_abs_offdiag_cosine",
             "triple_names", "triple_max_abs_cos", "box", "predicted_box")},
@@ -331,6 +350,4 @@ if __name__ == "__main__":
                              "for the paper-faithful sqrt(B_t) hyper-rectangle")
     parser.add_argument("--rel_eig_threshold", type=float, default=1e-3,
                         help="Whitening: keep covariance directions >= rel*lambda_1")
-    parser.add_argument("--whiten_ridge_rel", type=float, default=1e-3,
-                        help="Whitening ridge = whiten_ridge_rel * lambda_1")
     main(parser.parse_args())

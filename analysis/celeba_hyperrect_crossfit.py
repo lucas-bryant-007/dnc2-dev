@@ -16,6 +16,7 @@ import itertools
 import math
 import os
 import sys
+import warnings
 
 import numpy as np
 import torch
@@ -58,6 +59,26 @@ def _serializable_result(result):
         key: value
         for key, value in result.items()
         if key not in {"coords", "granular_task"}
+    }
+
+
+def _training_capture_interpretation(estimator):
+    """Describe capture after adaptive task selection on the training data."""
+    return {
+        "estimator": estimator,
+        "task_selection_status": "selected_using_same_training_observations",
+        "selection_uses_reported_capture_or_related_geometry": True,
+        "fixed_prespecified_task_split_half_unbiased_under_iid_sampling": (
+            estimator == "symmetrized_split_half_cross_gram"
+        ),
+        "post_selection_unbiasedness_claimed": False,
+        "reported_role": (
+            "selection_conditioned_training_fit_for_task_and_box_construction"
+        ),
+        "valid_inferential_evaluation": (
+            "conditionally_unbiased_for_frozen_selected_task_and_train_fitted_"
+            "representation_under_iid_heldout_sampling"
+        ),
     }
 
 
@@ -105,6 +126,10 @@ def _triple_summary(result):
             "sqrt_capture_B": math.sqrt(max(by_name[name].get("capture_B") or 0.0, 0.0)),
             "pos_frac": by_name[name].get("pos_frac"),
             "directional_cdnv": by_name[name].get("directional_cdnv"),
+            "capture_B_estimator": by_name[name].get("capture_B_estimator"),
+            "capture_B_statistical_interpretation": by_name[name].get(
+                "capture_B_statistical_interpretation"
+            ),
         }
         for name in result["triple_names"]
     ]
@@ -176,6 +201,10 @@ def _compact_stability_record(seed, result, balance, diagnostics, criteria, pass
         "crossfit_positive_diagonal": crossfit_geometry.get(
             "valid_positive_diagonal"
         ),
+        "capture_statistical_interpretation": crossfit_geometry.get(
+            "statistical_interpretation"
+        ),
+        "whitening_diagnostics": result.get("whitening_diagnostics"),
     }
 
 
@@ -239,6 +268,9 @@ def _summarize_stability(records, triple_names):
                 aggregate_cosine.tolist() if aggregate_cosine is not None else None
             ),
             "max_abs_cos": aggregate_max_abs_cos,
+            "statistical_interpretation": records[0].get(
+                "capture_statistical_interpretation"
+            ),
             "note": (
                 "Signed Gram entries are averaged before normalization and "
                 "absolute-value/max operations."
@@ -258,6 +290,9 @@ def _summarize_stability(records, triple_names):
             for name in triple_names
         },
         "aggregate_crossfit_probe_geometry": aggregate_geometry,
+        "capture_statistical_interpretation": records[0].get(
+            "capture_statistical_interpretation"
+        ),
         "records": records,
     }
 
@@ -307,11 +342,13 @@ def _split_balanced_sample(selected, samples_per_cell):
 
 
 def _inject_crossfit_probe_geometry(result, geometry):
-    """Replace noisy same-sample capture/cosines with split-half estimates."""
+    """Replace plug-in geometry and retain its selection-aware interpretation."""
     by_name = {row["name"]: row for row in result["metrics"]}
+    interpretation = geometry["statistical_interpretation"]
     for name, capture in geometry["capture_B"].items():
         by_name[name]["capture_B"] = capture
         by_name[name]["capture_B_estimator"] = geometry["estimator"]
+        by_name[name]["capture_B_statistical_interpretation"] = interpretation
     result["crossfit_probe_geometry"] = geometry
     if geometry["valid_positive_diagonal"]:
         result["cosine_matrix"] = geometry["cosine_matrix"]
@@ -401,19 +438,25 @@ def _select_balanced_train_triple(
             seed=args.seed,
             max_per_cell=args.max_train_cell_samples,
         )
+        whitening_fit, first, second = H.split_balanced_whitening_and_probe_folds(
+            selected,
+            per_cell,
+        )
         rewhitener = H.fit_rewhitener(
-            features[selected],
-            ridge_rel=args.analysis_whiten_ridge_rel,
+            features[whitening_fit],
+            rel_eig_threshold=args.analysis_whiten_rel_eig_threshold,
         )
         balanced_features = H.apply_rewhitener(features[selected], rewhitener)
         balanced_attrs = attrs[selected][:, indices]
-        first, second = _split_balanced_sample(selected, per_cell)
+        first_features = H.apply_rewhitener(features[first], rewhitener)
+        second_features = H.apply_rewhitener(features[second], rewhitener)
         crossfit_geometry = H.crossfit_probe_geometry(
-            H.apply_rewhitener(features[first], rewhitener),
+            first_features,
             attrs[first][:, indices],
-            H.apply_rewhitener(features[second], rewhitener),
+            second_features,
             attrs[second][:, indices],
             candidate["names"],
+            task_selection_status="selected_using_same_probe_observations",
         )
         result = H.analyze(
             balanced_features,
@@ -425,6 +468,17 @@ def _select_balanced_train_triple(
             min_capture=args.min_capture,
             cos_ceiling=args.cos_ceiling,
         )
+        result["whitening_diagnostics"] = {
+            "scope": "train_transform_fit_on_independent_third_fold",
+            "fit_fold": H.whitening_diagnostics(
+                H.apply_rewhitener(features[whitening_fit], rewhitener)
+            ).as_dict(),
+            "probe_fold_a": H.whitening_diagnostics(first_features).as_dict(),
+            "probe_fold_b": H.whitening_diagnostics(second_features).as_dict(),
+            "all_balanced_samples": H.whitening_diagnostics(
+                balanced_features
+            ).as_dict(),
+        }
         _inject_crossfit_probe_geometry(result, crossfit_geometry)
         passed = _constraints_satisfied(
             result,
@@ -438,8 +492,14 @@ def _select_balanced_train_triple(
             "proxy": candidate["proxy"],
             "original_cell_counts": counts,
             "samples_per_cell": per_cell,
+            "whitening_fit_samples_per_cell": int(whitening_fit.numel() // 8),
+            "crossfit_samples_per_cell_a": int(first.numel() // 8),
+            "crossfit_samples_per_cell_b": int(second.numel() // 8),
             "exact_max_abs_cos": result["triple_max_abs_cos"],
             "exact_capture_B": [row["capture_B"] for row in result["metrics"]],
+            "capture_statistical_interpretation": crossfit_geometry[
+                "statistical_interpretation"
+            ],
             "passed": passed,
         }
         attempts.append(attempt)
@@ -449,9 +509,9 @@ def _select_balanced_train_triple(
             f"max|cos|={result['triple_max_abs_cos']:.3f} passed={passed}"
         )
         if passed:
-            # Size the predicted corners from the split-half capture. The
-            # plug-in probe norm carries a ~D/N noise term that inflates the
-            # predicted box, badly so whenever N is comparable to D.
+            # Size fitted training corners from the selection-conditioned
+            # split-half capture. This avoids plug-in D/N inflation but is not
+            # an unbiased post-selection estimate for the chosen triple.
             predicted_capture = None
             if crossfit_geometry["valid_positive_diagonal"]:
                 predicted_capture = [
@@ -468,18 +528,40 @@ def _select_balanced_train_triple(
                 "selected_candidate": candidate,
                 "original_cell_counts": counts,
                 "samples_per_cell": per_cell,
+                "whitening_fit_samples_per_cell": int(
+                    whitening_fit.numel() // 8
+                ),
+                "crossfit_samples_per_cell_a": int(first.numel() // 8),
+                "crossfit_samples_per_cell_b": int(second.numel() // 8),
                 "exact_attempts": attempts,
                 "rewhitener": {
                     **rewhitener.metadata(),
                     "fit_split": "train",
-                    "fit_population": "uniform_over_selected_eight_label_cells",
+                    "fit_population": (
+                        "independent_third_fold_uniform_over_selected_eight_"
+                        "label_cells"
+                    ),
+                    "independent_of_split_half_probe_folds": True,
                     "frozen_for_test": True,
                 },
                 "probe_estimator": crossfit_geometry["estimator"],
+                "training_capture_statistical_interpretation": (
+                    crossfit_geometry["statistical_interpretation"]
+                ),
                 "predicted_box_capture_estimator": (
                     crossfit_geometry["estimator"]
                     if predicted_capture is not None
                     else "plug_in_same_sample"
+                ),
+                "predicted_box_capture_statistical_interpretation": (
+                    crossfit_geometry["statistical_interpretation"]
+                    if predicted_capture is not None
+                    else {
+                        "reported_role": (
+                            "selection_conditioned_same_sample_training_fit"
+                        ),
+                        "post_selection_unbiasedness_claimed": False,
+                    }
                 ),
                 "box_reference": box_reference.metadata(),
             }, rewhitener, box_reference
@@ -517,12 +599,15 @@ def _evaluate_balanced_test_seed(
     )
     balanced_attrs = test_attrs[selected][:, selected_indices]
     first, second = _split_balanced_sample(selected, per_cell)
+    first_features = H.apply_rewhitener(test_features[first], train_rewhitener)
+    second_features = H.apply_rewhitener(test_features[second], train_rewhitener)
     crossfit_geometry = H.crossfit_probe_geometry(
-        H.apply_rewhitener(test_features[first], train_rewhitener),
+        first_features,
         test_attrs[first][:, selected_indices],
-        H.apply_rewhitener(test_features[second], train_rewhitener),
+        second_features,
         test_attrs[second][:, selected_indices],
         frozen_triple,
+        task_selection_status="frozen_from_independent_training_split",
     )
     result = H.analyze(
         balanced_features,
@@ -534,6 +619,15 @@ def _evaluate_balanced_test_seed(
         min_capture=args.min_capture,
         cos_ceiling=args.cos_ceiling,
     )
+    result["whitening_diagnostics"] = {
+        "scope": "out_of_sample_frozen_train_fitted_transform",
+        "exact_whiteness_claimed": False,
+        "all_balanced_samples": H.whitening_diagnostics(
+            balanced_features
+        ).as_dict(),
+        "probe_fold_a": H.whitening_diagnostics(first_features).as_dict(),
+        "probe_fold_b": H.whitening_diagnostics(second_features).as_dict(),
+    }
     _inject_crossfit_probe_geometry(result, crossfit_geometry)
     coords, box, granular_task = H.subclass_box(
         balanced_features,
@@ -644,9 +738,10 @@ def _analyze_dataset(
             "Applied independent train attribute-column permutations "
             f"with seed {attribute_permutation_seed}"
         )
-    analysis_features = H.rewhiten(
+    analysis_features, analysis_rewhitener = H.rewhiten(
         features_dev,
-        ridge_rel=args.analysis_whiten_ridge_rel,
+        rel_eig_threshold=args.analysis_whiten_rel_eig_threshold,
+        return_transform=True,
     )
     result = H.analyze(
         analysis_features,
@@ -658,6 +753,12 @@ def _analyze_dataset(
         min_capture=args.min_capture,
         cos_ceiling=args.cos_ceiling,
     )
+    result["rewhitener"] = analysis_rewhitener.metadata()
+    result["whitening_diagnostics"] = {
+        "scope": "same_population_fit_and_evaluation",
+        "exact_whiteness_claimed": True,
+        "all_samples": H.whitening_diagnostics(analysis_features).as_dict(),
+    }
     if retain_tensors:
         del analysis_features
         return result, features_dev, attrs_dev
@@ -677,8 +778,10 @@ def main(args):
         raise ValueError("--test_balance_seeds must not contain duplicates")
     if args.max_test_cell_samples is not None and args.max_test_cell_samples <= 0:
         raise ValueError("--max_test_cell_samples must be positive")
-    if args.analysis_whiten_ridge_rel <= 0:
-        raise ValueError("--analysis_whiten_ridge_rel must be positive")
+    if not 0.0 < args.analysis_whiten_rel_eig_threshold <= 1.0:
+        raise ValueError(
+            "--analysis_whiten_rel_eig_threshold must lie in (0, 1]"
+        )
     if args.label_permutation_seed is not None and not args.joint_balance:
         raise ValueError("--label_permutation_seed requires --joint_balance")
     cfg = dict_to_namespace(load_config(args.config))
@@ -723,7 +826,14 @@ def main(args):
         z1,
         z2,
         rel_eig_threshold=args.rel_eig_threshold,
-        whiten_ridge_rel=args.whiten_ridge_rel,
+    )
+    first_stage_ssl_whitener = estimator.first_stage_whitener_provenance(
+        fit_split="train",
+        fit_population="full_training_latent_instance_population",
+        view_marginal=(
+            "equal_weight_empirical_mixture_of_two_augmented_views_per_instance"
+        ),
+        frozen_for_test=True,
     )
     print(f"SSL subspace k_eff={estimator.k_eff}")
     del z1, z2
@@ -749,6 +859,9 @@ def main(args):
         natural_train_screen = {
             "metrics": natural_train_result["metrics"],
             "mean_abs_offdiag_cosine": natural_train_result["mean_abs_offdiag_cosine"],
+            "statistical_role": (
+                "adaptive_training_candidate_screen_not_unbiased_inference"
+            ),
         }
         (
             train_result,
@@ -787,7 +900,7 @@ def main(args):
                 "tag": tag,
                 "config": args.config,
                 "ckpt_path": ckpt_path,
-                "ssl_subspace_k_eff": estimator.k_eff,
+                "first_stage_ssl_whitener": first_stage_ssl_whitener,
                 "protocol": {
                     "name": "full_pipeline_independent_column_label_permutation",
                     "selection_split": "train",
@@ -843,7 +956,8 @@ def main(args):
     print(f"Selection constraints satisfied: {constraints_ok}")
     for row in _triple_summary(train_result):
         print(
-            f"  {row['name']}: B={row['capture_B']:.4f}, "
+            f"  {row['name']}: selection-conditioned train B="
+            f"{row['capture_B']:.4f}, "
             f"sqrtB={row['sqrt_capture_B']:.4f}, pos_frac={row['pos_frac']:.3f}"
         )
     if not constraints_ok and not args.allow_constraint_fallback:
@@ -853,6 +967,14 @@ def main(args):
         )
     frozen_triple = list(train_result["triple_names"])
     train_payload = _serializable_result(train_result)
+    training_capture_interpretation = _training_capture_interpretation(
+        "symmetrized_split_half_cross_gram"
+        if args.joint_balance
+        else "same_sample_plug_in"
+    )
+    train_payload["statistical_interpretation"] = (
+        training_capture_interpretation
+    )
     del train_result
     gc.collect()
 
@@ -999,7 +1121,7 @@ def main(args):
             primary_test_seed if primary_test_seed is not None else args.seed + 1,
             (
                 "projection onto normalized train-fitted task mean-difference "
-                "axes after frozen train-fitted ZCA rewhitening"
+                "axes after frozen train-fitted exact rank-truncated whitening"
                 if args.joint_balance
                 else (
                     "projection onto normalized held-out task mean-difference axes "
@@ -1034,16 +1156,45 @@ def main(args):
             "cos_ceiling": args.cos_ceiling,
             "constraints_satisfied": constraints_ok,
             "rewhitening": (
-                "ZCA fitted once on the selected jointly balanced training "
-                "population and frozen for every held-out test resample"
+                "Exact rank-truncated whitening fitted once on the selected "
+                "jointly balanced training population using an independent "
+                "third fold, then frozen for both train probe folds and every "
+                "held-out test resample; held-out coordinates are reported "
+                "as out-of-sample, not exactly white"
                 if args.joint_balance
-                else "ZCA fitted independently within each analysis split"
+                else (
+                    "Exact rank-truncated whitening fitted independently "
+                    "within each analysis split"
+                )
             ),
+            "analysis_whitening_option": {
+                "spelling": getattr(
+                    args,
+                    "analysis_whiten_cli_option",
+                    "programmatic_api",
+                ),
+                "value": args.analysis_whiten_rel_eig_threshold,
+                "meaning": "relative_covariance_rank_cutoff",
+            },
             "test_statistics_used_to_fit_rewhitening": False if args.joint_balance else True,
             "capture_and_cosine_estimator": (
-                "symmetrized split-half cross-Gram within every balanced sample"
+                "symmetrized split-half cross-Gram conditional on a whitening "
+                "transform fitted from an independent third fold; fixed-task "
+                "unbiasedness does not extend through adaptive train selection"
                 if args.joint_balance
-                else "same-sample plug-in estimate"
+                else (
+                    "same-sample plug-in estimate used after adaptive train "
+                    "selection; no unbiasedness claim"
+                )
+            ),
+            "training_capture_interpretation": (
+                training_capture_interpretation
+            ),
+            "headline_inference_source": (
+                "conditionally unbiased evaluation of the frozen selected task "
+                "and train-fitted representation under IID held-out sampling"
+                if args.joint_balance
+                else "diagnostic_same_split_analysis_without_frozen_train_whitener"
             ),
             "box_axes_and_predicted_corners": (
                 "fit on selected balanced train population and frozen for test"
@@ -1056,12 +1207,25 @@ def main(args):
                 if test_stability_records
                 else None
             ),
+            "test_balance_seed_interpretation": (
+                "correlated_resamples_of_one_heldout_test_set_for_stability_"
+                "not_independent_replications"
+                if test_stability_records
+                else None
+            ),
             "max_test_cell_samples": args.max_test_cell_samples,
             "criteria_status": (
                 "fixed_before_strict_rerun_but_not_formally_preregistered"
                 if args.joint_balance
                 else "diagnostic"
             ),
+            "confirmatory_inference_condition": {
+                "requires_test_set_untouched_during_protocol_design": True,
+                "protocol_choices_covered": (
+                    "thresholds_ranks_candidate_families_seeds_and_reporting"
+                ),
+                "fresh_holdout_required_after_test_informed_changes": True,
+            },
             "label_randomization": (
                 {
                     "name": "full_pipeline_independent_column_label_permutation",
@@ -1080,7 +1244,7 @@ def main(args):
                 "min_cell_count": args.min_test_cell_count,
             },
         },
-        "ssl_subspace_k_eff": estimator.k_eff,
+        "first_stage_ssl_whitener": first_stage_ssl_whitener,
         "selected_triple": frozen_triple,
         "natural_train_screen": natural_train_screen,
         "train_balance": train_balance_record,
@@ -1136,12 +1300,17 @@ if __name__ == "__main__":
     parser.add_argument("--cos_ceiling", type=float, default=0.12)
     parser.add_argument("--max_samples", type=int, default=None)
     parser.add_argument("--rel_eig_threshold", type=float, default=1e-3)
-    parser.add_argument("--whiten_ridge_rel", type=float, default=1e-3)
     parser.add_argument(
+        "--analysis_whiten_rel_eig_threshold",
         "--analysis_whiten_ridge_rel",
+        dest="analysis_whiten_rel_eig_threshold",
         type=float,
         default=1e-3,
-        help="Ridge for analysis-space ZCA; the joint-balance protocol fits it on train only",
+        help=(
+            "Relative covariance cutoff for exact rank-truncated analysis "
+            "whitening; the legacy --analysis_whiten_ridge_rel spelling is "
+            "accepted as an alias"
+        ),
     )
     parser.add_argument("--transform_batch_size", type=int, default=8192)
     parser.add_argument("--allow_constraint_fallback", action="store_true")
@@ -1187,4 +1356,27 @@ if __name__ == "__main__":
     )
     parser.add_argument("--out_dir", default=".")
     parser.add_argument("--tag", default="crossfit")
-    main(parser.parse_args())
+    parsed = parser.parse_args()
+    argv_options = {value.split("=", 1)[0] for value in sys.argv[1:]}
+    used_current = "--analysis_whiten_rel_eig_threshold" in argv_options
+    used_legacy = "--analysis_whiten_ridge_rel" in argv_options
+    if used_current and used_legacy:
+        parser.error("Do not supply both analysis-whitening option spellings")
+    if used_legacy:
+        warnings.warn(
+            "--analysis_whiten_ridge_rel is deprecated and now denotes a "
+            "relative rank cutoff, not ridge strength; regenerated results "
+            "are not numerically compatible with ridge-whitened artifacts",
+            FutureWarning,
+            stacklevel=1,
+        )
+    parsed.analysis_whiten_cli_option = (
+        "--analysis_whiten_ridge_rel (deprecated)"
+        if used_legacy
+        else (
+            "--analysis_whiten_rel_eig_threshold"
+            if used_current
+            else "default"
+        )
+    )
+    main(parsed)

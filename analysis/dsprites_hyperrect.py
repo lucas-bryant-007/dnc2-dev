@@ -100,6 +100,7 @@ def main(args):
         eval_loader, model.backbone, args.device, max_samples=args.max_samples)
     print(f"Extracted features {tuple(features.shape)}, bits {tuple(bit_matrix.shape)}")
 
+    first_stage_ssl_whitener = None
     if args.whiten:
         paired_loader = core.make_paired_loader(
             data_cfg, imgs=imgs, bits=bits, group_of=group_of, groups=groups)
@@ -107,15 +108,33 @@ def main(args):
             paired_loader, model.backbone, device=args.device, both_views=True,
             max_batches=args.whiten_batches)
         estimator = fit_ssl_subspace(
-            z1, z2, rel_eig_threshold=args.rel_eig_threshold,
-            whiten_ridge_rel=args.whiten_ridge_rel)
+            z1, z2, rel_eig_threshold=args.rel_eig_threshold)
+        first_stage_ssl_whitener = estimator.first_stage_whitener_provenance(
+            fit_split="analysis_population",
+            fit_population=(
+                "configured_dsprites_paired_instances_up_to_whiten_batch_limit"
+            ),
+            view_marginal=(
+                "equal_weight_empirical_mixture_of_two_augmented_views_per_instance"
+            ),
+            frozen_for_test=None,
+        )
         features = estimator.transform(features)
         print(f"Whitened to psi: {tuple(features.shape)} (k_eff={estimator.k_eff})")
 
     feats_dev = features.to(args.device)
+    rewhitening_record = None
     if args.whiten:
-        feats_dev = H.rewhiten(feats_dev)
-        print("Re-whitened psi by its own covariance (Cov ~ I; B(F) <= 1).")
+        feats_dev, rewhitener = H.rewhiten(
+            feats_dev,
+            return_transform=True,
+        )
+        rewhitening_record = {
+            **rewhitener.metadata(),
+            "scope": "same_population_fit_and_evaluation",
+            "diagnostics": H.whitening_diagnostics(feats_dev).as_dict(),
+        }
+        print("Exactly re-whitened retained psi coordinates (Cov = I on fit data).")
     bits_dev = bit_matrix.to(args.device)
 
     res = H.analyze(
@@ -162,6 +181,8 @@ def main(args):
         "pair_mode": data_cfg.pair_mode, "shapes": list(data_cfg.shapes),
         "n_samples": res["n_samples"], "feature_dim": res["feature_dim"],
         "whitened": bool(args.whiten),
+        "first_stage_ssl_whitener": first_stage_ssl_whitener,
+        "rewhitening": rewhitening_record,
         **{k: res[k] for k in (
             "attributes", "metrics", "cosine_matrix", "mean_abs_offdiag_cosine",
             "triple_names", "triple_max_abs_cos", "box", "predicted_box")},
@@ -221,5 +242,4 @@ if __name__ == "__main__":
     parser.add_argument("--whiten_batches", type=int, default=200,
                         help="Max paired batches used to estimate the SSL subspace")
     parser.add_argument("--rel_eig_threshold", type=float, default=1e-3)
-    parser.add_argument("--whiten_ridge_rel", type=float, default=1e-3)
     main(parser.parse_args())

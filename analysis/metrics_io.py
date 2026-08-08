@@ -25,6 +25,13 @@ CSV_FIELDNAMES = [
     "tilde_V_pred", "tilde_V_obs",
     "V_pred", "V_obs",
     "gram_eig_min", "gram_eig_max", "gram_cond", "gram_fro_error",
+    "theorem_eligible", "theorem_ineligibility_reasons",
+    "whitening_eligibility_policy",
+    "whiten_mean_l2_error", "whiten_operator_error",
+    "whiten_mean_l2_sampling_normalized_error",
+    "whiten_operator_sampling_normalized_error",
+    "whiten_max_mean_l2_error", "whiten_max_operator_error",
+    "whiten_n_independent_instances",
     "orig_cdnv", "orig_directional_cdnv",
     "b_metric",
 ]
@@ -105,8 +112,11 @@ def build_csv_rows(
         V_pred = cap.get("V_pred") or {}
         V_obs = cap.get("V_obs") or {}
         gram = cap.get("gram_stats") or {}
-        for r in cap.get("r_values", []):
+        whitening = cap.get("whitening_diagnostics") or {}
+        requested_r_values = cap.get("requested_r_values", cap.get("r_values", []))
+        for r in requested_r_values:
             gs = gram.get(r) or {}
+            wd = whitening.get(r) or {}
             rows.append({
                 "method": method,
                 "attribute": attribute,
@@ -125,6 +135,32 @@ def build_csv_rows(
                 "gram_eig_max": _finite(gs.get("eig_max")),
                 "gram_cond": _finite(gs.get("cond")),
                 "gram_fro_error": _finite(gs.get("fro_error")),
+                "theorem_eligible": wd.get("eligible"),
+                "theorem_ineligibility_reasons": ";".join(
+                    wd.get("ineligibility_reasons") or []
+                ),
+                "whitening_eligibility_policy": wd.get("eligibility_policy"),
+                "whiten_mean_l2_error": _finite(wd.get("mean_l2_norm")),
+                "whiten_operator_error": _finite(
+                    wd.get("second_moment_operator_error")
+                ),
+                "whiten_mean_l2_sampling_normalized_error": _finite(
+                    wd.get("mean_l2_sampling_normalized_error")
+                ),
+                "whiten_operator_sampling_normalized_error": _finite(
+                    wd.get(
+                        "second_moment_operator_sampling_normalized_error"
+                    )
+                ),
+                "whiten_max_mean_l2_error": _finite(
+                    wd.get("max_mean_l2_error")
+                ),
+                "whiten_max_operator_error": _finite(
+                    wd.get("max_operator_error")
+                ),
+                "whiten_n_independent_instances": wd.get(
+                    "n_independent_samples"
+                ),
                 "orig_cdnv": _finite(orig_cdnv),
                 "orig_directional_cdnv": _finite(orig_directional_cdnv),
                 "b_metric": b_metric,

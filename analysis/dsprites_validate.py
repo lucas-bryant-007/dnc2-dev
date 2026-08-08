@@ -113,10 +113,27 @@ def main(args):
                                 group_of=group_of, groups=groups)
     z1, z2, _ = extract_features(paired, model.backbone, device=args.device,
                                  both_views=True, max_batches=args.whiten_batches)
-    est = fit_ssl_subspace(z1, z2, rel_eig_threshold=args.rel_eig_threshold,
-                           whiten_ridge_rel=args.whiten_ridge_rel)
+    est = fit_ssl_subspace(z1, z2, rel_eig_threshold=args.rel_eig_threshold)
+    first_stage_ssl_whitener = est.first_stage_whitener_provenance(
+        fit_split="analysis_population",
+        fit_population=(
+            "configured_dsprites_paired_instances_up_to_whiten_batch_limit"
+        ),
+        view_marginal=(
+            "equal_weight_empirical_mixture_of_two_augmented_views_per_instance"
+        ),
+        frozen_for_test=None,
+    )
     feats = est.transform(feats)
-    feats = H.rewhiten(feats.to(args.device))
+    feats, rewhitener = H.rewhiten(
+        feats.to(args.device),
+        return_transform=True,
+    )
+    whitening_record = {
+        **rewhitener.metadata(),
+        "scope": "same_population_fit_and_evaluation",
+        "diagnostics": H.whitening_diagnostics(feats).as_dict(),
+    }
     r_dim = feats.shape[1]
     print(f"Whitened features {tuple(feats.shape)} (r = k_eff = {r_dim})")
 
@@ -219,6 +236,8 @@ def main(args):
         "config": args.config, "ckpt_path": ckpt_files[args.epoch],
         "tasks": task_names, "r_dim": int(r_dim), "B": Bf.tolist(),
         "cosine_matrix": cos.tolist(), "rho_matrix": rho.tolist(),
+        "first_stage_ssl_whitener": first_stage_ssl_whitener,
+        "rewhitening": whitening_record,
         "few_shot": results,
     }
     jp = mio.write_json(os.path.join(metrics_dir, f"validate_{stem}.json"), payload)
@@ -237,7 +256,6 @@ if __name__ == "__main__":
     ap.add_argument("--reps", type=int, default=300)
     ap.add_argument("--whiten_batches", type=int, default=200)
     ap.add_argument("--rel_eig_threshold", type=float, default=1e-3)
-    ap.add_argument("--whiten_ridge_rel", type=float, default=1e-3)
     ap.add_argument("--out_dir", default=".")
     ap.add_argument("--tag", default="twoview")
     main(ap.parse_args())

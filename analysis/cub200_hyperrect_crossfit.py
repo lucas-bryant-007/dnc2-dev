@@ -6,6 +6,7 @@ import argparse
 import gc
 import os
 import sys
+import warnings
 
 import torch
 import torch.nn.functional as F
@@ -24,6 +25,7 @@ from celeba_hyperrect_crossfit import (
     _select_balanced_train_triple,
     _serializable_result,
     _summarize_stability,
+    _training_capture_interpretation,
     _triple_summary,
     _write_plot_points,
     _write_stability_csv,
@@ -95,8 +97,10 @@ def _validate_args(args):
         raise ValueError("batch_size must be positive and num_workers nonnegative")
     if args.image_size <= 0:
         raise ValueError("image_size must be positive")
-    if args.analysis_whiten_ridge_rel <= 0:
-        raise ValueError("analysis_whiten_ridge_rel must be positive")
+    if not 0.0 < args.analysis_whiten_rel_eig_threshold <= 1.0:
+        raise ValueError(
+            "analysis_whiten_rel_eig_threshold must lie in (0, 1]"
+        )
     if not args.test_balance_seeds:
         raise ValueError("At least one test balance seed is required")
     if len(args.test_balance_seeds) != len(set(args.test_balance_seeds)):
@@ -132,11 +136,13 @@ def main(args):
     print("\n=== TRAIN FEATURE EXTRACTION AND SELECTION ===")
     train_features, train_attrs = _extract_features(train_dataset, model, args)
     print(f"Train features {tuple(train_features.shape)}")
+    natural_train_features, natural_train_rewhitener = H.rewhiten(
+        train_features,
+        rel_eig_threshold=args.analysis_whiten_rel_eig_threshold,
+        return_transform=True,
+    )
     natural_train = H.analyze(
-        H.rewhiten(
-            train_features,
-            ridge_rel=args.analysis_whiten_ridge_rel,
-        ),
+        natural_train_features,
         train_attrs,
         metadata.attribute_names,
         min_class_frac=args.min_class_frac,
@@ -176,15 +182,40 @@ def main(args):
     print(f"Declared train constraints satisfied: {constraints_ok}")
     for row in _triple_summary(train_result):
         print(
-            f"  {row['name']}: B={row['capture_B']:.4f}, "
+            f"  {row['name']}: selection-conditioned train B="
+            f"{row['capture_B']:.4f}, "
             f"pos_frac={row['pos_frac']:.3f}"
         )
     train_payload = _serializable_result(train_result)
+    training_capture_interpretation = _training_capture_interpretation(
+        "symmetrized_split_half_cross_gram"
+    )
+    train_payload["statistical_interpretation"] = (
+        training_capture_interpretation
+    )
     natural_train_screen = {
         "metrics": natural_train["metrics"],
         "mean_abs_offdiag_cosine": natural_train["mean_abs_offdiag_cosine"],
+        "statistical_role": (
+            "adaptive_training_candidate_screen_not_unbiased_inference"
+        ),
+        "rewhitener": natural_train_rewhitener.metadata(),
+        "whitening_diagnostics": {
+            "scope": "same_population_fit_and_evaluation",
+            "exact_whiteness_claimed": True,
+            "all_samples": H.whitening_diagnostics(
+                natural_train_features
+            ).as_dict(),
+        },
     }
-    del natural_train, train_result, train_features, train_attrs
+    del (
+        natural_train,
+        natural_train_features,
+        natural_train_rewhitener,
+        train_result,
+        train_features,
+        train_attrs,
+    )
     torch.cuda.empty_cache()
     gc.collect()
 
@@ -268,7 +299,7 @@ def main(args):
         args.test_balance_seeds[0],
         (
             "projection onto normalized train-fitted task mean-difference axes "
-            "after frozen train-fitted ZCA rewhitening"
+            "after frozen train-fitted exact rank-truncated whitening"
         ),
     )
     points_record["artifact"] = os.path.relpath(
@@ -300,11 +331,34 @@ def main(args):
             ),
             "train_constraints_satisfied": constraints_ok,
             "rewhitening": (
-                "ZCA fitted once on selected balanced train population and "
-                "frozen for test"
+                "Exact rank-truncated whitening fitted once on selected "
+                "balanced train population using an independent third fold, "
+                "then frozen for train probes and out-of-sample test evaluation"
             ),
+            "analysis_whitening_option": {
+                "spelling": getattr(
+                    args,
+                    "analysis_whiten_cli_option",
+                    "programmatic_api",
+                ),
+                "value": args.analysis_whiten_rel_eig_threshold,
+                "meaning": "relative_covariance_rank_cutoff",
+            },
             "capture_and_cosine_estimator": (
-                "symmetrized split-half cross-Gram within every balanced sample"
+                "symmetrized split-half cross-Gram conditional on a whitening "
+                "transform fitted from an independent third fold; fixed-task "
+                "unbiasedness does not extend through adaptive train selection"
+            ),
+            "training_capture_interpretation": (
+                training_capture_interpretation
+            ),
+            "headline_inference_source": (
+                "conditionally unbiased evaluation of the frozen selected task "
+                "and train-fitted representation under IID held-out sampling"
+            ),
+            "test_balance_seed_interpretation": (
+                "correlated_resamples_of_one_heldout_test_set_for_stability_"
+                "not_independent_replications"
             ),
             "box_axes_and_predicted_corners": (
                 "fit on selected balanced train population and frozen for test"
@@ -314,6 +368,13 @@ def main(args):
                 "distinct_attribute_family_constraint_added_after_the_first_"
                 "selector_chose_two_values_of_primary_color"
             ),
+            "confirmatory_inference_condition": {
+                "requires_test_set_untouched_during_protocol_design": True,
+                "protocol_choices_covered": (
+                    "thresholds_ranks_candidate_families_seeds_and_reporting"
+                ),
+                "fresh_holdout_required_after_test_informed_changes": True,
+            },
             "fixed_test_criteria": {
                 "max_pairwise_abs_cos": args.test_cos_target,
                 "min_capture_B": args.test_min_capture,
@@ -376,7 +437,18 @@ if __name__ == "__main__":
         default=True,
     )
     parser.add_argument("--seed", type=int, default=6)
-    parser.add_argument("--analysis_whiten_ridge_rel", type=float, default=1e-3)
+    parser.add_argument(
+        "--analysis_whiten_rel_eig_threshold",
+        "--analysis_whiten_ridge_rel",
+        dest="analysis_whiten_rel_eig_threshold",
+        type=float,
+        default=1e-3,
+        help=(
+            "Relative covariance cutoff for exact rank-truncated whitening; "
+            "the legacy --analysis_whiten_ridge_rel spelling is accepted as "
+            "an alias"
+        ),
+    )
     parser.add_argument("--candidate_min_class_frac", type=float, default=0.10)
     parser.add_argument("--candidate_min_capture", type=float, default=0.03)
     parser.add_argument("--balance_candidate_pool", type=int, default=12)
@@ -400,4 +472,27 @@ if __name__ == "__main__":
     parser.add_argument("--min_test_cell_count", type=int, default=20)
     parser.add_argument("--tag", default="bbox_distinct_families_v2")
     parser.add_argument("--out_dir", default=".")
-    main(parser.parse_args())
+    parsed = parser.parse_args()
+    argv_options = {value.split("=", 1)[0] for value in sys.argv[1:]}
+    used_current = "--analysis_whiten_rel_eig_threshold" in argv_options
+    used_legacy = "--analysis_whiten_ridge_rel" in argv_options
+    if used_current and used_legacy:
+        parser.error("Do not supply both analysis-whitening option spellings")
+    if used_legacy:
+        warnings.warn(
+            "--analysis_whiten_ridge_rel is deprecated and now denotes a "
+            "relative rank cutoff, not ridge strength; regenerated results "
+            "are not numerically compatible with ridge-whitened artifacts",
+            FutureWarning,
+            stacklevel=1,
+        )
+    parsed.analysis_whiten_cli_option = (
+        "--analysis_whiten_ridge_rel (deprecated)"
+        if used_legacy
+        else (
+            "--analysis_whiten_rel_eig_threshold"
+            if used_current
+            else "default"
+        )
+    )
+    main(parsed)

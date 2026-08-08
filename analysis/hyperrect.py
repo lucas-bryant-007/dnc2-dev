@@ -27,8 +27,16 @@ import torch
 
 try:
     from .br.geometric_estimators import estimate_tilde_V, estimate_V
+    from .br.whitening import (
+        fit_exact_whitener,
+        whitening_diagnostics as whitening_diagnostics,
+    )
 except ImportError:  # direct script execution from analysis/
     from br.geometric_estimators import estimate_tilde_V, estimate_V
+    from br.whitening import (
+        fit_exact_whitener,
+        whitening_diagnostics as whitening_diagnostics,
+    )
 
 
 def capture_proxy(m: Dict) -> float:
@@ -48,25 +56,33 @@ def capture_proxy(m: Dict) -> float:
 
 @dataclass
 class RewhiteningTransform:
-    """Frozen affine ZCA map fitted on one declared reference population."""
+    """Frozen rank-truncated whitening map fitted on one reference population."""
 
     mean: torch.Tensor
-    zca: torch.Tensor
+    whitener: torch.Tensor
     n_fit: int
-    feature_dim: int
-    ridge_rel: float
-    ridge: float
+    input_dim: int
+    output_dim: int
+    rel_eig_threshold: float
+    numerical_rel_eig_floor: float
+    effective_rel_eig_threshold: float
+    cutoff: float
     lambda_max: float
+    lambda_min_retained: float
 
     def metadata(self) -> Dict:
         """Return JSON-safe fit diagnostics without serializing large tensors."""
         return {
-            "kind": "zca",
+            "kind": "rank_truncated_exact_pca_whitening",
             "n_fit": self.n_fit,
-            "feature_dim": self.feature_dim,
-            "ridge_rel": self.ridge_rel,
-            "ridge": self.ridge,
+            "input_dim": self.input_dim,
+            "output_dim": self.output_dim,
+            "requested_rel_eig_threshold": self.rel_eig_threshold,
+            "numerical_rel_eig_floor": self.numerical_rel_eig_floor,
+            "effective_rel_eig_threshold": self.effective_rel_eig_threshold,
+            "cutoff": self.cutoff,
             "lambda_max": self.lambda_max,
+            "lambda_min_retained": self.lambda_min_retained,
         }
 
 
@@ -92,62 +108,58 @@ class BoxReference:
             "plug_in_capture_B": torch.diagonal(probe_gram).tolist(),
             "predicted_box_capture_B": self.capture,
             "predicted_box_capture_estimator": (
-                "plug_in_same_sample" if self.capture is None else "unbiased_supplied"
+                "plug_in_same_sample"
+                if self.capture is None
+                else "caller_supplied_capture"
             ),
             "predicted_box": self.predicted_box,
         }
 
 
 def fit_rewhitener(
-    features: torch.Tensor, ridge_rel: float = 1e-3
+    features: torch.Tensor, rel_eig_threshold: float = 1e-3
 ) -> RewhiteningTransform:
-    """Fit a regularized ZCA map on a reference feature population."""
-    if features.ndim != 2:
-        raise ValueError(f"features must be 2D, got {features.ndim}D")
-    if features.shape[0] < 2:
-        raise ValueError("At least two samples are required to fit rewhitening")
-    if ridge_rel <= 0:
-        raise ValueError(f"ridge_rel must be positive, got {ridge_rel}")
-
-    features = features.float()
-    mean = features.mean(dim=0, keepdim=True)
-    centered = features - mean
-    covariance = (centered.T @ centered) / centered.shape[0]
-    evals, evecs = torch.linalg.eigh(covariance)
-    evals = evals.clamp_min(0.0)
-    lambda_max = float(evals.max().item())
-    if not math.isfinite(lambda_max) or lambda_max <= 0:
-        raise ValueError("Cannot fit rewhitening to zero-variance features")
-    ridge = ridge_rel * lambda_max
-    inv_sqrt = (evals + ridge).rsqrt()
-    zca = (evecs * inv_sqrt) @ evecs.T
+    """Fit exact empirical whitening after discarding unstable directions."""
+    fit = fit_exact_whitener(
+        features,
+        rel_eig_threshold=rel_eig_threshold,
+    )
     return RewhiteningTransform(
-        mean=mean,
-        zca=zca,
-        n_fit=int(features.shape[0]),
-        feature_dim=int(features.shape[1]),
-        ridge_rel=float(ridge_rel),
-        ridge=float(ridge),
-        lambda_max=lambda_max,
+        mean=fit.mean,
+        whitener=fit.whitener,
+        n_fit=fit.n_fit,
+        input_dim=fit.input_dim,
+        output_dim=fit.output_dim,
+        rel_eig_threshold=fit.rel_eig_threshold,
+        numerical_rel_eig_floor=fit.numerical_rel_eig_floor,
+        effective_rel_eig_threshold=fit.effective_rel_eig_threshold,
+        cutoff=fit.cutoff,
+        lambda_max=fit.lambda_max,
+        lambda_min_retained=float(fit.retained_eigenvalues[-1].item()),
     )
 
 
 def apply_rewhitener(
     features: torch.Tensor, transform: RewhiteningTransform
 ) -> torch.Tensor:
-    """Apply a previously fitted ZCA map without using target-split statistics."""
+    """Apply a previously fitted exact whitening map without refitting it."""
     if features.ndim != 2:
         raise ValueError(f"features must be 2D, got {features.ndim}D")
-    if features.shape[1] != transform.feature_dim:
+    if features.shape[1] != transform.input_dim:
         raise ValueError(
             f"feature dimension {features.shape[1]} does not match fitted "
-            f"dimension {transform.feature_dim}"
+            f"input dimension {transform.input_dim}"
         )
-    return (features.float() - transform.mean) @ transform.zca
+    features = features.to(dtype=transform.mean.dtype)
+    return (features - transform.mean) @ transform.whitener
 
 
-def rewhiten(features: torch.Tensor, ridge_rel: float = 1e-3) -> torch.Tensor:
-    """ZCA-whiten features by their OWN covariance so E[F]=0, Cov(F)≈I.
+def rewhiten(
+    features: torch.Tensor,
+    rel_eig_threshold: float = 1e-3,
+    return_transform: bool = False,
+):
+    """Exactly whiten retained directions using this tensor's own covariance.
 
     The SSL-subspace map whitens w.r.t. the augmented-train distribution, not the
     labeled-eval distribution, so E[psi psi^T] != I and the raw capture
@@ -159,8 +171,14 @@ def rewhiten(features: torch.Tensor, ridge_rel: float = 1e-3) -> torch.Tensor:
     Cross-split evaluation must instead call :func:`fit_rewhitener` on training
     data and :func:`apply_rewhitener` on held-out data.
     """
-    transform = fit_rewhitener(features, ridge_rel=ridge_rel)
-    return apply_rewhitener(features, transform)
+    transform = fit_rewhitener(
+        features,
+        rel_eig_threshold=rel_eig_threshold,
+    )
+    whitened = apply_rewhitener(features, transform)
+    if return_transform:
+        return whitened, transform
+    return whitened
 
 
 def to_binary01(labels: torch.Tensor) -> torch.Tensor:
@@ -364,6 +382,42 @@ def balanced_joint_indices(
     return indices, [int(count) for count in counts], int(per_cell)
 
 
+def split_balanced_whitening_and_probe_folds(
+    selected: torch.Tensor,
+    samples_per_cell: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Split each of eight cells into whitening-fit and two probe folds.
+
+    The whitening transform is fitted only on the first returned fold. The
+    two remaining, disjoint folds can then support a split-half cross-Gram
+    estimator conditional on a transform that is independent of both probes.
+    """
+    if selected.ndim != 1 or selected.numel() != 8 * samples_per_cell:
+        raise ValueError(
+            "selected must contain exactly samples_per_cell indices for each "
+            "of eight contiguous cells"
+        )
+    if samples_per_cell < 3:
+        raise ValueError(
+            "Independent whitening plus split-half probes need at least three "
+            "samples per cell"
+        )
+    whitening_size = max(1, samples_per_cell // 3)
+    probe_size = samples_per_cell - whitening_size
+    first_size = probe_size // 2
+    whitening = []
+    first = []
+    second = []
+    for cell in range(8):
+        start = cell * samples_per_cell
+        cell_indices = selected[start:start + samples_per_cell]
+        whitening.append(cell_indices[:whitening_size])
+        probes = cell_indices[whitening_size:]
+        first.append(probes[:first_size])
+        second.append(probes[first_size:])
+    return torch.cat(whitening), torch.cat(first), torch.cat(second)
+
+
 def balanced_triple_proxy(features: torch.Tensor, attr3: torch.Tensor) -> Dict:
     """Cheap equal-cell geometry used only to rank training-set triples.
 
@@ -482,8 +536,9 @@ def fit_box_reference(
     """Fit task axes and predicted box corners on training observations only.
 
     Pass ``capture`` (per task, in ``triple_names`` order) to size the predicted
-    corners from an unbiased capture estimate instead of the plug-in probe norm,
-    which is inflated by roughly ``D/N``.
+    corners from a caller-supplied estimate instead of the plug-in probe norm,
+    which is inflated by roughly ``D/N``. The caller must record whether task
+    selection changes the supplied estimate's statistical interpretation.
     """
     if attr3.ndim != 2 or attr3.shape != (features.shape[0], 3):
         raise ValueError("attr3 must have shape [N,3] matching features")
@@ -521,13 +576,16 @@ def crossfit_probe_geometry(
     features_b: torch.Tensor,
     attr3_b: torch.Tensor,
     triple_names: Sequence[str],
+    *,
+    task_selection_status: str,
 ) -> Dict:
     """Estimate capture and task cosines from independent sample halves.
 
-    For probes ``w_a`` and ``w_b`` fit on disjoint samples, the symmetrized
+    For fixed, prespecified tasks and i.i.d. probe halves, the symmetrized
     cross-Gram matrix is an unbiased estimator of ``w_t^T w_u``. In particular,
     its diagonal avoids the ``D/N`` noise inflation in the same-sample estimator
-    ``||w_hat||^2``.
+    ``||w_hat||^2``. This does not imply post-selection unbiasedness when the
+    same observations helped choose the reported tasks.
     """
     if features_a.ndim != 2 or features_b.ndim != 2:
         raise ValueError("features_a and features_b must be 2D")
@@ -539,6 +597,19 @@ def crossfit_probe_geometry(
         raise ValueError("attr3_b must have shape [N_b,3]")
     if len(triple_names) != 3:
         raise ValueError("triple_names must contain exactly three names")
+    allowed_selection_statuses = {
+        "selected_using_same_probe_observations",
+        "frozen_from_independent_training_split",
+        "prespecified_without_data_dependent_selection",
+    }
+    if task_selection_status not in allowed_selection_statuses:
+        raise ValueError(
+            "task_selection_status must be one of "
+            f"{sorted(allowed_selection_statuses)}; got {task_selection_status!r}"
+        )
+    selected_on_same_observations = (
+        task_selection_status == "selected_using_same_probe_observations"
+    )
 
     probes_a = torch.stack(
         [
@@ -582,6 +653,21 @@ def crossfit_probe_geometry(
         "gram_matrix": gram.tolist(),
         "cosine_matrix": cosine_list,
         "max_abs_cos": max_abs_cos,
+        "statistical_interpretation": {
+            "task_selection_status": task_selection_status,
+            "fixed_prespecified_task_unbiased_under_iid_sampling": True,
+            "post_selection_unbiasedness_claimed": False,
+            "conditionally_unbiased_for_frozen_task_and_representation_"
+            "under_iid_sampling": not selected_on_same_observations,
+            "reported_role": (
+                "selection_conditioned_training_fit_not_unbiased_inference"
+                if selected_on_same_observations
+                else (
+                    "conditionally_unbiased_evaluation_of_frozen_task_and_"
+                    "train_fitted_representation_under_iid_heldout_sampling"
+                )
+            ),
+        },
     }
 
 
@@ -594,10 +680,11 @@ def rescale_probes_to_capture(
     ``E ||w_hat_t||^2 = B_t + tr(Cov(F))/N``, i.e. in whitened coordinates it
     over-estimates the capture by roughly ``D/N``. Because the box axis is
     ``w_hat_t/||w_hat_t||``, that bias lands directly on the predicted corner
-    coordinate and inflates the predicted hyper-rectangle. Supplying an
-    unbiased ``capture`` (e.g. the split-half cross-Gram diagonal from
-    :func:`crossfit_probe_geometry`) restores the correct scale while keeping
-    the plug-in directions, which are unaffected by the isotropic noise term.
+    coordinate and inflates the predicted hyper-rectangle. Supplying a
+    fixed-task unbiased ``capture`` (e.g. a split-half cross-Gram diagonal)
+    removes that same-sample inflation. If tasks were selected using the same
+    observations, the result is still a selection-conditioned fitted quantity,
+    not an unbiased post-selection estimate.
     """
     if w_cols.ndim != 2:
         raise ValueError(f"w_cols must be 2D, got {w_cols.ndim}D")
@@ -621,25 +708,39 @@ def predicted_box_corners(
     basis: torch.Tensor,
     capture: Optional[Sequence[float]] = None,
 ) -> List[Dict]:
-    """Predicted hyper-rectangle corners (Thm 4.4) for the 3 chosen tasks.
+    """Predicted task-axis coordinates from Thm. 4.4 for three tasks.
 
-    ``w_cols`` is [D, 3] (column t = capture vector w_t); the predicted centroid
-    for granular task (y0,y1,y2) is sum_t y_t w_t, projected via ``basis`` [D,3].
-    With orthogonal tasks the corners sit at (+-||w_0||, +-||w_1||, +-||w_2||).
-    For non-orthogonal tasks, projecting onto the actual normalized task axes
-    exposes the cross-task terms instead of hiding them with a QR rotation.
+    ``basis`` contains the normalized task axes ``u_t`` as columns, so observed
+    centroids are represented by the coordinates ``u_t^T m_y``.  The theorem
+    predicts these coordinates directly as ``y_t sqrt(B_t)``.  Constructing the
+    ambient-space vector ``sum_t y_t w_t`` and projecting it through ``basis``
+    would instead return ``(U^T U)(y * sqrt(B))`` and introduce spurious
+    cross-task terms whenever the task axes are not exactly orthogonal.
 
-    ``capture`` optionally supplies unbiased per-task ``B_t`` values; see
-    :func:`rescale_probes_to_capture` for why the plug-in norms are biased.
+    Without ``capture``, the plug-in values ``B_t = ||w_t||^2`` determine the
+    half-sides. ``capture`` may instead supply split-half estimates of ``B_t``;
+    :func:`rescale_probes_to_capture` performs their existing validation and
+    scale correction. Selection-adjusted inference is outside this geometric
+    construction and must be recorded by the caller.
     """
+    if w_cols.ndim != 2 or w_cols.shape[1] != 3:
+        raise ValueError(f"w_cols must have shape [D,3], got {tuple(w_cols.shape)}")
+    if basis.shape != w_cols.shape:
+        raise ValueError(
+            f"basis must match w_cols shape {tuple(w_cols.shape)}, "
+            f"got {tuple(basis.shape)}"
+        )
     if capture is not None:
         w_cols = rescale_probes_to_capture(w_cols, capture)
+    half_sides = w_cols.norm(dim=0)
     corners: List[Dict] = []
     for combo in itertools.product((0, 1), repeat=3):
         signs = torch.tensor([2 * b - 1 for b in combo],
                              dtype=w_cols.dtype, device=w_cols.device)
-        vec = (w_cols * signs).sum(dim=1)  # sum_t y_t w_t  [D]
-        corners.append({"combo": list(combo), "center": (vec @ basis).tolist()})
+        corners.append({
+            "combo": list(combo),
+            "center": (signs * half_sides).tolist(),
+        })
     return corners
 
 

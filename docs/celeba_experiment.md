@@ -5,12 +5,27 @@ representations on CelebA attribute geometry.
 
 ## Protocol
 
-- Select the attribute triple, fit ZCA whitening, task axes, and predicted box
-  on the jointly balanced training population.
+- Select the attribute triple on training data. Within each jointly balanced
+  training draw, fit exact rank-truncated whitening on an independent third
+  fold and estimate capture/cosines from the remaining two folds. These
+  split-half estimates are unbiased for a fixed, prespecified triple, but the
+  reported training values are selection-conditioned because the same training
+  observations participate in candidate ranking and acceptance.
+- Fit the task axes and predicted box on the balanced training population.
 - Freeze all fitted quantities before held-out evaluation.
 - Balance the eight held-out label cells independently for each test seed.
+- Treat held-out transformed coordinates as out-of-sample and record their
+  covariance diagnostics; do not claim they are exactly white.
 - Estimate capture and task cosines with the symmetrized split-half cross-Gram.
-- Size predicted box corners from the unbiased split-half capture estimate.
+- Size fitted predicted box corners from the selection-conditioned split-half
+  training capture; do not describe that selected training value as unbiased.
+- Treat held-out capture as conditionally unbiased for the frozen selected task
+  and train-fitted representation under IID held-out sampling.
+- Treat repeated balancing seeds as correlated stability resamples of one test
+  set, not independent replications.
+- Confirmatory interpretation additionally requires that this test set was not
+  used to change thresholds, ranks, candidate families, seeds, or reporting;
+  test-informed protocol changes require a fresh holdout.
 - Keep the declared constraints fixed; do not enable constraint fallback for a
   reported run.
 

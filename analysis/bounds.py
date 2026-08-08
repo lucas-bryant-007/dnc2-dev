@@ -25,6 +25,11 @@ from typing import List, Sequence
 
 import torch
 
+try:
+    from .br.whitening import canonicalize_binary_labels
+except ImportError:  # direct script execution from analysis/
+    from br.whitening import canonicalize_binary_labels
+
 
 def _validate_B(B: float, eps: float = 1e-12) -> float:
     B = float(B)
@@ -228,7 +233,15 @@ def directional_fewshot_curves(
     for m in m_values:
         m = int(m)
         out[m] = {
-            "empirical": empirical_nccc_error(features, labels, m, n_trials, seed, max_query),
+            "empirical": empirical_nccc_error(
+                features,
+                labels,
+                m,
+                n_trials,
+                seed,
+                max_query,
+                assume_single_view=True,
+            ),
             "our_thm41": directional_nccc_bound(pairwise, m, "thm41"),
             "our_c2": directional_nccc_bound(pairwise, m, "c2"),
             "lim": directional_nccc_bound(pairwise, m, "lim"),
@@ -240,7 +253,8 @@ def directional_fewshot_curves(
 @torch.no_grad()
 def combined_fewshot_curves(
     psi: torch.Tensor, labels: torch.Tensor, B_by_r: dict, r_values, m_values,
-    pairwise_by_r: dict, n_trials: int = 100, seed: int = 0, max_query: int = 5000,
+    pairwise_by_r: dict, instance_ids: torch.Tensor = None,
+    n_trials: int = 100, seed: int = 0, max_query: int = 5000,
 ) -> dict:
     """New-vs-old few-shot comparison on the whitened representation psi.
 
@@ -249,6 +263,23 @@ def combined_fewshot_curves(
     2025 + the 4*Vtilde limit) from ``pairwise_by_r[r]`` (the directional metrics
     of psi[:, :r]). Returns {r: {"B": B, "curves": {m: {...}}}}.
     """
+    if instance_ids is None:
+        raise ValueError(
+            "Theorem-facing combined few-shot evaluation requires instance_ids"
+        )
+    instance_layout = _build_instance_sampling_layout(labels, instance_ids)
+    _require_balanced_instance_layout(
+        instance_layout,
+        "Theorem-facing combined few-shot evaluation",
+    )
+    sampling = {
+        **instance_layout["diagnostics"],
+        "seed": int(seed),
+        "n_trials": int(n_trials),
+        "max_query_instances_per_class": (
+            None if max_query is None else int(max_query)
+        ),
+    }
     out = {}
     for r in r_values:
         r = int(r)
@@ -258,48 +289,248 @@ def combined_fewshot_curves(
         curves = {}
         for m in m_values:
             m = int(m)
+            class_counts = sampling["class_instance_counts"]
+            query_negative = class_counts["-1"] - m
+            query_positive = class_counts["+1"] - m
+            if max_query is not None:
+                query_negative = min(query_negative, max_query)
+                query_positive = min(query_positive, max_query)
             curves[m] = {
-                "empirical": empirical_nccc_error(psir, labels, m, n_trials, seed, max_query),
+                "empirical": empirical_nccc_error(
+                    psir,
+                    labels,
+                    m,
+                    n_trials,
+                    seed,
+                    max_query,
+                    instance_ids=instance_ids,
+                    _instance_layout=instance_layout,
+                ),
                 "thm45_B": nccc_error_bound(B, r, m),                  # NEW (draft)
                 "thm41_dir": directional_nccc_bound(pw, m, "thm41"),   # OLD (published)
                 "luthra2025": luthra2025_nccc_bound(pw, m),            # oldest
                 "lim": directional_nccc_bound(pw, m, "lim"),           # 4*Vtilde
+                "empirical_group_counts": {
+                    "support_instances_per_class": m,
+                    "query_instances": {
+                        "-1": query_negative,
+                        "+1": query_positive,
+                    },
+                },
             }
-        out[r] = {"B": B, "curves": curves}
+        out[r] = {
+            "B": B,
+            "curves": curves,
+            "empirical_sampling": sampling,
+        }
     return out
+
+
+def _build_instance_sampling_layout(
+    labels: torch.Tensor,
+    instance_ids: torch.Tensor,
+) -> dict:
+    """Validate instance groups and build an efficient row-sampling layout."""
+    labels = labels.reshape(-1)
+    instance_ids = instance_ids.reshape(-1)
+    if labels.numel() != instance_ids.numel():
+        raise ValueError("labels and instance_ids must have the same number of rows")
+    if labels.numel() < 2:
+        raise ValueError("instance-aware sampling requires at least two rows")
+    if instance_ids.is_floating_point() and not bool(
+        torch.isfinite(instance_ids).all().item()
+    ):
+        raise ValueError("instance_ids must contain only finite values")
+
+    canonical_labels, encoding = canonicalize_binary_labels(
+        labels,
+        "few-shot labels",
+    )
+    labels_cpu = canonical_labels.detach().cpu().long()
+    ids_cpu = instance_ids.detach().cpu()
+    unique_ids, inverse = torch.unique(
+        ids_cpu,
+        sorted=True,
+        return_inverse=True,
+    )
+    order = torch.argsort(inverse, stable=True)
+    sorted_groups = inverse[order]
+    sorted_labels = labels_cpu[order]
+    same_group = sorted_groups[1:] == sorted_groups[:-1]
+    inconsistent = same_group & (sorted_labels[1:] != sorted_labels[:-1])
+    if bool(inconsistent.any().item()):
+        bad_position = int(torch.where(inconsistent)[0][0].item())
+        bad_group = int(sorted_groups[bad_position].item())
+        raise ValueError(
+            "Every latent instance must have exactly one class label; "
+            f"instance_id={unique_ids[bad_group].item()} has conflicting rows"
+        )
+
+    counts = torch.bincount(inverse, minlength=unique_ids.numel())
+    offsets = torch.zeros(unique_ids.numel(), dtype=torch.long)
+    if unique_ids.numel() > 1:
+        offsets[1:] = torch.cumsum(counts, dim=0)[:-1]
+    group_labels = sorted_labels[offsets]
+    positive_groups = torch.where(group_labels == 1)[0]
+    negative_groups = torch.where(group_labels == -1)[0]
+    diagnostics = {
+        "sampling_unit": "latent_instance",
+        "view_selection": "one_uniform_random_view_per_selected_instance",
+        "support_query_instance_disjointness_enforced": True,
+        "n_rows": int(labels.numel()),
+        "n_instances": int(unique_ids.numel()),
+        "class_instance_counts": {
+            "-1": int(negative_groups.numel()),
+            "+1": int(positive_groups.numel()),
+        },
+        "min_rows_per_instance": int(counts.min().item()),
+        "max_rows_per_instance": int(counts.max().item()),
+        "label_mapping": encoding["canonical_mapping"],
+    }
+    return {
+        "unique_ids": unique_ids,
+        "order": order,
+        "counts": counts,
+        "offsets": offsets,
+        "positive_groups": positive_groups,
+        "negative_groups": negative_groups,
+        "diagnostics": diagnostics,
+    }
+
+
+def instance_group_diagnostics(
+    labels: torch.Tensor,
+    instance_ids: torch.Tensor,
+) -> dict:
+    """Return JSON-safe validation and count metadata for NCC instance groups."""
+    return _build_instance_sampling_layout(labels, instance_ids)["diagnostics"]
+
+
+def _require_balanced_instance_layout(layout: dict, context: str) -> None:
+    counts = layout["diagnostics"]["class_instance_counts"]
+    if counts["-1"] != counts["+1"]:
+        raise ValueError(
+            f"{context} requires equal class counts at the latent-instance "
+            f"level; class_instance_counts={counts}"
+        )
+
+
+def _sample_one_row_per_instance(
+    layout: dict,
+    groups: torch.Tensor,
+    generator: torch.Generator,
+) -> torch.Tensor:
+    counts = layout["counts"][groups]
+    random_offsets = torch.floor(
+        torch.rand(groups.numel(), generator=generator) * counts
+    ).long()
+    sorted_positions = layout["offsets"][groups] + random_offsets
+    return layout["order"][sorted_positions]
+
+
+def _sample_grouped_binary_trial(
+    layout: dict,
+    m: int,
+    generator: torch.Generator,
+    max_query: int = None,
+) -> dict:
+    """Draw disjoint support/query instances and one view row from each."""
+    positive = layout["positive_groups"]
+    negative = layout["negative_groups"]
+    if positive.numel() <= m or negative.numel() <= m:
+        raise ValueError(
+            f"need > m={m} instances per class "
+            f"(have {positive.numel()}+/{negative.numel()}-)"
+        )
+    if max_query is not None and max_query < 1:
+        raise ValueError(f"max_query must be positive when supplied, got {max_query}")
+    positive = positive[torch.randperm(positive.numel(), generator=generator)]
+    negative = negative[torch.randperm(negative.numel(), generator=generator)]
+    support_positive = positive[:m]
+    support_negative = negative[:m]
+    query_positive = positive[m:]
+    query_negative = negative[m:]
+    if max_query is not None:
+        query_positive = query_positive[:max_query]
+        query_negative = query_negative[:max_query]
+    support_groups = torch.cat((support_positive, support_negative))
+    query_groups = torch.cat((query_positive, query_negative))
+    if bool(torch.isin(support_groups, query_groups).any().item()):
+        raise RuntimeError("support and query latent-instance IDs overlap")
+
+    return {
+        "support_positive_rows": _sample_one_row_per_instance(
+            layout,
+            support_positive,
+            generator,
+        ),
+        "support_negative_rows": _sample_one_row_per_instance(
+            layout,
+            support_negative,
+            generator,
+        ),
+        "query_positive_rows": _sample_one_row_per_instance(
+            layout,
+            query_positive,
+            generator,
+        ),
+        "query_negative_rows": _sample_one_row_per_instance(
+            layout,
+            query_negative,
+            generator,
+        ),
+        "support_instance_ids": layout["unique_ids"][support_groups],
+        "query_instance_ids": layout["unique_ids"][query_groups],
+    }
 
 
 @torch.no_grad()
 def empirical_nccc_error(
     features: torch.Tensor, labels: torch.Tensor, m: int,
     n_trials: int = 200, seed: int = 0, max_query: int = None,
+    instance_ids: torch.Tensor = None,
+    assume_single_view: bool = False,
+    _instance_layout: dict = None,
 ) -> float:
-    """Balanced m-shot nearest-centroid error for a binary task.
+    """Balanced, latent-instance-aware m-shot nearest-centroid error.
 
-    Each trial samples m support points per class, forms the two centroids, and
-    classifies the held-out remainder by nearest (Euclidean) centroid; the
-    per-class error rates are averaged (balanced error, matching balanced Y).
-    Labels may be {0,1} or {-1,1} (positive := label > 0). ``max_query`` caps the
-    number of query points per class (for speed). To compare against Thm 4.5,
-    pass the *whitened* representation.
+    Each trial samples m support *instances* per class and disjoint query
+    instances. Exactly one uniformly random view row is used for every selected
+    instance, matching the paper's single-view law. The per-class error rates
+    are averaged. Supply ``instance_ids`` for grouped data. For a genuinely
+    single-view dataset, explicitly pass ``assume_single_view=True``. Supplying
+    both modes or neither is rejected.
     """
-    labels01 = (labels.reshape(-1) > 0).long()
-    pos_idx = (labels01 == 1).nonzero(as_tuple=True)[0]
-    neg_idx = (labels01 == 0).nonzero(as_tuple=True)[0]
-    if pos_idx.numel() <= m or neg_idx.numel() <= m:
-        raise ValueError(
-            f"need > m={m} samples per class (have {pos_idx.numel()}+/{neg_idx.numel()}-)"
-        )
+    if features.ndim != 2 or features.shape[0] != labels.reshape(-1).numel():
+        raise ValueError("features and labels must have compatible [N,*] shapes")
+    if m < 1 or n_trials < 1:
+        raise ValueError("m and n_trials must be positive")
+    if _instance_layout is None:
+        if instance_ids is None and not assume_single_view:
+            raise ValueError(
+                "Specify instance_ids or explicitly set assume_single_view=True"
+            )
+        if instance_ids is not None and assume_single_view:
+            raise ValueError(
+                "Specify exactly one of instance_ids or assume_single_view=True"
+            )
+        if assume_single_view:
+            instance_ids = torch.arange(labels.reshape(-1).numel())
+        layout = _build_instance_sampling_layout(labels, instance_ids)
+    else:
+        if assume_single_view:
+            raise ValueError("Grouped sampling layout cannot assume single-view data")
+        layout = _instance_layout
     gen = torch.Generator(device="cpu").manual_seed(seed)
     errs = []
     for _ in range(n_trials):
-        pp = pos_idx[torch.randperm(pos_idx.numel(), generator=gen)]
-        nn = neg_idx[torch.randperm(neg_idx.numel(), generator=gen)]
-        c_pos = features[pp[:m]].mean(dim=0)
-        c_neg = features[nn[:m]].mean(dim=0)
-        q_pos, q_neg = pp[m:], nn[m:]
-        if max_query is not None:
-            q_pos, q_neg = q_pos[:max_query], q_neg[:max_query]
+        trial = _sample_grouped_binary_trial(layout, m, gen, max_query)
+        support_positive = trial["support_positive_rows"].to(features.device)
+        support_negative = trial["support_negative_rows"].to(features.device)
+        q_pos = trial["query_positive_rows"].to(features.device)
+        q_neg = trial["query_negative_rows"].to(features.device)
+        c_pos = features[support_positive].mean(dim=0)
+        c_neg = features[support_negative].mean(dim=0)
         fp, fn = features[q_pos], features[q_neg]
         # nearest-centroid: predict positive iff strictly closer to c_pos
         err_pos = (((fp - c_pos) ** 2).sum(1) >= ((fp - c_neg) ** 2).sum(1)).float().mean()
@@ -311,7 +542,8 @@ def empirical_nccc_error(
 @torch.no_grad()
 def fewshot_curves(
     psi: torch.Tensor, labels: torch.Tensor, B_by_r: dict,
-    r_values, m_values, n_trials: int = 100, seed: int = 0, max_query: int = 5000,
+    r_values, m_values, instance_ids: torch.Tensor = None,
+    n_trials: int = 100, seed: int = 0, max_query: int = 5000,
 ) -> dict:
     """Empirical m-shot NCC error and the Thm 4.5 bound, per rank r and shot m.
 
@@ -319,13 +551,49 @@ def fewshot_curves(
     NCC runs on ``psi[:, :r]`` and the bound uses B = ``B_by_r[r]`` and that r.
     Returns {r: {"B": B, "empirical": {m: err}, "bound": {m: err}}}.
     """
+    if instance_ids is None:
+        raise ValueError("Theorem-facing few-shot evaluation requires instance_ids")
+    instance_layout = _build_instance_sampling_layout(labels, instance_ids)
+    _require_balanced_instance_layout(
+        instance_layout,
+        "Theorem-facing few-shot evaluation",
+    )
+    sampling = {
+        **instance_layout["diagnostics"],
+        "seed": int(seed),
+        "n_trials": int(n_trials),
+        "max_query_instances_per_class": (
+            None if max_query is None else int(max_query)
+        ),
+    }
     out = {}
     for r in r_values:
         r = int(r)
         psir = psi[:, :r]
         B = float(B_by_r[r])
-        emp = {int(m): empirical_nccc_error(psir, labels, int(m), n_trials, seed, max_query)
+        emp = {int(m): empirical_nccc_error(
+                   psir, labels, int(m), n_trials, seed, max_query,
+                   instance_ids=instance_ids,
+                   _instance_layout=instance_layout)
                for m in m_values}
         bnd = {int(m): nccc_error_bound(B, r, int(m)) for m in m_values}
-        out[r] = {"B": B, "empirical": emp, "bound": bnd}
+        group_counts = {}
+        for m in m_values:
+            m = int(m)
+            negative = sampling["class_instance_counts"]["-1"] - m
+            positive = sampling["class_instance_counts"]["+1"] - m
+            if max_query is not None:
+                negative = min(negative, max_query)
+                positive = min(positive, max_query)
+            group_counts[m] = {
+                "support_instances_per_class": m,
+                "query_instances": {"-1": negative, "+1": positive},
+            }
+        out[r] = {
+            "B": B,
+            "empirical": emp,
+            "bound": bnd,
+            "empirical_sampling": sampling,
+            "empirical_group_counts": group_counts,
+        }
     return out

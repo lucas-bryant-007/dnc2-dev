@@ -9,11 +9,23 @@ The experiment uses:
 - the official CUB-200-2011 train/test split and 312 binary image attributes;
 - the official bird bounding boxes for a declared foreground crop;
 - the official ImageNet-1K pretrained VICReg ResNet-50 from Meta;
-- train-only attribute selection, ZCA fitting, task axes, and predicted corners;
+- train-only attribute selection, exact rank-truncated whitening fitted on an
+  independent third fold of each balanced draw, task axes, and predicted
+  corners;
 - selection constrained to three distinct semantic attribute families (for
   example, at most one value from `primary_color`);
 - split-half cross-Gram estimates of capture and task cosines on held-out test
-  samples.
+  samples;
+- training split-half capture is used for adaptive selection and box fitting,
+  so it is reported as selection-conditioned rather than post-selection
+  unbiased; held-out capture is conditionally unbiased for the frozen task and
+  train-fitted representation under IID held-out sampling;
+- repeated balancing seeds are correlated stability resamples of one held-out
+  test set, not independent replications;
+- confirmatory interpretation requires that protocol choices were not changed
+  after inspecting that test set; otherwise a fresh holdout is required;
+- frozen-transform held-out coordinates explicitly treated as out-of-sample,
+  with covariance diagnostics recorded rather than exact whiteness claimed.
 
 ## Download and validate CUB-200-2011 on S1
 

@@ -19,10 +19,12 @@ task directions share one low-dimensional bottleneck); the diverse family climbs
 slowly (its tasks need several independent directions, so they interfere when the
 bottleneck ``r`` is small). This is the RO2 preliminary result.
 
-Note: the eigenvalues of ``M_w`` are invariant to the whitening *rotation*
-(``X -> XR`` for orthogonal ``R`` sends ``M_w -> R^T M_w R``), so PCA- and
-ZCA-whitening give identical curves -- all that matters is that the features are
-made isotropic.
+Note: after fixing the same retained eigenspace and exact inverse-square-root
+scaling, PCA and rank-truncated ZCA coordinates differ only by an orthogonal
+map (``X -> XR`` sends ``M_w -> R^T M_w R``), so their curves agree. Changing
+the retained rank or replacing ridge scaling with exact whitening is not a
+rotation and can change distances, capture, and these spectra relative to an
+older representation.
 
     python -u analysis/dsprites_taskfamily_spectrum.py \
         --config configs/vicreg/dsprites.yaml \

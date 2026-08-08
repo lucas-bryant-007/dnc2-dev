@@ -17,6 +17,13 @@ from eval_utils import (
 from geometry import GeometricEvaluator
 from br.diagnostics import GramStats, gram_stats, print_basis_stats
 from br.ssl_subspace import SSLSubspaceEstimator, fit_ssl_subspace
+from br.whitening import (
+    ABSOLUTE_WHITENING_ELIGIBILITY_POLICY,
+    absolute_whitening_eligibility,
+    canonicalize_balanced_binary_labels,
+    split_balanced_paired_fit_eval,
+    whitening_diagnostics,
+)
 from br.br_estimators import estimate_B_r, estimate_B_r_raw, estimate_B_r_projection
 from br.geometric_estimators import estimate_tilde_V, estimate_V, predict_tilde_V_from_B, predict_V_from_B
 from br.plotting import (
@@ -37,7 +44,10 @@ from metrics_io import (
 class BRResults:
     estimator: SSLSubspaceEstimator
     psi_lab: torch.Tensor
+    requested_r_values: List[int]
     r_values: List[int]
+    eligible_r_values: List[int]
+    ineligible_r_values: List[int]
     B_r: Dict[int, float]
     B_r_raw: Dict[int, float]
     tilde_V_pred: Dict[int, float]
@@ -45,6 +55,9 @@ class BRResults:
     V_pred: Dict[int, float]
     V_obs: Optional[Dict[int, float]]
     gram_stats: Dict[int, GramStats]
+    whitening_diagnostics: Dict[int, Dict]
+    all_requested_ranks_eligible: bool
+    population_balance: Dict[str, Dict]
 
 
 # -----------------------------------------------------------------------------
@@ -58,14 +71,17 @@ def run_br_pipeline(
     y_lab: torch.Tensor,
     r_values: Sequence[int],
     *,
+    fit_labels: torch.Tensor,
+    evaluation_instance_ids: torch.Tensor,
     k_cap: Optional[int] = None,
     rel_eig_threshold: float = 1e-3,
-    whiten_ridge_rel: float = 1e-3,
     b_metric: str = "orth",
     center_labels: bool = True,
     gram_ridge: float = 1e-6,
     compute_observed_tilde_V: bool = True,
     compute_observed_V: bool = True,
+    max_whiten_mean_l2_error: float = 0.05,
+    max_whiten_operator_error: float = 0.10,
     verbose: bool = True,
 ) -> BRResults:
     """
@@ -73,28 +89,100 @@ def run_br_pipeline(
 
     Recommended defaults for theorem-facing experiments:
       - adaptive whitening dimension via rel_eig_threshold
-      - ridge whitening via whiten_ridge_rel
+      - exact whitening on the retained covariance subspace
+      - exactly balanced binary labels in both fit and evaluation populations
       - B_r estimator = "orth"
-      - center_labels = True
+      - center_labels = True (finite-sample recentering, not a balance substitute)
+
+    Whitening cutoffs define strict absolute empirical-geometry eligibility,
+    not a population-whiteness test. Decisions are per rank: diagnostics are
+    returned for every requested valid rank, while theorem formulas are
+    computed only for eligible ranks.
     """
+    if fit_labels.reshape(-1).numel() != z1_unlab.shape[0]:
+        raise ValueError("fit_labels must contain one label per paired fit instance")
+    if y_lab.reshape(-1).numel() != z_lab.shape[0]:
+        raise ValueError("y_lab must contain one label per evaluation row")
+    if evaluation_instance_ids.reshape(-1).numel() != z_lab.shape[0]:
+        raise ValueError(
+            "evaluation_instance_ids must contain one ID per evaluation row"
+        )
+    n_independent_eval_instances = int(
+        torch.unique(evaluation_instance_ids.detach().cpu()).numel()
+    )
+    _, fit_balance = canonicalize_balanced_binary_labels(
+        fit_labels,
+        "whitening-fit latent-instance population",
+    )
+    y_lab, eval_balance = canonicalize_balanced_binary_labels(
+        y_lab,
+        "theorem-evaluation population",
+    )
+    population_balance = {
+        "whitening_fit_instances": fit_balance,
+        "theorem_evaluation_rows": eval_balance,
+    }
     estimator = fit_ssl_subspace(
         z1=z1_unlab,
         z2=z2_unlab,
         k_cap=k_cap,
         rel_eig_threshold=rel_eig_threshold,
-        whiten_ridge_rel=whiten_ridge_rel,
     )
 
+    if b_metric not in {"raw", "orth", "projection"}:
+        raise ValueError(
+            f"Unknown b_metric={b_metric}. Choose from raw, orth, projection"
+        )
+
     psi_lab = estimator.transform(z_lab)
-    r_values = sorted(set(int(r) for r in r_values if 1 <= int(r) <= estimator.k_eff))
-    if len(r_values) == 0:
+    requested_r_values = sorted(
+        set(int(r) for r in r_values if 1 <= int(r) <= estimator.k_eff)
+    )
+    if len(requested_r_values) == 0:
         raise ValueError(f"No valid r values remain after truncation to k_eff={estimator.k_eff}")
+
+    whitening_by_r = {}
+    for r in requested_r_values:
+        diagnostic = whitening_diagnostics(
+            psi_lab[:, :r],
+            n_independent_samples=n_independent_eval_instances,
+        )
+        eligibility = absolute_whitening_eligibility(
+            diagnostic,
+            max_mean_l2_error=max_whiten_mean_l2_error,
+            max_operator_error=max_whiten_operator_error,
+        )
+        whitening_by_r[r] = {
+            **diagnostic.as_dict(),
+            **eligibility,
+            "scope": "out_of_sample_same_view_marginal",
+            "check_kind": "absolute_empirical_geometry_eligibility",
+        }
+    eligible_r_values = [
+        r for r in requested_r_values if whitening_by_r[r]["eligible"]
+    ]
+    ineligible_r_values = [
+        r for r in requested_r_values if not whitening_by_r[r]["eligible"]
+    ]
+    # The theorem-facing formulas below are evaluated only at eligible ranks.
+    # Ineligible ranks and their diagnostics remain in the durable artifact.
+    r_values = eligible_r_values
 
     if verbose:
         print(f"k_requested={k_cap}, k_eff={estimator.k_eff}, lam_max={estimator.lam_max:.6e}")
-        cutoff = estimator.rel_eig_threshold * estimator.lam_max
-        ridge = estimator.whiten_ridge_rel * estimator.lam_max
-        print(f"covariance cutoff={cutoff:.6e}, whitening ridge={ridge:.6e}")
+        print(
+            "exact-whitening covariance cutoff="
+            f"{estimator.covariance_cutoff:.6e} "
+            f"(requested relative={estimator.rel_eig_threshold:.3e}, "
+            "effective relative="
+            f"{estimator.effective_rel_eig_threshold:.3e})"
+        )
+        print(
+            f"whitening eligibility policy={ABSOLUTE_WHITENING_ELIGIBILITY_POLICY}; "
+            f"eligible ranks={eligible_r_values}; "
+            f"ineligible ranks={ineligible_r_values}"
+        )
+        print(f"balanced-label contract={population_balance}")
         print_basis_stats(psi_lab, name="psi_lab")
 
     B_r_raw = estimate_B_r_raw(
@@ -122,9 +210,6 @@ def run_br_pipeline(
             center_labels=center_labels,
             center_features=True,
         )
-    else:
-        raise ValueError(f"Unknown b_metric={b_metric}. Choose from raw, orth, projection")
-
     gram = {r: gram_stats(psi_lab, r=r) for r in r_values}
     tilde_V_pred = {r: predict_tilde_V_from_B(B_r[r]) for r in r_values}
     V_pred = {r: predict_V_from_B(B_r[r], r=r) for r in r_values}
@@ -167,7 +252,10 @@ def run_br_pipeline(
     return BRResults(
         estimator=estimator,
         psi_lab=psi_lab,
+        requested_r_values=requested_r_values,
         r_values=r_values,
+        eligible_r_values=eligible_r_values,
+        ineligible_r_values=ineligible_r_values,
         B_r=B_r,
         B_r_raw=B_r_raw,
         tilde_V_pred=tilde_V_pred,
@@ -175,6 +263,9 @@ def run_br_pipeline(
         V_pred=V_pred,
         V_obs=V_obs,
         gram_stats=gram,
+        whitening_diagnostics=whitening_by_r,
+        all_requested_ranks_eligible=not ineligible_r_values,
+        population_balance=population_balance,
     )
 
 def main(args):
@@ -189,6 +280,13 @@ def main(args):
     data_cfg.method = cfg.method.name
     if args.batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {args.batch_size}")
+    if not 0.0 < args.ssl_fit_fraction < 1.0:
+        raise ValueError("--ssl_fit_fraction must lie in (0,1)")
+    if (
+        args.max_whiten_mean_l2_error <= 0
+        or args.max_whiten_operator_error <= 0
+    ):
+        raise ValueError("absolute whitening eligibility cutoffs must be positive")
     data_cfg.batch_size = args.batch_size
     if getattr(args, "label_key", None):
         data_cfg.label_key = args.label_key  # override the attribute (e.g. a high-B task)
@@ -208,7 +306,9 @@ def main(args):
     fewshot_dir_rows = []
 
     train_loader_b = data_module.paired_train_dataloader() # required (w/ augmentations) to estimate SSL subspace
-    sv_train_loader_b = data_module.probe_train_dataloader() # single-view loader for estimating B_r and tilde_V without augmentation
+    # The unaugmented loader is retained for raw-space descriptive geometry.
+    # The theorem-facing B/CDNV quantities use held-out augmented views below.
+    sv_train_loader_b = data_module.probe_train_dataloader()
     # build model 
     # get all checkpoint files in the directory
     ckpt_files = find_checkpoint_files(args.ckpt_dir)
@@ -231,13 +331,32 @@ def main(args):
             both_views=True,
         )
         if len(extracted) == 3:
-            features_view1, features_view2, _ = extracted
+            features_view1, features_view2, paired_labels = extracted
         else:
             raise ValueError(
                 "Expected paired augmented views for SSL subspace estimation, "
                 f"but extract_features returned {len(extracted)} values"
             )
         print(f"Extracted paired train features: {features_view1.shape}, {features_view2.shape}")
+        population_split = split_balanced_paired_fit_eval(
+            features_view1,
+            features_view2,
+            paired_labels,
+            fit_fraction=args.ssl_fit_fraction,
+            seed=args.seed,
+        )
+        ssl_fit_view1 = population_split.fit_view1
+        ssl_fit_view2 = population_split.fit_view2
+        theorem_eval_features = population_split.evaluation_features
+        theorem_eval_labels = population_split.evaluation_labels
+        theorem_eval_instance_ids = population_split.evaluation_instance_ids
+        print(
+            "Balanced, population-matched theorem split: "
+            f"SSL fit={ssl_fit_view1.shape[0]} instances, "
+            f"evaluation={theorem_eval_instance_ids.numel() // 2} instances/"
+            f"{theorem_eval_features.shape[0]} augmented views, "
+            f"counts={population_split.metadata()}"
+        )
 
         sv_train_features_b, train_labels_b = extract_features(
             sv_train_loader_b,
@@ -283,26 +402,46 @@ def main(args):
             print("\n" + "=" * 80)
             print(f"Running B_r pipeline with k_cap={k_cap}")
             results = run_br_pipeline(
-                z1_unlab=features_view1,
-                z2_unlab=features_view2,
-                z_lab=sv_train_features_b,
-                y_lab=train_labels_b,
+                z1_unlab=ssl_fit_view1,
+                z2_unlab=ssl_fit_view2,
+                z_lab=theorem_eval_features,
+                y_lab=theorem_eval_labels,
                 r_values=args.r_values,
+                fit_labels=population_split.fit_labels,
+                evaluation_instance_ids=theorem_eval_instance_ids,
                 k_cap=k_cap,
                 rel_eig_threshold=args.rel_eig_threshold,
-                whiten_ridge_rel=args.whiten_ridge_rel,
                 b_metric=args.b_metric,
                 center_labels=not args.no_center_labels,
                 gram_ridge=args.gram_ridge,
                 compute_observed_tilde_V=True,
                 compute_observed_V=True,
+                max_whiten_mean_l2_error=args.max_whiten_mean_l2_error,
+                max_whiten_operator_error=args.max_whiten_operator_error,
                 verbose=True,
             )
 
             key = "adaptive" if k_cap is None else f"cap_{k_cap}"
             per_cap_results[key] = {
                 "k_eff": results.estimator.k_eff,
+                "first_stage_ssl_whitener": (
+                    results.estimator.first_stage_whitener_provenance(
+                        fit_split="balanced_whitening_fit_fold",
+                        fit_population=(
+                            "balanced_paired_training_instances_disjoint_from_"
+                            "theorem_evaluation"
+                        ),
+                        view_marginal=(
+                            "equal_weight_empirical_mixture_of_two_augmented_"
+                            "views_per_instance"
+                        ),
+                        frozen_for_test=None,
+                    )
+                ),
+                "requested_r_values": results.requested_r_values,
                 "r_values": results.r_values,
+                "eligible_r_values": results.eligible_r_values,
+                "ineligible_r_values": results.ineligible_r_values,
                 "B_r": results.B_r,
                 "B_r_raw": results.B_r_raw,
                 "tilde_V_pred": results.tilde_V_pred,
@@ -318,6 +457,11 @@ def main(args):
                     }
                     for r, gs in results.gram_stats.items()
                 },
+                "whitening_diagnostics": results.whitening_diagnostics,
+                "all_requested_ranks_eligible": (
+                    results.all_requested_ranks_eligible
+                ),
+                "population_balance": results.population_balance,
             }
 
             # Few-shot NCC: empirical error vs the Thm 4.5 bound on the whitened
@@ -325,35 +469,35 @@ def main(args):
             if args.fewshot:
                 fs_r = [r for r in (args.fewshot_r or results.r_values)
                         if r in results.B_r]
-                y01 = (train_labels_b > 0).long()
+                y01 = (theorem_eval_labels > 0).long()
                 pairwise_by_r = {
                     r: geometric_evaluator.compute_pairwise_metrics(
                         results.psi_lab[:, :r], y01)
                     for r in fs_r
                 }
-                fs = combined_fewshot_curves(
-                    results.psi_lab, train_labels_b, results.B_r,
-                    r_values=fs_r, m_values=args.fewshot_m,
-                    pairwise_by_r=pairwise_by_r, n_trials=args.fewshot_trials,
-                )
-                per_cap_results[key]["fewshot"] = fs
-                print("\nFew-shot NCC (empirical vs NEW B(F) [Thm 4.5] vs OLD dir-CDNV [Thm 4.1] / Luthra):")
-                for r in fs_r:
-                    print(f"  r={r:4d}  B={fs[r]['B']:.4f}")
-                    for m in args.fewshot_m:
-                        c = fs[r]["curves"][int(m)]
-                        print(f"    m={int(m):4d}  emp={c['empirical']:.4f}  "
-                              f"new={c['thm45_B']:.4f}  old={c['thm41_dir']:.4f}  "
-                              f"luthra={c['luthra2025']:.4f}")
+                if fs_r:
+                    fs = combined_fewshot_curves(
+                        results.psi_lab, theorem_eval_labels, results.B_r,
+                        r_values=fs_r, m_values=args.fewshot_m,
+                        pairwise_by_r=pairwise_by_r,
+                        instance_ids=theorem_eval_instance_ids,
+                        n_trials=args.fewshot_trials,
+                    )
+                    per_cap_results[key]["fewshot"] = fs
+                    print("\nFew-shot NCC (empirical vs NEW B(F) [Thm 4.5] vs OLD dir-CDNV [Thm 4.1] / Luthra):")
+                    for r in fs_r:
+                        print(f"  r={r:4d}  B={fs[r]['B']:.4f}")
+                        for m in args.fewshot_m:
+                            c = fs[r]["curves"][int(m)]
+                            print(f"    m={int(m):4d}  emp={c['empirical']:.4f}  "
+                                  f"new={c['thm45_B']:.4f}  old={c['thm41_dir']:.4f}  "
+                                  f"luthra={c['luthra2025']:.4f}")
 
         all_results[epoch] = per_cap_results
 
-        # Method/attribute/epoch-specific names so sweeps never overwrite.
+        # Write the durable record before theorem plots or summaries. A run
+        # with no eligible ranks therefore still leaves all failure evidence.
         stem = run_stem(run_method, run_attr, epoch, run_tag)
-        plot_Br_vs_r(all_results[epoch], os.path.join(fig_dir, f"br_vs_r_{stem}.png"))
-        plot_tildeV_scatter_pretty(all_results[epoch], os.path.join(fig_dir, f"tildeV_{stem}.png"))
-
-        # Durable per-epoch record (re-plottable without re-extracting features).
         json_path = write_epoch_json(metrics_dir, stem, {
             "method": run_method,
             "attribute": run_attr,
@@ -364,12 +508,51 @@ def main(args):
             "b_metric": args.b_metric,
             "center_labels": (not args.no_center_labels),
             "rel_eig_threshold": args.rel_eig_threshold,
-            "whiten_ridge_rel": args.whiten_ridge_rel,
+            "theorem_population": (
+                "balanced_held_out_augmented_views_matching_ssl_fit_marginal"
+            ),
+            "population_split": population_split.metadata(),
+            "theorem_evaluation_instance_grouping_available": True,
+            "theorem_evaluation_instance_ids_serialized": False,
+            "fewshot_sampling_unit": "latent_instance_disjoint_random_single_view",
+            "ssl_fit_fraction": args.ssl_fit_fraction,
+            "whitening_eligibility_policy": {
+                "kind": ABSOLUTE_WHITENING_ELIGIBILITY_POLICY,
+                "meaning": (
+                    "strict_absolute_empirical_geometry_not_population_test"
+                ),
+                "predeclared": True,
+                "applied_per_rank": True,
+                "ineligible_rank_handling": "theorem_formulas_suppressed",
+                "failed_rank_diagnostics_persisted": True,
+                "max_mean_l2_error": args.max_whiten_mean_l2_error,
+                "max_operator_error": args.max_whiten_operator_error,
+                "independent_sample_unit": "latent_instance",
+                "sampling_normalized_errors": (
+                    "reported_against_isotropic_gaussian_reference_scales_"
+                    "but_not_used_for_eligibility"
+                ),
+            },
             "gram_ridge": args.gram_ridge,
             "original_space": {"cdnv": cdnv, "directional_cdnv": directional_cdnv},
             "results": per_cap_results,
         })
         print(f"Saved metrics JSON: {json_path}")
+
+        if any(cap["eligible_r_values"] for cap in per_cap_results.values()):
+            plot_Br_vs_r(
+                all_results[epoch],
+                os.path.join(fig_dir, f"br_vs_r_{stem}.png"),
+            )
+            plot_tildeV_scatter_pretty(
+                all_results[epoch],
+                os.path.join(fig_dir, f"tildeV_{stem}.png"),
+            )
+        else:
+            print(
+                "No theorem-eligible ranks; skipped theorem plots after "
+                "persisting the whitening diagnostics."
+            )
 
         # Few-shot figures + rows (one figure per cap x r: new vs old bounds).
         if args.fewshot:
@@ -496,10 +679,32 @@ if __name__ == "__main__":
         help="Keep covariance directions with lambda_i >= rel_eig_threshold * lambda_1",
     )
     parser.add_argument(
-        "--whiten_ridge_rel",
+        "--ssl_fit_fraction",
         type=float,
-        default=1e-3,
-        help="Whitening ridge = whiten_ridge_rel * lambda_1",
+        default=0.5,
+        help=(
+            "Per-class fraction of the downsampled balanced paired-instance "
+            "population used to fit the SSL operator; the remainder is a "
+            "balanced, population-matched theorem evaluation split"
+        ),
+    )
+    parser.add_argument(
+        "--max_whiten_mean_l2_error",
+        type=float,
+        default=0.05,
+        help=(
+            "Fixed absolute eligibility cutoff for the held-out L2 norm of "
+            "the empirical coordinate mean"
+        ),
+    )
+    parser.add_argument(
+        "--max_whiten_operator_error",
+        type=float,
+        default=0.10,
+        help=(
+            "Fixed absolute eligibility cutoff for the held-out operator-norm "
+            "error of E[FF^T] from identity"
+        ),
     )
     parser.add_argument(
         "--b_metric",
@@ -517,7 +722,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--no_center_labels",
         action="store_true",
-        help="Disable label centering before estimating B_r",
+        help=(
+            "Disable finite-sample label recentering before estimating B_r; "
+            "exact class balance is enforced independently"
+        ),
     )
     parser.add_argument(
         "--fewshot",
