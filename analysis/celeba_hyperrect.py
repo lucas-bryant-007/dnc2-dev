@@ -40,7 +40,7 @@ from eval_utils import (
     set_seed,
     freeze_model,
 )
-from br.ssl_subspace import fit_ssl_subspace
+from br.ssl_subspace import fit_ssl_subspace, paired_view_loader_provenance
 from box_viz import plot_box_3d, plot_cosine_heatmap
 import hyperrect as H
 import metrics_io as mio
@@ -166,6 +166,11 @@ def main(args):
         paired_loader = data_module.paired_train_dataloader()
         z1, z2, _ = extract_features(
             paired_loader, model.backbone, device=args.device, both_views=True)
+        paired_loader_record = paired_view_loader_provenance(
+            paired_loader,
+            z1,
+            z2,
+        )
         estimator = fit_ssl_subspace(
             z1, z2, rel_eig_threshold=args.rel_eig_threshold)
         first_stage_ssl_whitener = estimator.first_stage_whitener_provenance(
@@ -176,6 +181,7 @@ def main(args):
             ),
             frozen_for_test=(args.split == "test"),
         )
+        first_stage_ssl_whitener["fit_loader"] = paired_loader_record
         features = estimator.transform(features)  # -> psi (whitened SSL coords)
         print(f"Whitened to psi: {tuple(features.shape)} (k_eff={estimator.k_eff})")
 

@@ -1,8 +1,13 @@
 import unittest
+from types import SimpleNamespace
 
 import torch
+from torch.utils.data import DataLoader, TensorDataset
 
-from analysis.br.ssl_subspace import fit_ssl_subspace
+from analysis.br.ssl_subspace import (
+    fit_ssl_subspace,
+    paired_view_loader_provenance,
+)
 from analysis.br.whitening import (
     ABSOLUTE_WHITENING_ELIGIBILITY_POLICY,
     absolute_whitening_eligibility,
@@ -16,6 +21,7 @@ from analysis.br.br_estimators import estimate_B_r_raw
 from analysis.br.geometric_estimators import estimate_tilde_V
 from analysis.hyperrect import apply_rewhitener, fit_rewhitener, rewhiten
 from analysis.metrics_io import build_csv_rows
+from data_utils.celebA_datamodule import CelebADataModule
 
 
 def _empirical_covariance(features):
@@ -369,6 +375,55 @@ class ExactWhiteningTest(unittest.TestCase):
         )
         self.assertTrue(provenance["transform_frozen_after_fit"])
         self.assertTrue(provenance["frozen_for_test"])
+
+    def test_paired_analysis_loader_provenance_matches_full_loader(self):
+        module = object.__new__(CelebADataModule)
+        module.cfg = SimpleNamespace(
+            batch_size=4,
+            num_workers=0,
+            num_views=2,
+            hf_repo="example/celeba",
+            train_split="train",
+            name="celeba",
+            method="vicreg",
+            img_size=128,
+        )
+        module.ds_train = list(range(10))
+        module._collate_vicreg = lambda batch: batch
+
+        loader = module.paired_train_dataloader()
+        emitted = [item for batch in loader for item in batch]
+        first_view = torch.randn(10, 3)
+        second_view = torch.randn(10, 3)
+        provenance = paired_view_loader_provenance(
+            loader,
+            first_view,
+            second_view,
+        )
+
+        self.assertEqual(set(emitted), set(range(10)))
+        self.assertFalse(loader.drop_last)
+        self.assertEqual(provenance["dataset_instances"], 10)
+        self.assertEqual(provenance["extracted_latent_instances"], 10)
+        self.assertEqual(provenance["num_augmented_views_per_instance"], 2)
+        self.assertTrue(provenance["covers_full_dataset_exactly_once_per_pass"])
+        self.assertFalse(provenance["distributed_sharding"])
+
+    def test_paired_loader_provenance_rejects_dropped_instances(self):
+        loader = DataLoader(
+            TensorDataset(torch.arange(10)),
+            batch_size=4,
+            drop_last=True,
+        )
+        loader.dnc2_analysis_provenance = {
+            "num_augmented_views_per_instance": 2,
+        }
+        with self.assertRaisesRegex(ValueError, "drop_last=True"):
+            paired_view_loader_provenance(
+                loader,
+                torch.randn(8, 3),
+                torch.randn(8, 3),
+            )
 
     def test_exact_whitening_restores_directional_cdnv_identity(self):
         labels = torch.cat((torch.ones(250), -torch.ones(250)))

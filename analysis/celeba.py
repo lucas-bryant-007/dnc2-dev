@@ -16,7 +16,11 @@ from eval_utils import (
 )
 from geometry import GeometricEvaluator
 from br.diagnostics import GramStats, gram_stats, print_basis_stats
-from br.ssl_subspace import SSLSubspaceEstimator, fit_ssl_subspace
+from br.ssl_subspace import (
+    SSLSubspaceEstimator,
+    fit_ssl_subspace,
+    paired_view_loader_provenance,
+)
 from br.whitening import (
     ABSOLUTE_WHITENING_ELIGIBILITY_POLICY,
     absolute_whitening_eligibility,
@@ -338,6 +342,11 @@ def main(args):
                 f"but extract_features returned {len(extracted)} values"
             )
         print(f"Extracted paired train features: {features_view1.shape}, {features_view2.shape}")
+        paired_loader_record = paired_view_loader_provenance(
+            train_loader_b,
+            features_view1,
+            features_view2,
+        )
         population_split = split_balanced_paired_fit_eval(
             features_view1,
             features_view2,
@@ -424,8 +433,8 @@ def main(args):
             key = "adaptive" if k_cap is None else f"cap_{k_cap}"
             per_cap_results[key] = {
                 "k_eff": results.estimator.k_eff,
-                "first_stage_ssl_whitener": (
-                    results.estimator.first_stage_whitener_provenance(
+                "first_stage_ssl_whitener": ({
+                    **results.estimator.first_stage_whitener_provenance(
                         fit_split="balanced_whitening_fit_fold",
                         fit_population=(
                             "balanced_paired_training_instances_disjoint_from_"
@@ -436,8 +445,9 @@ def main(args):
                             "views_per_instance"
                         ),
                         frozen_for_test=None,
-                    )
-                ),
+                    ),
+                    "source_paired_view_loader": paired_loader_record,
+                }),
                 "requested_r_values": results.requested_r_values,
                 "r_values": results.r_values,
                 "eligible_r_values": results.eligible_r_values,

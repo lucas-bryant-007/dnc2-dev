@@ -176,6 +176,13 @@ for spec in \
     "$CUB_JSON:$OUT_BASE/nulls/vicreg_cub200"; do
     result_json="${spec%%:*}"
     null_dir="${spec#*:}"
+    if ! "$PY" -c \
+        'import json, sys; payload = json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if payload.get("selection_succeeded", True) else 1)' \
+        "$result_json"; then
+        printf 'Skipping held-out permutation control for negative result: %s\n' \
+            "$result_json"
+        continue
+    fi
     "$PY" -u analysis/permutation_box_null.py \
         --json "$result_json" \
         --n_permutations 5000 \
@@ -193,5 +200,5 @@ if [[ -s "$TORCH_HOME/hub/checkpoints/resnet50.pth" ]]; then
 fi
 
 date --iso-8601=seconds >"$OUT_BASE/COMPLETE"
-printf 'All cross-fit runs and permutation controls finished.\n'
+printf 'All cross-fit runs and applicable permutation controls finished.\n'
 printf 'Results: %s\n' "$OUT_BASE"

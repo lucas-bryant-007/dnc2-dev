@@ -24,7 +24,7 @@ from torch.utils.data import DataLoader
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from box_viz import plot_box_3d
-from br.ssl_subspace import fit_ssl_subspace
+from br.ssl_subspace import fit_ssl_subspace, paired_view_loader_provenance
 from celeba_hyperrect import (
     extract_features_and_attrs,
     make_collate,
@@ -51,6 +51,106 @@ def _loader(dataset, data_cfg, transforms, attr_names):
         num_workers=data_cfg.num_workers,
         pin_memory=True,
         collate_fn=make_collate(data_cfg.image_key, transforms, attr_names),
+    )
+
+
+def _fixed_train_constraints(args):
+    return {
+        "population": "uniform_over_selected_eight_attribute_cells",
+        "joint_balance_required": bool(args.joint_balance),
+        "candidate_min_class_frac": args.candidate_min_class_frac,
+        "candidate_min_capture": args.candidate_min_capture,
+        "balance_candidate_pool": args.balance_candidate_pool,
+        "min_train_cell_count": args.min_train_cell_count,
+        "max_train_cell_samples": args.max_train_cell_samples,
+        "proxy_cos_ceiling": args.proxy_cos_ceiling,
+        "max_exact_candidates": args.max_exact_candidates,
+        "min_class_frac": args.min_class_frac,
+        "min_capture": args.min_capture,
+        "cos_ceiling": args.cos_ceiling,
+        "analysis_whiten_rel_eig_threshold": (
+            args.analysis_whiten_rel_eig_threshold
+        ),
+        "allow_constraint_fallback": bool(args.allow_constraint_fallback),
+    }
+
+
+def _failed_candidate_attempts(train_balance, train_result=None):
+    if train_balance:
+        attempts = train_balance.get("exact_attempts")
+        if attempts is not None:
+            return attempts
+    if train_result is None:
+        return []
+    return [
+        {
+            "rank": None,
+            "triple": train_result.get("triple_names"),
+            "exact_max_abs_cos": train_result.get("triple_max_abs_cos"),
+            "exact_capture_B": [
+                row.get("capture_B") for row in train_result.get("metrics", [])
+            ],
+            "passed": False,
+        }
+    ]
+
+
+def _write_selection_failure_artifact(
+    *,
+    args,
+    cfg,
+    ckpt_path,
+    first_stage_ssl_whitener,
+    natural_train_screen,
+    train_balance,
+    failure_reason,
+    train_result=None,
+):
+    method = str(cfg.method.name)
+    tag = (args.tag or "crossfit").strip()
+    stem = (
+        f"crossfit_{mio.slug(method)}_celeba_epoch_{args.epoch}_"
+        f"{mio.slug(tag)}"
+    )
+    label_randomization = None
+    protocol_name = "fixed_constraint_train_selection"
+    if args.label_permutation_seed is not None:
+        protocol_name = "full_pipeline_independent_column_label_permutation"
+        label_randomization = {
+            "train_seed": args.label_permutation_seed,
+            "test_seed": args.label_permutation_seed + 1_000_003,
+            "permutation": (
+                "each attribute column independently permuted within split; "
+                "column prevalence preserved exactly"
+            ),
+        }
+    metrics_dir = os.path.join(args.out_dir, "metrics")
+    return mio.write_train_selection_failure(
+        os.path.join(metrics_dir, f"hyperrect_{stem}.json"),
+        run_provenance={
+            "method": method,
+            "dataset": "celeba",
+            "epoch": args.epoch,
+            "tag": tag,
+            "config": args.config,
+            "ckpt_path": ckpt_path,
+            "seed": args.seed,
+            "first_stage_ssl_whitener": first_stage_ssl_whitener,
+        },
+        protocol={
+            "name": protocol_name,
+            "population_estimand": "uniform_over_selected_eight_attribute_cells",
+            "selection_split": "train",
+            "evaluation_split": "test_not_reached",
+            "test_labels_analyzed": False,
+            "selection_constraints_unchanged": True,
+            "label_randomization": label_randomization,
+        },
+        fixed_constraints=_fixed_train_constraints(args),
+        candidate_attempts=_failed_candidate_attempts(train_balance, train_result),
+        failure_reason=failure_reason,
+        natural_train_screen=natural_train_screen,
+        train_balance=train_balance,
     )
 
 
@@ -816,11 +916,17 @@ def main(args):
     freeze_model(model)
 
     print("Fitting SSL subspace from paired training views...")
+    paired_train_loader = data_module.paired_train_dataloader()
     z1, z2, _ = extract_features(
-        data_module.paired_train_dataloader(),
+        paired_train_loader,
         model.backbone,
         device=args.device,
         both_views=True,
+    )
+    paired_loader_record = paired_view_loader_provenance(
+        paired_train_loader,
+        z1,
+        z2,
     )
     estimator = fit_ssl_subspace(
         z1,
@@ -835,6 +941,7 @@ def main(args):
         ),
         frozen_for_test=True,
     )
+    first_stage_ssl_whitener["fit_loader"] = paired_loader_record
     print(f"SSL subspace k_eff={estimator.k_eff}")
     del z1, z2
     gc.collect()
@@ -881,54 +988,21 @@ def main(args):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         if train_result is None:
-            if args.label_permutation_seed is None:
-                raise SystemExit(
-                    "No jointly balanced training triple satisfied the declared "
-                    "constraints."
-                )
-            method = str(cfg.method.name)
-            tag = (args.tag or "crossfit").strip()
-            stem = (
-                f"crossfit_{mio.slug(method)}_celeba_epoch_{args.epoch}_"
-                f"{mio.slug(tag)}"
+            failure_reason = (
+                "no jointly balanced training triple satisfied the fixed "
+                "capture and orthogonality constraints"
             )
-            metrics_dir = os.path.join(args.out_dir, "metrics")
-            failure_payload = {
-                "method": method,
-                "dataset": "celeba",
-                "epoch": args.epoch,
-                "tag": tag,
-                "config": args.config,
-                "ckpt_path": ckpt_path,
-                "first_stage_ssl_whitener": first_stage_ssl_whitener,
-                "protocol": {
-                    "name": "full_pipeline_independent_column_label_permutation",
-                    "selection_split": "train",
-                    "evaluation_split": "test_not_reached",
-                    "train_label_permutation_seed": args.label_permutation_seed,
-                    "test_label_permutation_seed": args.label_permutation_seed + 1_000_003,
-                    "permutation": (
-                        "each attribute column independently permuted within split; "
-                        "column prevalence preserved exactly"
-                    ),
-                    "selection_constraints_unchanged_from_strict_real_label_run": True,
-                    "allow_constraint_fallback": False,
-                },
-                "selection_succeeded": False,
-                "failure_reason": (
-                    "no jointly balanced training triple satisfied the fixed "
-                    "capture and orthogonality constraints"
-                ),
-                "natural_train_screen": natural_train_screen,
-                "train_balance": train_balance_record,
-                "test_evaluation": None,
-            }
-            json_path = mio.write_json(
-                os.path.join(metrics_dir, f"hyperrect_{stem}.json"),
-                failure_payload,
+            json_path = _write_selection_failure_artifact(
+                args=args,
+                cfg=cfg,
+                ckpt_path=ckpt_path,
+                first_stage_ssl_whitener=first_stage_ssl_whitener,
+                natural_train_screen=natural_train_screen,
+                train_balance=train_balance_record,
+                failure_reason=failure_reason,
             )
-            print("Permutation-null train selection failed under fixed constraints.")
-            print(f"Saved null result: {json_path}")
+            print(f"Train selection failed: {failure_reason}.")
+            print(f"Saved negative result: {json_path}")
             print("Finished.")
             return
         if train_rewhitener is None:
@@ -961,10 +1035,21 @@ def main(args):
             f"sqrtB={row['sqrt_capture_B']:.4f}, pos_frac={row['pos_frac']:.3f}"
         )
     if not constraints_ok and not args.allow_constraint_fallback:
-        raise SystemExit(
-            "No triple satisfied the declared train constraints. "
-            "Use --allow_constraint_fallback only for a clearly labeled diagnostic run."
+        failure_reason = "no triple satisfied the declared train constraints"
+        json_path = _write_selection_failure_artifact(
+            args=args,
+            cfg=cfg,
+            ckpt_path=ckpt_path,
+            first_stage_ssl_whitener=first_stage_ssl_whitener,
+            natural_train_screen=natural_train_screen,
+            train_balance=train_balance_record,
+            failure_reason=failure_reason,
+            train_result=train_result,
         )
+        print(f"Train selection failed: {failure_reason}.")
+        print(f"Saved negative result: {json_path}")
+        print("Finished.")
+        return
     frozen_triple = list(train_result["triple_names"])
     train_payload = _serializable_result(train_result)
     training_capture_interpretation = _training_capture_interpretation(
@@ -1245,6 +1330,7 @@ def main(args):
             },
         },
         "first_stage_ssl_whitener": first_stage_ssl_whitener,
+        "selection_succeeded": True,
         "selected_triple": frozen_triple,
         "natural_train_screen": natural_train_screen,
         "train_balance": train_balance_record,
