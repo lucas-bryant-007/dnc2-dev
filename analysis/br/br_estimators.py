@@ -1,6 +1,6 @@
 import torch
 import math
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable
 from .diagnostics import _as_pm_one
 
 # -----------------------------------------------------------------------------

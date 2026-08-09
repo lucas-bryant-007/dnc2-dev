@@ -1,0 +1,90 @@
+# ResNet-50 variant of the dSprites hyper-rectangle run (multi-model story).
+# Identical task/augmentation setup to dsprites.yaml; only the backbone and the
+# output paths differ, so the box/bounds/spectrum drivers work unchanged with
+#   --ckpt_dir checkpoints/vicreg_dsprites_r50
+exp_name: resnet50_vicreg_dsprites
+seed: 6
+
+data:
+  name: dsprites
+  npz_path: ${oc.env:DSPRITES_NPZ,./data/dsprites/dsprites.npz}
+  img_size: 64
+  batch_size: 512
+  num_workers: 16
+  num_views: 2
+  task_factors: ["scale", "posX", "posY"]
+  shapes: [0, 1]
+  scale_threshold: 3
+  posx_threshold: 16
+  posy_threshold: 16
+  keep_levels:
+    scale: [0, 1, 4, 5]
+    posX: [0, 1, 2, 3, 28, 29, 30, 31]
+    posY: [0, 1, 2, 3, 28, 29, 30, 31]
+  pair_mode: exact
+  max_samples: 200000
+
+model:
+  resnet_name: "resnet50"
+  pretrained: false
+  lr: 3.0e-4
+  weight_decay: 1e-6
+  warmup_epochs: 5
+  min_lr: 0.0002
+  lambda_param: 25.0
+  mu_param: 25.0
+  nu_param: 1.0
+  hidden_dim: 1024
+  output_dim: 1024
+  num_layers: 2
+
+trainer:
+  devices: 1
+  accelerator: gpu
+  strategy: auto
+  max_epochs: 201
+  accumulate_grad_batches: 1
+  use_distributed_sampler: false
+  num_sanity_val_steps: 0
+  log_every_n_steps: 50
+  # ResNet-50 converges slower than ResNet-18 here; 81 epochs undertrains (size
+  # axis B~0.41). Longer run for a fair model comparison; pick the cleanest late ckpt.
+
+method:
+  name: "vicreg"
+
+logging:
+  backend: csv
+  project: dnc
+  entity: null
+  run_name: vicreg_dsprites_r50
+  tags: ["vicreg", "dsprites", "resnet50"]
+  log_model: false
+  log_every_n_steps: 50
+
+precision: bf16-mixed
+
+paths:
+  output_root: ${oc.env:OUTPUT_ROOT,./checkpoints}
+  exp_dir: ${oc.env:EXP_DIR,null}
+  resume_from_checkpoint: ${oc.env:RESUME_FROM_CHECKPOINT,null}
+
+ckpt_schedule:
+  dirpath: "checkpoints/vicreg_dsprites_r50"
+  early_every: 5
+  early_until: 40
+  late_every: 20
+  save_last: true
+
+probe:
+  enabled: False
+  every_n_epochs: 500
+  max_epochs: 100
+  lr: 0.1
+  weight_decay: 1e-6
+  batch_size: 256
+
+cdnv:
+  every_n_epochs: 20
+  num_classes: 2
+  enabled: False

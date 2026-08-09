@@ -1,46 +1,73 @@
 # Directional Neural Collapse
 
-Authors: 
+Lean research implementation for studying which task directions survive
+self-supervised representation learning. Generated results, checkpoints, and
+paper assets are intentionally excluded.
 
-We acknowledge the public availability of the following repositories, which we have built upon in our work:
+## Setup
 
-- [Lightly-SSL](https://github.com/lightly-ai/lightly) for training models from scratch
-- [Timm](https://github.com/rwightman/pytorch-image-models) for vision models and datasets
-
-## Abstract
-
-```
-TODO
+```bash
+python -m pip install -r requirements.txt
 ```
 
-### NCCC evaluation
+Train from a checked-in configuration:
 
-```python
-TODO
+```bash
+python training/train.py --config configs/ijepa/celeba.yaml
 ```
 
-This shall result in `nccc.csv` file in your output directory. 
+## Code map
 
-### CDNV evaluation
+Core geometry and estimators:
 
-```python
-TODO
-```
+- `analysis/hyperrect.py` - task probes, cross-fit geometry, and box diagnostics.
+- `analysis/bounds.py` - directional-CDNV and few-shot bounds.
+- `analysis/interference_core.py` - shared-bottleneck interference estimators.
+- `analysis/br/` - directional-collapse estimators and SSL subspace utilities.
 
-This shall result in `cdnv.csv` file in your output directory.
+Experiment drivers:
 
-# Training SSL models from scratch
+- `analysis/celeba_hyperrect_crossfit.py` - strict CelebA evaluation.
+- `analysis/cub200_hyperrect_crossfit.py` - official CUB-200 evaluation.
+- `analysis/permutation_box_null.py` - held-out permutation controls.
+- `analysis/dsprites_hyperrect.py` and `analysis/wide_interference.py` -
+  controlled synthetic experiments.
+- `analysis/run_pretrained_crossfit.sh` - matched pretrained batch run.
+- `analysis/pusht/` - future-factor recoverability and regret.
 
-Our repository supports training following SSL methods from scratch:
-- VICReg
-- Barlow Twins
+Required figure generators:
 
+- Meeting 1: `analysis/dsprites_hyperrect.py`,
+  `analysis/meeting1_summary.py`, `analysis/dsprites_taskfamily_spectrum.py`,
+  `analysis/dsprites_interference.py`, `analysis/wide_interference.py`, and
+  `analysis/hyperrect_bounds.py`.
+- Meeting 2 / pretrained hypercubes: `analysis/plot_crossfit_hyperrect.py`
+  renders the current CelebA and CUB-200 cross-fit result JSONs.
 
-You can find the training scripts and necessary utilities in the [training](src/training) folder. Please refer to the [training_from_scratch.md](docs/training_from_scratch.md) document for detailed instructions on training these models from scratch.
+Supporting packages:
 
-## Citation
-If you find our work useful in your research, please consider citing the following paper:
+- `models/` - VICReg, W-MSE, and I-JEPA implementations.
+- `data_utils/` - CelebA, CUB-200, dSprites, Shapes3D, and MPI3D loaders.
+- `training/` - configuration loading, training, callbacks, and export utilities.
+- `configs/` - training and evaluation configurations.
 
-```bibtex
-TODO
-```
+## Experiment guides
+
+- `docs/training_from_scratch.md`
+- `docs/celeba_experiment.md`
+- `docs/cub200_experiment.md`
+- `analysis/pusht/README.md`
+
+## Current state
+
+The strict evaluation path freezes attribute selection, whitening, task axes,
+and box predictions on training data before held-out evaluation. Capture and
+task cosines use split-half estimates, and predicted corners use the unbiased
+capture scale. CUB-200 additionally enforces distinct semantic attribute
+families.
+
+Experiment output belongs in ignored directories such as `figures/`, `metrics/`,
+`logs/`, `runs/`, and `results/`. The full July 2026 evidence remains on the
+archival `integrate-paper-dev-20260807` branch.
+
+The project is active research code; citation metadata has not been released.

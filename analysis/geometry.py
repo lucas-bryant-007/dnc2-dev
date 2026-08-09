@@ -1,5 +1,4 @@
 import torch
-import torch.nn.functional as F
 
 class GeometricEvaluator:
     def __init__(self, num_classes=10, device='cuda'):

@@ -5,8 +5,7 @@ from torch.optim.lr_scheduler import LambdaLR
 import pytorch_lightning as pl
 from lightly.loss import VICRegLoss
 from lightly.models.modules.heads import VICRegProjectionHead
-from torchvision.models import resnet18, resnet50
-from timm.optim.lars import Lars
+from torchvision.models import ResNet18_Weights, ResNet50_Weights, resnet18, resnet50
 
 
 def _namespace_to_dict(ns) -> dict:
@@ -26,10 +25,12 @@ def build_resnet(resnet_name: str = "resnet50", pretrained: bool = False):
     resnet_name = resnet_name.lower()
     
     if resnet_name == "resnet18":
-        model = resnet18(pretrained=pretrained)
+        weights = ResNet18_Weights.DEFAULT if pretrained else None
+        model = resnet18(weights=weights)
         feature_dim = 512
     elif resnet_name == "resnet50":
-        model = resnet50(pretrained=pretrained)
+        weights = ResNet50_Weights.DEFAULT if pretrained else None
+        model = resnet50(weights=weights)
         feature_dim = 2048
     else:
         raise ValueError(f"Unknown resnet_name={resnet_name}. Supported: resnet18, resnet50")
@@ -124,7 +125,12 @@ class LightlyVICReg(pl.LightningModule):
         # Warmup + cosine decay scheduler
         warmup_epochs = self.cfg.model.warmup_epochs
         max_epochs = self.cfg.trainer.max_epochs
-        min_lr = self.cfg.model.min_lr
+        min_lr = float(self.cfg.model.min_lr)
+        if scaled_lr <= 0 or min_lr < 0 or min_lr > scaled_lr:
+            raise ValueError(
+                f"Expected 0 <= min_lr <= scaled_lr, got min_lr={min_lr:g} "
+                f"and scaled_lr={scaled_lr:g}."
+            )
 
         def lr_lambda(epoch):
             # epoch is 0-indexed

@@ -5,6 +5,7 @@ from torch.utils.data import TensorDataset, DataLoader
 import pytorch_lightning as pl
 from tqdm import tqdm
 
+
 class LinearProbeCallback(pl.Callback):
     """
     Every N epochs:
@@ -89,7 +90,6 @@ class LinearProbeCallback(pl.Callback):
             device = pl_module.device
 
             backbone = pl_module.backbone  # frozen for probe
-            breakpoint()
 
             # feature dim
             with torch.no_grad():

@@ -75,7 +75,6 @@ def extract_features(loader, backbone, device,
     """Extract features and labels from a dataloader."""
     feats_view1_list, feats_view2_list, y_list = [], [], []
 
-    images_view2 = None  # Initialize to None for safety
     for batch_idx, batch in enumerate(tqdm(loader)):
         views, y, _, _ = batch
         if batch_idx >= max_batches:
@@ -85,10 +84,11 @@ def extract_features(loader, backbone, device,
             if isinstance(views, (list, tuple))
             else views.to(device)
         )
-        if both_views and isinstance(views, (list, tuple)) and len(views) > 1:
-            images_view2 = (
-                views[1].to(device, non_blocking=True)
-            )
+        images_view2 = None
+        if both_views:
+            if not isinstance(views, (list, tuple)) or len(views) < 2:
+                raise ValueError("both_views=True requires two views in every batch")
+            images_view2 = views[1].to(device, non_blocking=True)
             
         with torch.no_grad():
             feats_view1 = extract_backbone_features(backbone, images_view1)
@@ -127,16 +127,14 @@ def load_model_from_checkpoint(ckpt_path, device='cpu'):
         from models.vicreg import LightlyVICReg
         model = LightlyVICReg(cfg)
     elif method_name == 'ijepa':
-        from models.ijepa import LightlyIJepa
-        model = LightlyIJepa(cfg)
+        from models.ijepa import LightlyIJEPA
+        model = LightlyIJEPA(cfg)
     else:
         raise ValueError(f"Unsupported method {method_name} in checkpoint {ckpt_path}")
 
-    epoch = ckpt.get("epoch", None)
-    if epoch != 0:
-        model.load_state_dict(ckpt["state_dict"], strict=False)
-    else:
-        print("⚠️ Skipping weight load for epoch 0 checkpoint")
+    if "state_dict" not in ckpt:
+        raise RuntimeError(f"Checkpoint {ckpt_path} does not contain state_dict")
+    model.load_state_dict(ckpt["state_dict"], strict=True)
     return model, cfg
 
 def freeze_model(model):
@@ -168,7 +166,6 @@ def get_subset_dataloader(
         ...                                collate_fn=datamodule.eval_collate)
     """
     import numpy as np
-    from torch.utils.data import Subset
     
     # Extract dataset from dataloader if needed
     if isinstance(data_source, torch.utils.data.DataLoader):

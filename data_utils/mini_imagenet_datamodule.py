@@ -53,6 +53,7 @@ class MiniImageNetDataModule(pl.LightningDataModule):
         self.train_tfms, self.test_tfms = get_transforms(
             method=self.cfg.method,
             dataset=self.cfg.name,
+            img_size=self.cfg.img_size,
         )
 
     def prepare_data(self):
@@ -76,6 +77,11 @@ class MiniImageNetDataModule(pl.LightningDataModule):
         )
 
         # Grid logic for I-JEPA
+        if self.cfg.img_size % self.cfg.patch_size != 0:
+            raise ValueError(
+                f"img_size={self.cfg.img_size} must be divisible by "
+                f"patch_size={self.cfg.patch_size}"
+            )
         self.grid_h = self.cfg.img_size // self.cfg.patch_size
         self.grid_w = self.cfg.img_size // self.cfg.patch_size
         self.num_patches = self.grid_h * self.grid_w
@@ -196,8 +202,12 @@ class MiniImageNetDataModule(pl.LightningDataModule):
     #  Shared DataLoader factory
     # ──────────────────────────────────────────────────────────────
     def _make_loader(self, ds, train: bool, collate_fn=None, shuffle: bool = False,
-                     num_workers: int = 0):
-        is_ddp = torch.distributed.is_available() and torch.distributed.is_initialized()
+                     num_workers: int = 0, distributed: bool = True):
+        is_ddp = (
+            distributed
+            and torch.distributed.is_available()
+            and torch.distributed.is_initialized()
+        )
         sampler = DistributedSampler(ds, shuffle=train) if is_ddp else None
         return DataLoader(
             ds,
@@ -226,10 +236,16 @@ class MiniImageNetDataModule(pl.LightningDataModule):
         return self._make_loader(self.ds_test, train=False, collate_fn=self._collate_eval, shuffle=False, num_workers=self.cfg.num_workers)
 
     def probe_train_dataloader(self):
-        return self._make_loader(self.ds_train, train=True, collate_fn=self._collate_eval, shuffle=True, num_workers=4)
+        return self._make_loader(
+            self.ds_train, train=False, collate_fn=self._collate_eval,
+            shuffle=True, num_workers=4, distributed=False,
+        )
 
     def probe_test_dataloader(self):
-        return self._make_loader(self.ds_test, train=False, collate_fn=self._collate_eval, shuffle=False, num_workers=4)
+        return self._make_loader(
+            self.ds_test, train=False, collate_fn=self._collate_eval,
+            shuffle=False, num_workers=4, distributed=False,
+        )
 
 import math
 import random

@@ -14,6 +14,15 @@ from data_utils import MiniImageNetDataModule, MiniImageNetCfg
 from eval_utils import (find_checkpoint_files, load_model_from_checkpoint, 
                         extract_features, set_seed, freeze_model, get_subset_dataloader)
 from geometry import GeometricEvaluator
+from metrics_io import write_json
+from br.whitening import (
+    ABSOLUTE_WHITENING_ELIGIBILITY_POLICY,
+    absolute_whitening_eligibility,
+    canonicalize_balanced_binary_labels,
+    fit_exact_whitener,
+    split_balanced_paired_fit_eval,
+    whitening_diagnostics,
+)
 
 @dataclass
 class SSLSubspaceEstimator:
@@ -44,6 +53,14 @@ class SSLSubspaceEstimator:
     ssl_eigvecs_: torch.Tensor
     ssl_eigvals_: torch.Tensor
     k: int
+    rel_eig_threshold: float
+    numerical_rel_eig_floor: float
+    effective_rel_eig_threshold: float
+    covariance_cutoff: float
+    covariance_eigenvalues_: torch.Tensor
+    k_requested: Optional[int]
+    lambda_max: float
+    n_fit_latent_instances: int
 
     def transform(self, z: torch.Tensor, r: Optional[int] = None) -> torch.Tensor:
         """
@@ -62,11 +79,45 @@ class SSLSubspaceEstimator:
             Coordinates in the empirical SSL basis. Columns are ordered from
             most to least dominant SSL direction.
         """
+        z = z.to(dtype=self.mean_.dtype)
         phi = (z - self.mean_) @ self.whiten_          # [N, k]
         psi = phi @ self.ssl_eigvecs_                  # [N, k]
         if r is not None:
             psi = psi[:, :r]
         return psi
+
+    def first_stage_whitener_provenance(
+        self,
+        *,
+        fit_split: str,
+        fit_population: str,
+        view_marginal: str,
+        frozen_for_test: Optional[bool],
+    ) -> dict:
+        return {
+            "stage": "first_stage_ssl_marginal_whitener",
+            "fit_split": fit_split,
+            "fit_population": fit_population,
+            "view_marginal": view_marginal,
+            "n_fit_latent_instances": self.n_fit_latent_instances,
+            "n_fit_view_rows": 2 * self.n_fit_latent_instances,
+            "input_dimension": int(self.mean_.shape[1]),
+            "requested_rank_cap": self.k_requested,
+            "retained_rank": self.k,
+            "relative_rank_cutoff": {
+                "requested": self.rel_eig_threshold,
+                "numerical_floor": self.numerical_rel_eig_floor,
+                "effective": self.effective_rel_eig_threshold,
+            },
+            "absolute_covariance_eigenvalue_cutoff": self.covariance_cutoff,
+            "retained_covariance_eigenvalue_range": {
+                "min": float(self.covariance_eigenvalues_[self.k - 1].item()),
+                "max": self.lambda_max,
+            },
+            "transform_frozen_after_fit": True,
+            "frozen_for_downstream_evaluation": True,
+            "frozen_for_test": frozen_for_test,
+        }
     
 def _as_pm_one(y: torch.Tensor) -> torch.Tensor:
     """
@@ -90,7 +141,7 @@ def fit_ssl_subspace(
     z1: torch.Tensor,
     z2: torch.Tensor,
     k: Optional[int] = None,
-    eps: float = 1e-6,
+    eps: float = 1e-3,
 ) -> SSLSubspaceEstimator:
     """
     Estimate the empirical SSL directions from paired augmentations.
@@ -110,8 +161,8 @@ def fit_ssl_subspace(
         Truncation dimension for whitening. If None, uses full dimension d.
         In practice, choose k <= min(N, d) and often much smaller than d.
     eps : float
-        Numerical regularization added to covariance eigenvalues before
-        inversion in whitening.
+        Relative covariance eigenvalue cutoff. Directions below
+        ``eps * lambda_max`` are discarded before exact whitening.
 
     Returns
     -------
@@ -127,52 +178,28 @@ def fit_ssl_subspace(
     """
     if z1.shape != z2.shape:
         raise ValueError(f"z1 and z2 must have same shape, got {z1.shape} vs {z2.shape}")
+    if z1.ndim != 2:
+        raise ValueError(f"z1 and z2 must be 2D, got {z1.ndim}D")
+    if not 0.0 < eps <= 1.0:
+        raise ValueError(f"eps must lie in (0, 1], got {eps}")
 
     N, d = z1.shape
+    k_requested = k
     if k is None:
         k = d
     k = min(k, d)
 
-    # ------------------------------------------------------------
-    # 1) Estimate marginal mean using both views
-    # ------------------------------------------------------------
-    z_all = torch.cat([z1, z2], dim=0)                # [2N, d]
-    mean_ = z_all.mean(dim=0, keepdim=True)           # [1, d]
-
-    z1c = z1 - mean_
-    z2c = z2 - mean_
-    z_all_c = z_all - mean_
-
-    # ------------------------------------------------------------
-    # 2) Estimate covariance of the single-view marginal and whiten
-    # ------------------------------------------------------------
-    cov = (z_all_c.T @ z_all_c) / z_all_c.shape[0]    # [d, d]
-
-    # eigvals, eigvecs = torch.linalg.eigh(cov)         # ascending
-    # idx = torch.argsort(eigvals, descending=True)
-    # eigvals = eigvals[idx][:k]                        # [k]
-    # eigvecs = eigvecs[:, idx][:, :k]                  # [d, k]
-
-    # # Truncated whitening map: x -> (x - mean) @ eigvecs @ diag(1/sqrt(lambda))
-    # inv_sqrt = (eigvals + eps).rsqrt()                # [k]
-    # whiten_ = eigvecs @ torch.diag(inv_sqrt)          # [d, k]
-
-    # Tomer's suggestion
-    eigvals_full, eigvecs_full = torch.linalg.eigh(cov)
-    idx = torch.argsort(eigvals_full, descending=True)
-    eigvals_full = eigvals_full[idx]
-    eigvecs_full = eigvecs_full[:, idx]
-    lam_max = eigvals_full[0]
-    keep = eigvals_full > 1e-3 * lam_max
-    k_eff = min(k, int(keep.sum().item()))
-    eigvals = eigvals_full[:k_eff]
-    eigvecs = eigvecs_full[:, :k_eff]
-    ridge = 1e-3 * lam_max
-    inv_sqrt = (eigvals + ridge).rsqrt()
-    whiten_ = eigvecs @ torch.diag(inv_sqrt)
-
-    phi1 = z1c @ whiten_                              # [N, k]
-    phi2 = z2c @ whiten_                              # [N, k]
+    # Fit through the shared primitive so float64 is preserved and a numerical
+    # rank floor protects small user-supplied cutoffs in rank-deficient data.
+    whitening = fit_exact_whitener(
+        torch.cat((z1, z2), dim=0),
+        rel_eig_threshold=eps,
+        k_cap=k,
+    )
+    z1_fit = z1.to(dtype=whitening.mean.dtype)
+    z2_fit = z2.to(dtype=whitening.mean.dtype)
+    phi1 = (z1_fit - whitening.mean) @ whitening.whitener
+    phi2 = (z2_fit - whitening.mean) @ whitening.whitener
 
     check_basis_stats(phi1, name="phi1")
     check_basis_stats(phi2, name="phi2")
@@ -194,11 +221,19 @@ def fit_ssl_subspace(
     ssl_eigvecs = ssl_eigvecs[:, idx]
 
     return SSLSubspaceEstimator(
-        mean_=mean_,
-        whiten_=whiten_,
+        mean_=whitening.mean,
+        whiten_=whitening.whitener,
         ssl_eigvecs_=ssl_eigvecs,
         ssl_eigvals_=ssl_eigvals,
-        k=k,
+        k=whitening.output_dim,
+        rel_eig_threshold=whitening.rel_eig_threshold,
+        numerical_rel_eig_floor=whitening.numerical_rel_eig_floor,
+        effective_rel_eig_threshold=whitening.effective_rel_eig_threshold,
+        covariance_cutoff=whitening.cutoff,
+        covariance_eigenvalues_=whitening.covariance_eigenvalues,
+        k_requested=k_requested,
+        lambda_max=whitening.lambda_max,
+        n_fit_latent_instances=int(N),
     )
 
 def estimate_B_r(
@@ -433,6 +468,10 @@ def run_br_pipeline(
     eps: float = 1e-6,
     center_labels: bool = False,
     compute_observed_tilde_V: bool = True,
+    fit_labels: Optional[torch.Tensor] = None,
+    evaluation_instance_ids: Optional[torch.Tensor] = None,
+    max_whiten_mean_l2_error: float = 0.05,
+    max_whiten_operator_error: float = 0.10,
 ):
     """
     End-to-end pipeline:
@@ -454,11 +493,15 @@ def run_br_pipeline(
     k : int or None
         Whitening truncation dimension used before SSL eigendecomposition.
     eps : float
-        Whitening regularization.
+        Relative covariance cutoff for exact rank-truncated whitening.
     center_labels : bool
         Whether to center labels when estimating B_r.
     compute_observed_tilde_V : bool
         If True, also compute empirical directional CDNV for each r.
+
+    The whitening cutoffs are fixed absolute empirical-geometry criteria, not
+    a population-whiteness test. Failed ranks remain in the returned
+    diagnostics but are omitted from theorem formula dictionaries.
 
     Returns
     -------
@@ -470,8 +513,75 @@ def run_br_pipeline(
           - "tilde_V_pred": dict r -> predicted directional CDNV from B_r
           - "tilde_V_obs": dict r -> observed directional CDNV (optional)
     """
+    if fit_labels is None or fit_labels.reshape(-1).numel() != z1_unlab.shape[0]:
+        raise ValueError("fit_labels must contain one label per paired fit instance")
+    if y_lab.reshape(-1).numel() != z_lab.shape[0]:
+        raise ValueError("y_lab must contain one label per evaluation row")
+    if (
+        evaluation_instance_ids is None
+        or evaluation_instance_ids.reshape(-1).numel() != z_lab.shape[0]
+    ):
+        raise ValueError(
+            "evaluation_instance_ids must contain one ID per evaluation row"
+        )
+    n_independent_eval_instances = int(
+        torch.unique(evaluation_instance_ids.detach().cpu()).numel()
+    )
+    _, fit_balance = canonicalize_balanced_binary_labels(
+        fit_labels,
+        "whitening-fit latent-instance population",
+    )
+    y_lab, eval_balance = canonicalize_balanced_binary_labels(
+        y_lab,
+        "theorem-evaluation population",
+    )
+    population_balance = {
+        "whitening_fit_instances": fit_balance,
+        "theorem_evaluation_rows": eval_balance,
+    }
     estimator = fit_ssl_subspace(z1_unlab, z2_unlab, k=k, eps=eps)
+    first_stage_ssl_whitener = estimator.first_stage_whitener_provenance(
+        fit_split="balanced_whitening_fit_fold",
+        fit_population=(
+            "balanced_paired_training_instances_disjoint_from_theorem_evaluation"
+        ),
+        view_marginal=(
+            "equal_weight_empirical_mixture_of_two_augmented_views_per_instance"
+        ),
+        frozen_for_test=None,
+    )
     psi_lab = estimator.transform(z_lab)  # [N_l, k]
+    requested_r_values = sorted(
+        set(int(r) for r in r_values if 1 <= int(r) <= estimator.k)
+    )
+    if not requested_r_values:
+        raise ValueError(
+            f"No valid r values remain after truncation to k_eff={estimator.k}"
+        )
+
+    whitening_by_r = {}
+    for r in requested_r_values:
+        diagnostic = whitening_diagnostics(
+            psi_lab[:, :r],
+            n_independent_samples=n_independent_eval_instances,
+        )
+        whitening_by_r[r] = {
+            **diagnostic.as_dict(),
+            **absolute_whitening_eligibility(
+                diagnostic,
+                max_mean_l2_error=max_whiten_mean_l2_error,
+                max_operator_error=max_whiten_operator_error,
+            ),
+            "scope": "out_of_sample_same_view_marginal",
+            "check_kind": "absolute_empirical_geometry_eligibility",
+        }
+    eligible_r_values = [
+        r for r in requested_r_values if whitening_by_r[r]["eligible"]
+    ]
+    ineligible_r_values = [
+        r for r in requested_r_values if not whitening_by_r[r]["eligible"]
+    ]
+    r_values = eligible_r_values
 
     check_basis_stats(psi_lab, name="psi_lab")
 
@@ -499,8 +609,19 @@ def run_br_pipeline(
     results = {
         "estimator": estimator,
         "psi_lab": psi_lab,
+        "first_stage_ssl_whitener": first_stage_ssl_whitener,
+        "requested_r_values": requested_r_values,
+        "r_values": r_values,
+        "eligible_r_values": eligible_r_values,
+        "ineligible_r_values": ineligible_r_values,
         "B_r": B_r,
         "tilde_V_pred": tilde_V_pred,
+        "whitening_diagnostics": whitening_by_r,
+        "all_requested_ranks_eligible": not ineligible_r_values,
+        "whitening_eligibility_policy": (
+            ABSOLUTE_WHITENING_ELIGIBILITY_POLICY
+        ),
+        "population_balance": population_balance,
     }
 
     if compute_observed_tilde_V:
@@ -518,7 +639,6 @@ def check_basis_stats(psi, name="psi"):
     print(f"{name} diag range = [{cov.diag().min().item():.4f}, {cov.diag().max().item():.4f}]")
 
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
 from matplotlib.colors import LogNorm
 def plot_Br_vs_r(all_results, save_path=None, title="B_r vs r"):
     plt.figure(figsize=(7, 5))
@@ -630,10 +750,18 @@ def plot_tildeV_scatter_pretty(all_results, save_path=None,
 
 def main(args):
     set_seed(69)
+    if not 0.0 < args.ssl_fit_fraction < 1.0:
+        raise ValueError("--ssl_fit_fraction must lie in (0,1)")
+    if (
+        args.max_whiten_mean_l2_error <= 0
+        or args.max_whiten_operator_error <= 0
+    ):
+        raise ValueError("absolute whitening eligibility cutoffs must be positive")
     # Load config from YAML file
     cfg = load_config(args.config)
     # Convert dict to namespace for easier access (cfg.data.x instead of cfg['data']['x'])
     cfg = dict_to_namespace(cfg)
+    run_method = str(cfg.method.name)
 
     # build data module
     data_cfg = MiniImageNetCfg(**namespace_to_dict(cfg.data))
@@ -642,9 +770,9 @@ def main(args):
     data_module.setup()
 
     train_loader = data_module.train_dataloader() # required (w/ augmentations) to estimate SSL subspace
-    sv_train_loader = data_module.probe_train_dataloader() # single-view loader for estimating B_r and tilde_V without augmentation
-    sv_test_loader = data_module.probe_test_dataloader()
-
+    # Used only for raw-space descriptive geometry; theorem-facing quantities
+    # use the held-out augmented-view marginal constructed below.
+    sv_train_loader = data_module.probe_train_dataloader()
     # pick 2 random classes and filter the dataloaders to only include those classes
     selected_classes = random.sample(range(100), 2)
     # selected_classes = [0, 1]
@@ -670,10 +798,28 @@ def main(args):
             freeze_model(model)
 
             # get features for both augmented views on the training set (required to fit SSL subspace)
-            features_view1, features_view2, _ = extract_features(train_loader_b, model.backbone, device='cuda', both_views=True)
+            features_view1, features_view2, paired_labels = extract_features(train_loader_b, model.backbone, device='cuda', both_views=True)
             print(f"Extracted train features of shape: {features_view1.shape} and {features_view2.shape}")
+            population_split = split_balanced_paired_fit_eval(
+                features_view1,
+                features_view2,
+                paired_labels,
+                fit_fraction=args.ssl_fit_fraction,
+                seed=69,
+            )
+            ssl_fit_view1 = population_split.fit_view1
+            ssl_fit_view2 = population_split.fit_view2
+            theorem_eval_features = population_split.evaluation_features
+            theorem_eval_labels = population_split.evaluation_labels
+            print(
+                "Balanced, population-matched theorem split: "
+                f"SSL fit={ssl_fit_view1.shape[0]} instances, "
+                f"evaluation={population_split.eval_instance_ids.numel()} "
+                f"instances/{theorem_eval_features.shape[0]} augmented views, "
+                f"counts={population_split.metadata()}"
+            )
 
-            # get single-view features for the labeled subset (for estimating B_r and tilde_V)
+            # Single-view features are reported only as raw-space diagnostics.
             sv_train_features_b, train_labels_b = extract_features(sv_train_loader_b, model.backbone, device='cuda')
             # breakpoint()
             
@@ -691,22 +837,45 @@ def main(args):
                 print(f"\n=== Evaluating for k={k} ===")
                 r_values = [r for r in R if r <= k]
                 results = run_br_pipeline(
-                    z1_unlab=features_view1,
-                    z2_unlab=features_view2,
-                    z_lab=sv_train_features_b,
-                    y_lab=train_labels_b,
+                    z1_unlab=ssl_fit_view1,
+                    z2_unlab=ssl_fit_view2,
+                    z_lab=theorem_eval_features,
+                    y_lab=theorem_eval_labels,
                     r_values=r_values,
                     k=k,
-                    eps=1e-6,
+                    eps=1e-3,
                     center_labels=False,
                     compute_observed_tilde_V=True,
+                    fit_labels=population_split.fit_labels,
+                    evaluation_instance_ids=(
+                        population_split.evaluation_instance_ids
+                    ),
+                    max_whiten_mean_l2_error=args.max_whiten_mean_l2_error,
+                    max_whiten_operator_error=args.max_whiten_operator_error,
                 )
 
+                used_r_values = sorted(results["B_r"])
                 all_results[k] = {
-                "r_values": r_values,
-                "B_r": results["B_r"],
-                "tilde_V_pred": results["tilde_V_pred"],
-                "tilde_V_obs": results["tilde_V_obs"],
+                    "first_stage_ssl_whitener": results[
+                        "first_stage_ssl_whitener"
+                    ],
+                    "requested_r_values": results["requested_r_values"],
+                    "r_values": used_r_values,
+                    "eligible_r_values": results["eligible_r_values"],
+                    "ineligible_r_values": results["ineligible_r_values"],
+                    "B_r": results["B_r"],
+                    "tilde_V_pred": results["tilde_V_pred"],
+                    "tilde_V_obs": results["tilde_V_obs"],
+                    "whitening_diagnostics": results[
+                        "whitening_diagnostics"
+                    ],
+                    "all_requested_ranks_eligible": results[
+                        "all_requested_ranks_eligible"
+                    ],
+                    "whitening_eligibility_policy": results[
+                        "whitening_eligibility_policy"
+                    ],
+                    "population_balance": results["population_balance"],
                 }
 
                 print("B_r estimates:")
@@ -714,13 +883,56 @@ def main(args):
                     print(f"r={r:3d}  B_r={v:.6f}")
 
                 print("\nPredicted vs observed directional CDNV:")
-                for r in r_values:
+                for r in used_r_values:
                     pred = results["tilde_V_pred"][r]
                     obs = results["tilde_V_obs"][r]
                     print(f"r={r:3d}  pred={pred:.6f}  obs={obs:.6f}")
 
-            # Plotting
-            plot_Br_vs_r(all_results, save_path=f"figures/Br_vs_r/Br_vs_r_epoch_{epoch}.png")
+            class_token = "-".join(str(value) for value in selected_classes)
+            metrics_path = os.path.join(
+                args.out_dir,
+                "metrics",
+                f"spectral_{run_method}_classes_{class_token}_epoch_{epoch}.json",
+            )
+            write_json(metrics_path, {
+                "method": run_method,
+                "epoch": epoch,
+                "checkpoint": ckpt_path,
+                "selected_classes": selected_classes,
+                "population_split": population_split.metadata(),
+                "whitening_eligibility_policy": {
+                    "kind": ABSOLUTE_WHITENING_ELIGIBILITY_POLICY,
+                    "meaning": (
+                        "strict_absolute_empirical_geometry_not_population_test"
+                    ),
+                    "predeclared": True,
+                    "applied_per_rank": True,
+                    "ineligible_rank_handling": "theorem_formulas_suppressed",
+                    "failed_rank_diagnostics_persisted": True,
+                    "max_mean_l2_error": args.max_whiten_mean_l2_error,
+                    "max_operator_error": args.max_whiten_operator_error,
+                    "independent_sample_unit": "latent_instance",
+                    "sampling_normalized_errors": (
+                        "reported_against_isotropic_gaussian_reference_scales_"
+                        "but_not_used_for_eligibility"
+                    ),
+                },
+                "results": all_results,
+            })
+            print(f"Saved spectral eligibility artifact: {metrics_path}")
+
+            if any(row["eligible_r_values"] for row in all_results.values()):
+                plot_Br_vs_r(
+                    all_results,
+                    save_path=(
+                        f"figures/Br_vs_r/Br_vs_r_epoch_{epoch}.png"
+                    ),
+                )
+            else:
+                print(
+                    "No theorem-eligible ranks; skipped theorem plots after "
+                    "persisting the whitening diagnostics."
+                )
             # plot_tildeV_scatter_pretty(all_results, save_path=f"figures/pred_vs_obs/tildeV_pred_vs_obs_epoch_{epoch}.png")
 
 
@@ -728,6 +940,28 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", "-c", type=str, required=True, help="Path to YAML config file")
     parser.add_argument("--ckpt_dir", "-ckpt", type=str, required=True, help="Directory containing model checkpoints")
+    parser.add_argument("--ssl_fit_fraction", type=float, default=0.5)
+    parser.add_argument(
+        "--max_whiten_mean_l2_error",
+        type=float,
+        default=0.05,
+        help="Fixed absolute eligibility cutoff for empirical mean L2 error",
+    )
+    parser.add_argument(
+        "--max_whiten_operator_error",
+        type=float,
+        default=0.10,
+        help=(
+            "Fixed absolute eligibility cutoff for empirical second-moment "
+            "operator error"
+        ),
+    )
+    parser.add_argument(
+        "--out_dir",
+        type=str,
+        default=".",
+        help="Output root for durable spectral eligibility artifacts",
+    )
 
     args = parser.parse_args()
     main(args)

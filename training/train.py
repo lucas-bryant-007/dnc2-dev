@@ -12,18 +12,28 @@ from pytorch_lightning.utilities.rank_zero import rank_zero_only
 import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config_loader import load_config, dict_to_namespace, namespace_to_dict
 from models.vicreg import LightlyVICReg
 from models.ijepa import LightlyIJEPA
 from models.wmse import LightlyWMSE
 from data_utils.mini_imagenet_datamodule import MiniImageNetDataModule, MiniImageNetCfg
 from data_utils.celebA_datamodule import CelebADataModule, CelebACfg
-from utils.export_teacher import export_teacher_encoder_only
-from utils.ckpt_schedule import ScheduledCheckpoint
-from utils.linear_probe_callback import LinearProbeCallback
-from utils.cdnv_callback import CDNVCallback
+
+if __package__:
+    from .config_loader import load_config, dict_to_namespace, namespace_to_dict
+    from .utils.export_teacher import export_teacher_encoder_only
+    from .utils.ckpt_schedule import ScheduledCheckpoint
+    from .utils.linear_probe_callback import LinearProbeCallback
+    from .utils.cdnv_callback import CDNVCallback
+else:  # direct execution: python training/train.py
+    from config_loader import load_config, dict_to_namespace, namespace_to_dict
+    from utils.export_teacher import export_teacher_encoder_only
+    from utils.ckpt_schedule import ScheduledCheckpoint
+    from utils.linear_probe_callback import LinearProbeCallback
+    from utils.cdnv_callback import CDNVCallback
 
 def main(cfg):
+    pl.seed_everything(int(cfg.get("seed", 42)), workers=True)
+
     print("\n========== CONFIG ==========")
     cfg_dict = namespace_to_dict(cfg)
     import json
@@ -39,8 +49,24 @@ def main(cfg):
         data_cfg = CelebACfg(**namespace_to_dict(cfg.data))
         data_cfg.method = cfg.method.name
         data_module = CelebADataModule(data_cfg)
+    elif cfg.data.name.lower() == "dsprites":
+        from data_utils.dsprites_datamodule import DSpritesDataModule, DSpritesCfg
+        data_cfg = DSpritesCfg(**namespace_to_dict(cfg.data))
+        data_cfg.method = cfg.method.name
+        data_module = DSpritesDataModule(data_cfg)
+    elif cfg.data.name.lower() in ("shapes3d", "3dshapes"):
+        from data_utils.shapes3d_datamodule import Shapes3DDataModule, Shapes3DCfg
+        data_cfg = Shapes3DCfg(**namespace_to_dict(cfg.data))
+        data_cfg.method = cfg.method.name
+        data_module = Shapes3DDataModule(data_cfg)
+    elif cfg.data.name.lower() == "mpi3d":
+        from data_utils.mpi3d_datamodule import Mpi3dDataModule, Mpi3dCfg
+        data_cfg = Mpi3dCfg(**namespace_to_dict(cfg.data))
+        data_cfg.method = cfg.method.name
+        data_module = Mpi3dDataModule(data_cfg)
     else:
-        raise ValueError(f"Unknown dataset: {cfg.data.name}. Supported: 'mini_imagenet', 'celeba'")
+        raise ValueError(f"Unknown dataset: {cfg.data.name}. Supported: "
+                         f"'mini_imagenet', 'celeba', 'dsprites', 'shapes3d', 'mpi3d'")
 
     # build model based on method
     if cfg.method.name.lower() == "vicreg":
@@ -96,8 +122,12 @@ def main(cfg):
         accelerator=cfg.trainer.accelerator,
         strategy=strategy,
         max_epochs=cfg.trainer.max_epochs,
+        accumulate_grad_batches=cfg.trainer.get("accumulate_grad_batches", 1),
+        num_sanity_val_steps=cfg.trainer.get("num_sanity_val_steps", 2),
         use_distributed_sampler=cfg.trainer.get('use_distributed_sampler', False),
-        log_every_n_steps=cfg.logging.log_every_n_steps,
+        log_every_n_steps=cfg.trainer.get(
+            "log_every_n_steps", cfg.logging.log_every_n_steps
+        ),
         precision=cfg.precision,
         callbacks=callbacks,
         enable_checkpointing=False, # since using custom checkpoint callback
@@ -105,11 +135,15 @@ def main(cfg):
     )
 
     resume_ckpt = cfg.paths.get("resume_from_checkpoint", None)
-    if resume_ckpt is not None and os.path.isfile(resume_ckpt):
+    if resume_ckpt is None:
+        trainer.fit(model, datamodule=data_module)
+    elif os.path.isfile(resume_ckpt):
         print(f"Resuming from checkpoint: {resume_ckpt}")
         trainer.fit(model, datamodule=data_module, ckpt_path=resume_ckpt)
     else:
-        trainer.fit(model, datamodule=data_module)
+        raise FileNotFoundError(
+            f"resume_from_checkpoint does not exist: {resume_ckpt}"
+        )
 
     # export after training (only on global rank 0)
     if trainer.is_global_zero:

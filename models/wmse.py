@@ -3,9 +3,8 @@ import torch.nn as nn
 from torch.optim.lr_scheduler import LambdaLR
 
 import pytorch_lightning as pl
-from lightly.models.modules.heads import VICRegProjectionHead, ProjectionHead
-from torchvision.models import resnet18, resnet50
-from timm.optim.lars import Lars #TODO: make this stable
+from lightly.models.modules.heads import ProjectionHead
+from torchvision.models import ResNet18_Weights, ResNet50_Weights, resnet18, resnet50
 
 # WMSELoss-specific imports
 import torch.distributed as dist
@@ -26,14 +25,16 @@ def _namespace_to_dict(ns) -> dict:
         return ns
 
 
-def build_resnet(resnet_name: str = "resnet50"):
+def build_resnet(resnet_name: str = "resnet50", pretrained: bool = False):
     resnet_name = resnet_name.lower()
     
     if resnet_name == "resnet18":
-        model = resnet18()
+        weights = ResNet18_Weights.DEFAULT if pretrained else None
+        model = resnet18(weights=weights)
         feature_dim = 512
     elif resnet_name == "resnet50":
-        model = resnet50()
+        weights = ResNet50_Weights.DEFAULT if pretrained else None
+        model = resnet50(weights=weights)
         feature_dim = 2048
     else:
         raise ValueError(f"Unknown resnet_name={resnet_name}. Supported: resnet18, resnet50")
@@ -45,7 +46,7 @@ def build_resnet(resnet_name: str = "resnet50"):
 
 class LightlyWMSE(pl.LightningModule):
     """
-    Lightly VICReg implementation (ResNet backbone) compatible with our Trainer/DataModule.
+    Whitening MSE implementation (ResNet backbone) compatible with the trainer.
     Expects batches shaped like:
         batch = (views, labels)
     where views is a list/tuple and views[0], views[1] are two augmented views of images [B,3,H,W].
@@ -58,6 +59,7 @@ class LightlyWMSE(pl.LightningModule):
 
         self.backbone, feature_dim = build_resnet(
             cfg.model.resnet_name,
+            pretrained=cfg.model.get("pretrained", False),
         )
         
         self.projection_head = WMSEProjectionHead(
@@ -119,7 +121,12 @@ class LightlyWMSE(pl.LightningModule):
         # Warmup + cosine decay scheduler
         warmup_epochs = self.cfg.model.warmup_epochs
         max_epochs = self.cfg.trainer.max_epochs
-        min_lr = self.cfg.model.min_lr
+        min_lr = float(self.cfg.model.min_lr)
+        if scaled_lr <= 0 or min_lr < 0 or min_lr > scaled_lr:
+            raise ValueError(
+                f"Expected 0 <= min_lr <= scaled_lr, got min_lr={min_lr:g} "
+                f"and scaled_lr={scaled_lr:g}."
+            )
 
         def lr_lambda(epoch):
             # epoch is 0-indexed
