@@ -16,6 +16,9 @@ The experiment uses:
   example, at most one value from `primary_color`);
 - split-half cross-Gram estimates of capture and task cosines on held-out test
   samples;
+- the reported held-out estimand is the declared distribution uniform over the
+  selected eight attribute cells, not the natural CUB-200 test prevalence
+  distribution;
 - training split-half capture is used for adaptive selection and box fitting,
   so it is reported as selection-conditioned rather than post-selection
   unbiased; held-out capture is conditionally unbiased for the frozen task and

@@ -226,8 +226,33 @@ class CelebADataModule(pl.LightningDataModule):
         return self._make_loader(self.ds_train, train=True, collate_fn=collate_fn, shuffle=True, num_workers=self.cfg.num_workers)
 
     def paired_train_dataloader(self):
-        """Analysis loader for SSL subspace estimation with two augmented views."""
-        return self._make_loader(self.ds_train, train=True, collate_fn=self._collate_vicreg, shuffle=True, num_workers=self.cfg.num_workers)
+        """Full-population analysis loader with two independent augmented views.
+
+        This loader defines the empirical single-view marginal used by the
+        theorem-facing first-stage whitener.  It must therefore cover every
+        training instance exactly once per pass: no distributed sharding and
+        no dropped final batch.  The collate function still applies the
+        method-specific training augmentation independently to both views.
+        """
+        loader = self._make_loader(
+            self.ds_train,
+            train=False,
+            collate_fn=self._collate_vicreg,
+            shuffle=True,
+            num_workers=self.cfg.num_workers,
+            distributed=False,
+        )
+        loader.dnc2_analysis_provenance = {
+            "role": "first_stage_ssl_whitener_fit",
+            "dataset_repository": self.cfg.hf_repo,
+            "dataset_split": self.cfg.train_split,
+            "dataset_name": self.cfg.name,
+            "augmentation_method": self.cfg.method,
+            "image_size": self.cfg.img_size,
+            "num_augmented_views_per_instance": self.cfg.num_views,
+            "collate_function": "CelebADataModule._collate_vicreg",
+        }
+        return loader
 
     def val_dataloader(self):
         return self._make_loader(self.ds_test, train=False, collate_fn=self._collate_eval, shuffle=False)

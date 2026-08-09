@@ -107,6 +107,95 @@ def _validate_args(args):
         raise ValueError("test_balance_seeds must be unique")
 
 
+def _fixed_train_constraints(args):
+    return {
+        "population": "uniform_over_selected_eight_attribute_cells",
+        "attribute_family_constraint": "three_distinct_CUB_attribute_families",
+        "candidate_min_class_frac": args.candidate_min_class_frac,
+        "candidate_min_capture": args.candidate_min_capture,
+        "balance_candidate_pool": args.balance_candidate_pool,
+        "min_train_cell_count": args.min_train_cell_count,
+        "max_train_cell_samples": args.max_train_cell_samples,
+        "proxy_cos_ceiling": args.proxy_cos_ceiling,
+        "max_exact_candidates": args.max_exact_candidates,
+        "min_class_frac": args.min_class_frac,
+        "min_capture": args.min_capture,
+        "cos_ceiling": args.cos_ceiling,
+        "analysis_whiten_rel_eig_threshold": (
+            args.analysis_whiten_rel_eig_threshold
+        ),
+        "allow_constraint_fallback": False,
+    }
+
+
+def _write_selection_failure_artifact(
+    *,
+    args,
+    metadata,
+    train_dataset,
+    test_dataset,
+    natural_train_screen,
+    train_balance,
+    failure_reason,
+    train_result=None,
+):
+    method = "vicreg_official_imagenet1k"
+    tag = mio.slug(args.tag)
+    stem = f"crossfit_{method}_cub200_{tag}"
+    attempts = (train_balance or {}).get("exact_attempts", [])
+    if not attempts and train_result is not None:
+        attempts = [
+            {
+                "rank": None,
+                "triple": train_result.get("triple_names"),
+                "exact_max_abs_cos": train_result.get("triple_max_abs_cos"),
+                "exact_capture_B": [
+                    row.get("capture_B")
+                    for row in train_result.get("metrics", [])
+                ],
+                "passed": False,
+            }
+        ]
+    metrics_dir = os.path.join(args.out_dir, "metrics")
+    return mio.write_train_selection_failure(
+        os.path.join(metrics_dir, f"hyperrect_{stem}.json"),
+        run_provenance={
+            "method": method,
+            "dataset": "cub200",
+            "tag": args.tag,
+            "epoch": "official_imagenet1k",
+            "seed": args.seed,
+            "data_root": args.data_root,
+            "train_instances": len(train_dataset),
+            "test_instances": len(test_dataset),
+            "attribute_count": len(metadata.attribute_names),
+            "image_size": args.image_size,
+            "crop_to_official_bounding_box": bool(args.crop_to_bbox),
+            "encoder": {
+                "architecture": "ResNet-50",
+                "pretraining": "VICReg on ImageNet-1K",
+                "repository": OFFICIAL_VICREG_REPOSITORY,
+                "weights_url": OFFICIAL_VICREG_WEIGHTS,
+            },
+        },
+        protocol={
+            "name": "fixed_constraint_train_selection",
+            "population_estimand": "uniform_over_selected_eight_attribute_cells",
+            "selection_split": "train",
+            "evaluation_split": "test_not_reached",
+            "test_feature_extraction_performed": False,
+            "heldout_geometry_evaluated": False,
+            "attribute_source": "official image_attribute_labels.txt",
+            "selection_constraints_unchanged": True,
+        },
+        fixed_constraints=_fixed_train_constraints(args),
+        candidate_attempts=attempts,
+        failure_reason=failure_reason,
+        natural_train_screen=natural_train_screen,
+        train_balance=train_balance,
+    )
+
+
 def main(args):
     _validate_args(args)
     set_seed(args.seed)
@@ -150,6 +239,21 @@ def main(args):
         min_capture=args.min_capture,
         cos_ceiling=args.cos_ceiling,
     )
+    natural_train_screen = {
+        "metrics": natural_train["metrics"],
+        "mean_abs_offdiag_cosine": natural_train["mean_abs_offdiag_cosine"],
+        "statistical_role": (
+            "adaptive_training_candidate_screen_not_unbiased_inference"
+        ),
+        "rewhitener": natural_train_rewhitener.metadata(),
+        "whitening_diagnostics": {
+            "scope": "same_population_fit_and_evaluation",
+            "exact_whiteness_claimed": True,
+            "all_samples": H.whitening_diagnostics(
+                natural_train_features
+            ).as_dict(),
+        },
+    }
     (
         train_result,
         train_balance,
@@ -166,16 +270,44 @@ def main(args):
         ],
     )
     if train_result is None:
-        raise SystemExit(
-            "No CUB attribute triple satisfied the declared train constraints. "
-            "Retain this as a negative result; do not tune on test labels."
+        failure_reason = (
+            "no CUB attribute triple satisfied the declared train constraints"
         )
+        json_path = _write_selection_failure_artifact(
+            args=args,
+            metadata=metadata,
+            train_dataset=train_dataset,
+            test_dataset=test_dataset,
+            natural_train_screen=natural_train_screen,
+            train_balance=train_balance,
+            failure_reason=failure_reason,
+        )
+        print(f"Train selection failed: {failure_reason}.")
+        print(f"Saved negative result: {json_path}")
+        print("Finished without held-out evaluation.")
+        return
     constraints_ok = _constraints_satisfied(
         train_result,
         args.min_class_frac,
         args.min_capture,
         args.cos_ceiling,
     )
+    if not constraints_ok:
+        failure_reason = "selected CUB triple failed the fixed train constraints"
+        json_path = _write_selection_failure_artifact(
+            args=args,
+            metadata=metadata,
+            train_dataset=train_dataset,
+            test_dataset=test_dataset,
+            natural_train_screen=natural_train_screen,
+            train_balance=train_balance,
+            failure_reason=failure_reason,
+            train_result=train_result,
+        )
+        print(f"Train selection failed: {failure_reason}.")
+        print(f"Saved negative result: {json_path}")
+        print("Finished without held-out evaluation.")
+        return
     frozen_triple = list(train_result["triple_names"])
     print(f"Selected CUB triple: {frozen_triple}")
     print(f"Train max pairwise |cos|: {train_result['triple_max_abs_cos']:.4f}")
@@ -193,21 +325,6 @@ def main(args):
     train_payload["statistical_interpretation"] = (
         training_capture_interpretation
     )
-    natural_train_screen = {
-        "metrics": natural_train["metrics"],
-        "mean_abs_offdiag_cosine": natural_train["mean_abs_offdiag_cosine"],
-        "statistical_role": (
-            "adaptive_training_candidate_screen_not_unbiased_inference"
-        ),
-        "rewhitener": natural_train_rewhitener.metadata(),
-        "whitening_diagnostics": {
-            "scope": "same_population_fit_and_evaluation",
-            "exact_whiteness_claimed": True,
-            "all_samples": H.whitening_diagnostics(
-                natural_train_features
-            ).as_dict(),
-        },
-    }
     del (
         natural_train,
         natural_train_features,
@@ -382,6 +499,7 @@ def main(args):
                 "min_cell_count": args.min_test_cell_count,
             },
         },
+        "selection_succeeded": True,
         "selected_triple": frozen_triple,
         "natural_train_screen": natural_train_screen,
         "train_balance": train_balance,

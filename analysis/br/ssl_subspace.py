@@ -1,7 +1,72 @@
 import torch
 from dataclasses import dataclass
 from typing import Optional
+from torch.utils.data import DistributedSampler
 from .whitening import fit_exact_whitener
+
+
+def paired_view_loader_provenance(
+    loader,
+    first_view: torch.Tensor,
+    second_view: torch.Tensor,
+) -> dict:
+    """Validate and describe the loader that supplied a paired-view fit.
+
+    A record claiming the full empirical training population is only emitted
+    when the loader covers its dataset once, without replacement, distributed
+    sharding, or a dropped final batch, and the extracted tensors contain one
+    row per latent instance.  This is an empirical data-lineage check, not a
+    claim about population-level whitening.
+    """
+    if first_view.shape != second_view.shape or first_view.ndim != 2:
+        raise ValueError(
+            "paired loader outputs must be same-shape two-dimensional tensors"
+        )
+    declared = getattr(loader, "dnc2_analysis_provenance", None)
+    if not isinstance(declared, dict):
+        raise ValueError("paired analysis loader is missing provenance metadata")
+    if declared.get("num_augmented_views_per_instance") != 2:
+        raise ValueError("paired SSL fitting requires exactly two augmented views")
+
+    dataset_instances = int(len(loader.dataset))
+    sampler_instances = int(len(loader.sampler))
+    extracted_instances = int(first_view.shape[0])
+    sampler = loader.sampler
+    sampler_replacement = bool(getattr(sampler, "replacement", False))
+    problems = []
+    if loader.drop_last:
+        problems.append("drop_last=True")
+    if isinstance(sampler, DistributedSampler):
+        problems.append("distributed sampler")
+    if sampler_replacement:
+        problems.append("sampling with replacement")
+    if sampler_instances != dataset_instances:
+        problems.append(
+            f"sampler emits {sampler_instances} rows for {dataset_instances} instances"
+        )
+    if extracted_instances != dataset_instances:
+        problems.append(
+            f"extracted {extracted_instances} rows for {dataset_instances} instances"
+        )
+    if problems:
+        raise ValueError(
+            "paired loader does not cover the full fit population exactly once: "
+            + "; ".join(problems)
+        )
+
+    return {
+        **declared,
+        "dataset_instances": dataset_instances,
+        "sampler_instances": sampler_instances,
+        "extracted_latent_instances": extracted_instances,
+        "batch_size": loader.batch_size,
+        "num_workers": loader.num_workers,
+        "drop_last": bool(loader.drop_last),
+        "sampler_class": type(sampler).__name__,
+        "sampler_replacement": sampler_replacement,
+        "distributed_sharding": False,
+        "covers_full_dataset_exactly_once_per_pass": True,
+    }
 
 @dataclass
 class SSLSubspaceEstimator:

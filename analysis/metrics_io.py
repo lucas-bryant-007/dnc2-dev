@@ -187,6 +187,68 @@ def write_json(path: str, payload: Dict[str, Any]) -> str:
     return path
 
 
+def build_train_selection_failure_payload(
+    *,
+    run_provenance: Dict[str, Any],
+    protocol: Dict[str, Any],
+    fixed_constraints: Dict[str, Any],
+    candidate_attempts: List[Dict[str, Any]],
+    failure_reason: str,
+    natural_train_screen: Optional[Dict[str, Any]],
+    train_balance: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Build a durable negative-result record for failed train selection.
+
+    The returned schema deliberately makes absence of held-out evaluation
+    explicit.  Callers should write it before returning normally, so failed
+    fixed-constraint searches remain visible to downstream result discovery.
+    """
+    if not run_provenance.get("method") or not run_provenance.get("dataset"):
+        raise ValueError("run provenance must identify method and dataset")
+    if not failure_reason:
+        raise ValueError("failure_reason must be nonempty")
+    if not fixed_constraints:
+        raise ValueError("fixed_constraints must be nonempty")
+    if protocol.get("evaluation_split") != "test_not_reached":
+        raise ValueError(
+            "selection-failure protocol must mark evaluation_split=test_not_reached"
+        )
+
+    provenance = dict(run_provenance)
+    attempts = list(candidate_attempts)
+    return {
+        **provenance,
+        "provenance": provenance,
+        "protocol": dict(protocol),
+        "selection_succeeded": False,
+        "selected_triple": None,
+        "failure_stage": "train_triple_selection",
+        "failure_reason": failure_reason,
+        "fixed_train_constraints": dict(fixed_constraints),
+        "candidate_attempts": attempts,
+        "natural_train_screen": natural_train_screen,
+        "train_balance": train_balance,
+        "train_selection": {
+            "selected_candidate": None,
+            "fixed_constraints": dict(fixed_constraints),
+            "candidate_attempts": attempts,
+        },
+        "test_evaluation": None,
+        "test_stability": None,
+        "headline_criteria": None,
+        "headline_criteria_passed": None,
+    }
+
+
+def write_train_selection_failure(
+    path: str,
+    **payload_arguments: Any,
+) -> str:
+    """Build and durably write a train-selection negative result."""
+    payload = build_train_selection_failure_payload(**payload_arguments)
+    return write_json(path, payload)
+
+
 def write_table(path: str, fieldnames: List[str], rows: List[Dict[str, Any]]) -> str:
     """Write rows to CSV using an explicit column order (non-finite -> empty)."""
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)

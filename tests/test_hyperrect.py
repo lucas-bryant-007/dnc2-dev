@@ -1,4 +1,7 @@
 import itertools
+import json
+import os
+import tempfile
 import unittest
 
 import torch
@@ -7,6 +10,9 @@ from analysis.hyperrect import (
     crossfit_probe_geometry,
     predicted_box_corners,
     split_balanced_whitening_and_probe_folds,
+)
+from analysis.metrics_io import (
+    write_train_selection_failure,
 )
 
 
@@ -131,3 +137,54 @@ class CrossfitInterpretationTest(unittest.TestCase):
             "conditionally_unbiased_evaluation_of_frozen_task_and_"
             "train_fitted_representation_under_iid_heldout_sampling",
         )
+
+
+class SelectionFailureArtifactTest(unittest.TestCase):
+    def test_ordinary_no_triple_result_is_durable_and_uncensored(self):
+        attempts = [
+            {
+                "rank": 1,
+                "triple": ["a", "b", "c"],
+                "passed": False,
+                "exact_max_abs_cos": 0.31,
+            }
+        ]
+        constraints = {
+            "min_capture": 0.10,
+            "cos_ceiling": 0.12,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = write_train_selection_failure(
+                os.path.join(directory, "failure.json"),
+                run_provenance={
+                    "method": "vicreg",
+                    "dataset": "celeba",
+                    "seed": 6,
+                    "first_stage_ssl_whitener": {"retained_rank": 20},
+                },
+                protocol={
+                    "selection_split": "train",
+                    "evaluation_split": "test_not_reached",
+                    "population_estimand": (
+                        "uniform_over_selected_eight_attribute_cells"
+                    ),
+                },
+                fixed_constraints=constraints,
+                candidate_attempts=attempts,
+                failure_reason="no fixed-constraint triple passed",
+                natural_train_screen={"metrics": []},
+                train_balance={"exact_attempts": attempts},
+            )
+            with open(path, encoding="utf-8") as handle:
+                recorded = json.load(handle)
+
+        self.assertFalse(recorded["selection_succeeded"])
+        self.assertIsNone(recorded["selected_triple"])
+        self.assertIsNone(recorded["test_evaluation"])
+        self.assertEqual(recorded["fixed_train_constraints"], constraints)
+        self.assertEqual(recorded["candidate_attempts"], attempts)
+        self.assertEqual(
+            recorded["failure_reason"],
+            "no fixed-constraint triple passed",
+        )
+        self.assertEqual(recorded["provenance"]["seed"], 6)

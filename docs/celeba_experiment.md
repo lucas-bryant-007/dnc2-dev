@@ -14,6 +14,9 @@ representations on CelebA attribute geometry.
 - Fit the task axes and predicted box on the balanced training population.
 - Freeze all fitted quantities before held-out evaluation.
 - Balance the eight held-out label cells independently for each test seed.
+- Define the reported held-out estimand as the declared distribution that is
+  uniform over those eight selected label cells, not the natural CelebA test
+  prevalence distribution.
 - Treat held-out transformed coordinates as out-of-sample and record their
   covariance diagnostics; do not claim they are exactly white.
 - Estimate capture and task cosines with the symmetrized split-half cross-Gram.
