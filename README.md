@@ -1,8 +1,7 @@
 # Directional Neural Collapse
 
-Lean research implementation for studying which task directions survive
-self-supervised representation learning. Generated results, checkpoints, and
-paper assets are intentionally excluded.
+Research implementation for studying which task directions survive
+self-supervised representation learning. 
 
 ## Setup
 
@@ -58,13 +57,7 @@ Supporting packages:
 - `docs/cub200_experiment.md`
 - `analysis/pusht/README.md`
 
-## Current state
 
-The strict evaluation path freezes attribute selection, whitening, task axes,
-and box predictions on training data before held-out evaluation. Capture and
-task cosines use split-half estimates, and predicted corners use the unbiased
-capture scale. CUB-200 additionally enforces distinct semantic attribute
-families.
 
 Experiment output belongs in ignored directories such as `figures/`, `metrics/`,
 `logs/`, `runs/`, and `results/`. The full July 2026 evidence remains on the
