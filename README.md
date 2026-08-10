@@ -1,8 +1,14 @@
 # Directional Neural Collapse
 
-Lean research implementation for studying which task directions survive
-self-supervised representation learning. Generated results, checkpoints, and
-paper assets are intentionally excluded.
+Rich development workspace for studying which task directions survive
+self-supervised representation learning. This branch keeps the complete
+research implementation, extended validation suite, and curated historical
+evidence used to develop the paper. Raw datasets, checkpoints, caches, and
+transient runs remain outside Git.
+
+The public `DLFundamentals/dnc2` repository is the curated release surface.
+Paper-ready code and figures are promoted there from an immutable development
+commit; the full development archive is not merged wholesale.
 
 ## Setup
 
@@ -66,8 +72,15 @@ task cosines use split-half estimates, and predicted corners use the unbiased
 capture scale. CUB-200 additionally enforces distinct semantic attribute
 families.
 
-Experiment output belongs in ignored directories such as `figures/`, `metrics/`,
-`logs/`, `runs/`, and `results/`. The full July 2026 evidence remains on the
-archival `integrate-paper-dev-20260807` branch.
+New experiment output belongs initially in ignored directories such as
+`results/`, `runs/`, and `logs/`. Curated snapshots may be force-added to the
+development branch only after their provenance and scientific status have been
+audited.
+
+The historical `figures/`, `metrics/`, `paper_outputs/`, and `repro_exports/`
+restored on this branch are a research record, not automatically current paper
+evidence. In particular, quantitative artifacts created before commits
+`a3c85b1` and `7f97d2d` must be regenerated before citation because the
+theorem-facing estimands and provenance requirements changed.
 
 The project is active research code; citation metadata has not been released.

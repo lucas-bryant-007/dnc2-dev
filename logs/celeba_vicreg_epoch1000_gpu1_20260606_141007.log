@@ -1,0 +1,9 @@
+Using VICReg augmentations for CelebA
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+Evaluating checkpoint: /data/lucas_bryant1/hf_models/vicreg-resnet50-celeba/converted_checkpoints/epoch_1000.ckpt (epoch 1000)
+/data/lucas_bryant1/dnc2_env/lib/python3.11/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/data/lucas_bryant1/dnc2_env/lib/python3.11/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=None`.
+  warnings.warn(msg)
+  0%|          | 0/158 [00:00<?, ?it/s]

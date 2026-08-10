@@ -1,0 +1,14 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+Evaluating checkpoint: /data/lucas_bryant1/hf_models/ijepa-resnet50-celeba/converted_checkpoints/epoch_1000.ckpt (epoch 1000)
+/data/lucas_bryant1/dnc2_env/lib/python3.11/site-packages/timm/optim/optim_factory.py:7: FutureWarning: Importing from timm.optim.optim_factory is deprecated, please import via timm.optim
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.optim", FutureWarning)
+Traceback (most recent call last):
+  File "/data/lucas_bryant1/dnc2_work/dnc2/analysis/celeba.py", line 344, in <module>
+    main(parser.parse_args())
+  File "/data/lucas_bryant1/dnc2_work/dnc2/analysis/celeba.py", line 199, in main
+    model, _ = load_model_from_checkpoint(ckpt_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/lucas_bryant1/dnc2_work/dnc2/analysis/eval_utils.py", line 130, in load_model_from_checkpoint
+    from models.ijepa import LightlyIJepa
+ImportError: cannot import name 'LightlyIJepa' from 'models.ijepa' (/data/lucas_bryant1/dnc2_work/dnc2/models/ijepa.py)

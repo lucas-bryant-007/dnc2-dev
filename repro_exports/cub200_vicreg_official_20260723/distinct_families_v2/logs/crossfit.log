@@ -1,0 +1,50 @@
+nohup: ignoring input
+CUB-200: train=5994, test=5794, attributes=312, bbox_crop=True
+Loading official ImageNet-pretrained VICReg ResNet-50...
+Using cache found in /home/lucas_bryant1/dnc2_s1/cache/torch/hub/facebookresearch_vicreg_main
+
+=== TRAIN FEATURE EXTRACTION AND SELECTION ===
+  0%|          | 0/47 [00:00<?, ?it/s]  2%|▏         | 1/47 [00:03<02:23,  3.12s/it] 13%|█▎        | 6/47 [00:03<00:16,  2.48it/s] 23%|██▎       | 11/47 [00:03<00:06,  5.23it/s] 34%|███▍      | 16/47 [00:03<00:03,  8.58it/s] 45%|████▍     | 21/47 [00:03<00:02, 12.47it/s] 55%|█████▌    | 26/47 [00:03<00:01, 16.61it/s] 66%|██████▌   | 31/47 [00:03<00:00, 20.59it/s] 77%|███████▋  | 36/47 [00:03<00:00, 24.66it/s] 87%|████████▋ | 41/47 [00:04<00:00, 26.07it/s] 96%|█████████▌| 45/47 [00:04<00:00, 24.53it/s]100%|██████████| 47/47 [00:04<00:00, 10.81it/s]
+Train features (5994, 2048)
+Balanced candidate pool: ['underparts_color=white', 'bill_length=shorter_than_head', 'belly_color=white', 'shape=perching-like', 'throat_color=white', 'breast_color=white', 'primary_color=black', 'wing_color=black', 'primary_color=white', 'breast_pattern=solid', 'belly_pattern=solid', 'upperparts_color=black']
+Balanced proxy candidates meeting train feasibility: 121
+  balanced candidate 1: ['underparts_color=white', 'primary_color=black', 'breast_pattern=solid'] B=[0.248, 0.193, 0.148] max|cos|=0.205 passed=False
+  balanced candidate 2: ['breast_color=white', 'primary_color=black', 'breast_pattern=solid'] B=[0.23, 0.192, 0.164] max|cos|=0.133 passed=True
+Selected CUB triple: ['breast_color=white', 'primary_color=black', 'breast_pattern=solid']
+Train max pairwise |cos|: 0.1335
+Declared train constraints satisfied: True
+  breast_color=white: B=0.2304, pos_frac=0.500
+  primary_color=black: B=0.1921, pos_frac=0.500
+  breast_pattern=solid: B=0.1640, pos_frac=0.500
+
+=== FROZEN HELD-OUT TEST EVALUATION ===
+  0%|          | 0/46 [00:00<?, ?it/s]  2%|▏         | 1/46 [00:01<00:48,  1.08s/it] 13%|█▎        | 6/46 [00:01<00:06,  6.54it/s] 24%|██▍       | 11/46 [00:01<00:02, 12.42it/s] 33%|███▎      | 15/46 [00:01<00:02, 14.19it/s] 43%|████▎     | 20/46 [00:01<00:01, 19.67it/s] 54%|█████▍    | 25/46 [00:01<00:01, 19.84it/s] 63%|██████▎   | 29/46 [00:02<00:00, 22.83it/s] 74%|███████▍  | 34/46 [00:02<00:00, 27.45it/s] 83%|████████▎ | 38/46 [00:02<00:00, 26.21it/s] 93%|█████████▎| 43/46 [00:02<00:00, 30.39it/s]100%|██████████| 46/46 [00:02<00:00, 18.60it/s]
+Test features (5794, 2048)
+  seed 7: max|cos|=0.2439, min B=0.2256, norm RMSE=0.5328, passed=False
+  seed 8: max|cos|=0.6433, min B=0.2406, norm RMSE=0.4957, passed=False
+  seed 9: max|cos|=0.3536, min B=0.2515, norm RMSE=0.5471, passed=False
+  seed 10: max|cos|=0.1943, min B=0.3769, norm RMSE=0.4912, passed=False
+  seed 11: max|cos|=0.2505, min B=0.2113, norm RMSE=0.4989, passed=False
+  seed 12: max|cos|=0.1756, min B=0.5485, norm RMSE=0.4905, passed=False
+  seed 13: max|cos|=0.3773, min B=0.3770, norm RMSE=0.4667, passed=False
+  seed 14: max|cos|=0.2332, min B=0.2638, norm RMSE=0.5211, passed=False
+  seed 15: max|cos|=0.2642, min B=0.3089, norm RMSE=0.4881, passed=False
+  seed 16: max|cos|=0.2452, min B=0.3986, norm RMSE=0.4838, passed=False
+  seed 17: max|cos|=0.4754, min B=0.2020, norm RMSE=0.4852, passed=False
+  seed 18: max|cos|=0.4544, min B=0.2448, norm RMSE=0.5176, passed=False
+  seed 19: max|cos|=0.2559, min B=0.3474, norm RMSE=0.5206, passed=False
+  seed 20: max|cos|=0.2143, min B=0.5210, norm RMSE=0.4376, passed=False
+  seed 21: max|cos|=0.2598, min B=0.2760, norm RMSE=0.5186, passed=False
+  seed 22: max|cos|=0.4482, min B=0.2215, norm RMSE=0.5214, passed=False
+  seed 23: max|cos|=0.4354, min B=0.2027, norm RMSE=0.5203, passed=False
+  seed 24: max|cos|=0.3315, min B=0.5692, norm RMSE=0.5149, passed=False
+  seed 25: max|cos|=0.2278, min B=0.4840, norm RMSE=0.5218, passed=False
+  seed 26: max|cos|=0.6032, min B=0.3351, norm RMSE=0.4943, passed=False
+Fixed test criteria passed on primary split: False
+Resampling pass rate: 0/20
+Aggregate max|cos|=0.1220; capture={'breast_color=white': 0.6236842051148415, 'primary_color=black': 0.4940165363252163, 'breast_pattern=solid': 0.37279646918177606}
+Saved JSON: /home/lucas_bryant1/dnc2_s1/results/pretrained_20260723/cub200_vicreg_distinct_families_v2/metrics/hyperrect_crossfit_vicreg_official_imagenet1k_cub200_bbox_distinct_families_v2.json
+Saved stability CSV: /home/lucas_bryant1/dnc2_s1/results/pretrained_20260723/cub200_vicreg_distinct_families_v2/metrics/stability_crossfit_vicreg_official_imagenet1k_cub200_bbox_distinct_families_v2.csv
+Saved plot points: /home/lucas_bryant1/dnc2_s1/results/pretrained_20260723/cub200_vicreg_distinct_families_v2/plot_data/hyperrect_points_crossfit_vicreg_official_imagenet1k_cub200_bbox_distinct_families_v2.npz
+Saved figures: ['/home/lucas_bryant1/dnc2_s1/results/pretrained_20260723/cub200_vicreg_distinct_families_v2/figures/hyperrect_box_crossfit_vicreg_official_imagenet1k_cub200_bbox_distinct_families_v2.png', '/home/lucas_bryant1/dnc2_s1/results/pretrained_20260723/cub200_vicreg_distinct_families_v2/figures/hyperrect_box_crossfit_vicreg_official_imagenet1k_cub200_bbox_distinct_families_v2.pdf']
+Finished.

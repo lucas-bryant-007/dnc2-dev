@@ -1,0 +1,55 @@
+{
+  "source_json": "metrics/hyperrect_vicreg_shapes3d_epoch_80_twoview.json",
+  "tasks": [
+    "object_hue",
+    "shape",
+    "scale"
+  ],
+  "B": [
+    0.5477390289306641,
+    0.9854464530944824,
+    0.9821217060089111
+  ],
+  "sqrtB_predicted_half_side": [
+    0.7400939325049652,
+    0.9926965564030543,
+    0.9910205376322486
+  ],
+  "observed_half_side": [
+    0.7400939092040062,
+    0.9926246553659439,
+    0.9910193011164665
+  ],
+  "eps_assumed": 0.0,
+  "rho_assumed": 0.0,
+  "bound1_orthogonality": [
+    {
+      "pair": [
+        "object_hue",
+        "shape"
+      ],
+      "lhs_abs_cos": 0.01204528845846653,
+      "rhs_bound": 0.1104270883789834
+    },
+    {
+      "pair": [
+        "object_hue",
+        "scale"
+      ],
+      "lhs_abs_cos": 0.0013260329142212868,
+      "rhs_bound": 0.12259932926581378
+    },
+    {
+      "pair": [
+        "shape",
+        "scale"
+      ],
+      "lhs_abs_cos": 0.000941448612138629,
+      "rhs_bound": 0.016396391976353168
+    }
+  ],
+  "bound2_centroid": {
+    "observed": 0.0036585018058308593,
+    "bound_sum_1_minus_B": 0.4846928119659424
+  }
+}

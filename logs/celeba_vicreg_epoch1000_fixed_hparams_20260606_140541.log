@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/data/lucas_bryant1/dnc2_work/dnc2/analysis/celeba.py", line 12, in <module>
+    from eval_utils import (
+  File "/data/lucas_bryant1/dnc2_work/dnc2/analysis/eval_utils.py", line 139
+    if not method_name:
+    ^
+IndentationError: expected an indented block after 'else' statement on line 136

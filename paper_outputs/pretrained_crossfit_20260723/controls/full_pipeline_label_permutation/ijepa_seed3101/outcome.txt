@@ -1,0 +1,6 @@
+Applied independent train attribute-column permutations with seed 3101
+Balanced candidate pool: []
+Balanced proxy candidates meeting train feasibility: 0
+Permutation-null train selection failed under fixed constraints.
+Saved null result: /home/lucas_bryant1/dnc2_s1/results/pretrained_20260723/full_pipeline_null/ijepa_seed3101/metrics/hyperrect_crossfit_ijepa_celeba_epoch_1000_full_pipeline_label_null_seed3101.json
+Finished.
