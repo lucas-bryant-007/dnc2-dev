@@ -1,0 +1,3 @@
+model,real_label_feasible_triples,permuted_label_feasible_triples,permutation_seed,selection_succeeded_under_null
+VICReg,100,0,3101,False
+I-JEPA,48,0,3101,False
