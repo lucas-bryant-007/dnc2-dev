@@ -38,15 +38,15 @@ def plot_fewshot(fs, save_path=None, title="Few-shot NCC error"):
 def plot_fewshot_compare(curves_for_r, save_path=None, title="Few-shot NCC: new vs old bounds"):
     """New (Thm 4.5, B(F)) vs old (Thm 4.1 directional, Luthra 2025) bounds on psi.
 
-    ``curves_for_r`` = {"B": float, "curves": {m: {empirical, thm45_B, thm41_dir,
-    luthra2025, lim}}}.
+    ``thm45_B`` is the backward-compatible clipped value; the durable curve
+    record also contains ``thm45_B_raw`` and per-bound reporting metadata.
     """
     style.apply_style()
     cv = curves_for_r["curves"]
     ms = sorted(cv.keys())
     # Bounds are error PROBABILITIES; clip the display at 1 so a vacuous/huge
     # bound (e.g. the Euclidean CDNV bound on a whitened rep) can't blow up the
-    # axis. Empirical is left unclipped (it is always <= 0.5 for a balanced task).
+    # axis. Empirical is left unclipped; 0.5 is the balanced-binary chance level.
     def numeric(value):
         return np.nan if value is None else float(value)
 
@@ -75,10 +75,20 @@ def plot_fewshot_compare(curves_for_r, save_path=None, title="Few-shot NCC: new 
     plt.plot(ms, colc("lim"), linestyle=":", color="tab:green", label=r"$4\tilde{V}$ (lim)")
     plt.axhline(0.5, color="gray", linewidth=0.9, alpha=0.6)
     plt.xscale("log"); plt.yscale("log")
-    plt.xlabel(r"shots per class $m$"); plt.ylabel("NCC error")
+    plt.xlabel(r"shots per class $m$")
+    plt.ylabel("NCC error / bound (display clipped at 1)")
     plt.text(0.97, 0.03, rf"$B={curves_for_r['B']:.3f}$", transform=plt.gca().transAxes,
              ha="right", va="bottom",
              bbox=dict(boxstyle="round", fc="white", ec="0.6", alpha=0.85))
+    plt.text(
+        0.03,
+        0.03,
+        "Bound at 1 = vacuous",
+        transform=plt.gca().transAxes,
+        ha="left",
+        va="bottom",
+        fontsize=9,
+    )
     style.maybe_title(plt, title)
     plt.legend(loc="upper right")
     plt.tight_layout()
@@ -89,7 +99,7 @@ def plot_fewshot_compare(curves_for_r, save_path=None, title="Few-shot NCC: new 
 
 def plot_directional_fewshot(curves, save_path=None,
                              title="Few-shot NCC: directional bounds vs empirical"):
-    """Figure-3 style: empirical NCC error + Our (Thm 4.1) / Luthra 2025 / Lim bounds.
+    """Empirical NCC plus raw Thm. 4.1/C.2, Luthra, and limit bounds.
 
     ``curves`` is {m: {"empirical", "our_thm41", "lim", "luthra2025", ...}}.
     """
@@ -100,6 +110,7 @@ def plot_directional_fewshot(curves, save_path=None,
 
     emp = [numeric(curves[m]["empirical"]) for m in ms]
     our = [numeric(curves[m].get("our_thm41")) for m in ms]
+    our_c2 = [numeric(curves[m].get("our_c2")) for m in ms]
     lim = [numeric(curves[m].get("lim")) for m in ms]
     luthra = [numeric(curves[m].get("luthra2025")) for m in ms]
     luthra_a16 = [
@@ -109,6 +120,14 @@ def plot_directional_fewshot(curves, save_path=None,
     plt.figure(figsize=(7.5, 5.5))
     plt.plot(ms, emp, marker="o", color="black", label="NCC error (empirical)")
     plt.plot(ms, our, marker="s", color="tab:red", label="Our bound (Thm 4.1)")
+    plt.plot(
+        ms,
+        our_c2,
+        marker="^",
+        linestyle="--",
+        color="tab:purple",
+        label="Our bound (Thm C.2)",
+    )
     plt.plot(
         ms,
         luthra,
@@ -129,7 +148,7 @@ def plot_directional_fewshot(curves, save_path=None,
     plt.xscale("log")
     plt.yscale("log")
     plt.xlabel(r"shots per class $m$")
-    plt.ylabel("NCC error")
+    plt.ylabel("NCC error / raw bound RHS")
     style.maybe_title(plt, title)
     plt.legend()
     plt.tight_layout()

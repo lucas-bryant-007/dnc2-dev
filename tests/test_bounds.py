@@ -8,6 +8,7 @@ from analysis.bounds import (
     cdnv_from_B,
     combined_fewshot_curves,
     directional_cdnv_from_B,
+    directional_fewshot_curves,
     directional_nccc_bound,
     empirical_nccc_error,
     hyperrectangle_half_side_lengths,
@@ -178,6 +179,35 @@ class PublishedFormulaTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "integer"):
             nccc_error_bound(0.5, 1.5, 2)
 
+    def test_directional_curves_keep_raw_clipped_and_validity_separate(self):
+        negative = torch.arange(12, dtype=torch.float32)[:, None]
+        positive = negative + 20.0
+        features = torch.cat((negative, positive), dim=0)
+        labels = torch.tensor([-1] * 12 + [1] * 12)
+        curves = directional_fewshot_curves(
+            features,
+            labels,
+            _two_way_pairwise(),
+            m_values=[1, 10],
+            n_trials=1,
+            max_query=2,
+        )
+
+        self.assertFalse(curves[1]["validity"]["our_thm41"]["valid"])
+        self.assertTrue(curves[1]["validity"]["our_c2"]["valid"])
+        self.assertIsNone(
+            curves[1]["bound_reporting"]["our_thm41"][
+                "probability_clipped"
+            ]
+        )
+        c2 = curves[1]["bound_reporting"]["our_c2"]
+        self.assertEqual(c2["raw_rhs"], curves[1]["our_c2"])
+        self.assertEqual(c2["probability_clipped"], min(curves[1]["our_c2"], 1.0))
+        self.assertTrue(curves[10]["validity"]["our_thm41"]["valid"])
+        self.assertTrue(
+            curves[10]["validity"]["luthra2025_optimized_official"]["valid"]
+        )
+
     def test_legacy_corrected_estimator_honors_center_labels(self):
         psi = torch.tensor([[1.0], [2.0], [3.0]])
         labels = torch.tensor([1.0, 1.0, -1.0])
@@ -306,9 +336,22 @@ class InstanceAwareNccTest(unittest.TestCase):
             },
         )
         point = curves[1]["curves"][1]
+        self.assertAlmostEqual(point["thm45_B_raw"], 4.0 / 3.0)
+        self.assertEqual(point["thm45_B"], 1.0)
+        thm45_reporting = point["bound_reporting"]["thm45_B"]
+        self.assertAlmostEqual(thm45_reporting["raw_rhs"], 4.0 / 3.0)
+        self.assertEqual(thm45_reporting["probability_clipped"], 1.0)
+        self.assertFalse(thm45_reporting["below_probability_ceiling"])
+        self.assertFalse(thm45_reporting["informative_vs_chance"])
         self.assertIsNone(point["thm41_dir"])
         self.assertFalse(point["validity"]["thm41_dir"]["valid"])
         self.assertIn("m >= 10", point["validity"]["thm41_dir"]["reason"])
+        self.assertIsNone(
+            point["bound_reporting"]["thm41_dir"]["probability_clipped"]
+        )
+        self.assertIsNone(
+            point["bound_reporting"]["thm41_dir"]["informative_vs_chance"]
+        )
         self.assertIsNotNone(point["validity"]["lim"]["value"])
 
     def test_conflicting_sibling_labels_are_rejected(self):

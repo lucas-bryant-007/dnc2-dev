@@ -215,6 +215,15 @@ def near_orthogonality_bound(
 # ---------------------------------------------------------------------------
 BOUND_PROVENANCE = {
     "cdnv_conventions": CDNV_CONVENTION_PROVENANCE,
+    "reporting_policy": {
+        "raw_rhs": "literal theorem or corollary right-hand side",
+        "probability_clipped": "min(raw_rhs, 1) for display only",
+        "balanced_binary_chance_level": 0.5,
+        "interpretation": (
+            "raw_rhs >= 1 is probability-vacuous; raw_rhs >= 0.5 does not "
+            "guarantee error below chance on the balanced binary task"
+        ),
+    },
     "luthra2025_fixed_a16": {
         "formula": "NeurIPS 2025 Proposition 1, displayed a=16 corollary",
         "interpretation": "declared symbols; proof later uses unhalved symmetric V_ij",
@@ -601,6 +610,38 @@ def _bound_status(function, *args) -> dict:
         return {"value": None, "valid": False, "reason": str(error)}
 
 
+def _probability_bound_reporting(value, chance_level: float = 0.5) -> dict:
+    """Keep a theorem's literal RHS separate from display-only clipping.
+
+    A probability bound above one is mathematically valid but vacuous.  For a
+    balanced binary task, a bound in ``[chance_level, 1)`` is nontrivial only
+    relative to the probability ceiling; it still does not guarantee an error
+    below chance.  Invalid theorem points retain ``None`` rather than acquiring
+    a clipped numerical value.
+    """
+    chance_level = float(chance_level)
+    if not 0.0 < chance_level < 1.0:
+        raise ValueError(
+            f"chance_level must lie strictly between zero and one, got {chance_level}"
+        )
+    if value is None:
+        return {
+            "raw_rhs": None,
+            "probability_clipped": None,
+            "below_probability_ceiling": None,
+            "informative_vs_chance": None,
+            "chance_level": chance_level,
+        }
+    raw_rhs = _nonnegative_finite(value, "probability-bound RHS")
+    return {
+        "raw_rhs": raw_rhs,
+        "probability_clipped": min(raw_rhs, 1.0),
+        "below_probability_ceiling": raw_rhs < 1.0,
+        "informative_vs_chance": raw_rhs < chance_level,
+        "chance_level": chance_level,
+    }
+
+
 @torch.no_grad()
 def directional_fewshot_curves(
     features: torch.Tensor, labels: torch.Tensor, pairwise: dict,
@@ -636,6 +677,17 @@ def directional_fewshot_curves(
             m,
             old_Cp,
         )
+        bound_reporting = {
+            "our_thm41": _probability_bound_reporting(thm41["value"]),
+            "our_c2": _probability_bound_reporting(c2["value"]),
+            "lim": _probability_bound_reporting(limit["value"]),
+            "luthra2025_optimized_official": _probability_bound_reporting(
+                old_optimized["value"]
+            ),
+            "luthra2025_a16_published": _probability_bound_reporting(
+                old_a16["value"]
+            ),
+        }
         out[m] = {
             "empirical": empirical_nccc_error(
                 features,
@@ -660,6 +712,7 @@ def directional_fewshot_curves(
                 "luthra2025_optimized_official": old_optimized,
                 "luthra2025_a16_published": old_a16,
             },
+            "bound_reporting": bound_reporting,
             "bound_provenance": BOUND_PROVENANCE,
         }
     return out
@@ -676,7 +729,9 @@ def combined_fewshot_curves(
     For each rank r, on psi[:, :r]: empirical NCC error, the NEW bound
     (Thm 4.5 via B = B_by_r[r]), and the OLD bounds (Thm 4.1 directional + Luthra
     2025 + the 4*Vtilde limit) from ``pairwise_by_r[r]`` (the directional metrics
-    of psi[:, :r]). Returns {r: {"B": B, "curves": {m: {...}}}}.
+    of psi[:, :r]). ``thm45_B`` is retained as the probability-clipped value;
+    ``thm45_B_raw`` and ``bound_reporting`` retain the literal RHS and its
+    interpretation. Returns {r: {"B": B, "curves": {m: {...}}}}.
     """
     if instance_ids is None:
         raise ValueError(
@@ -731,6 +786,18 @@ def combined_fewshot_curves(
                 m,
                 old_Cp,
             )
+            thm45_raw = nccc_error_bound(B, r, m, clamp=False)
+            bound_reporting = {
+                "thm45_B": _probability_bound_reporting(thm45_raw),
+                "thm41_dir": _probability_bound_reporting(thm41["value"]),
+                "luthra2025_optimized_official": _probability_bound_reporting(
+                    old_optimized["value"]
+                ),
+                "luthra2025_a16_published": _probability_bound_reporting(
+                    old_a16["value"]
+                ),
+                "lim": _probability_bound_reporting(limit["value"]),
+            }
             curves[m] = {
                 "empirical": empirical_nccc_error(
                     psir,
@@ -742,7 +809,12 @@ def combined_fewshot_curves(
                     instance_ids=instance_ids,
                     _instance_layout=instance_layout,
                 ),
-                "thm45_B": nccc_error_bound(B, r, m),                  # NEW (draft)
+                # Backward-compatible field: probability-clipped display value.
+                "thm45_B": bound_reporting["thm45_B"][
+                    "probability_clipped"
+                ],
+                # Literal RHS of draft Theorem 4.5, retained for audit/tables.
+                "thm45_B_raw": thm45_raw,
                 "thm41_dir": thm41["value"],
                 "luthra2025": old_optimized["value"],
                 "luthra2025_optimized_official": old_optimized["value"],
@@ -754,6 +826,7 @@ def combined_fewshot_curves(
                     "luthra2025_optimized_official": old_optimized,
                     "luthra2025_a16_published": old_a16,
                 },
+                "bound_reporting": bound_reporting,
                 "bound_provenance": BOUND_PROVENANCE,
                 "empirical_group_counts": {
                     "support_instances_per_class": m,
@@ -994,7 +1067,8 @@ def fewshot_curves(
 
     ``psi`` is the whitened representation [N, k]; for each r the support/query
     NCC runs on ``psi[:, :r]`` and the bound uses B = ``B_by_r[r]`` and that r.
-    Returns {r: {"B": B, "empirical": {m: err}, "bound": {m: err}}}.
+    ``bound`` is clipped to the probability range for compatibility, while
+    ``bound_raw`` retains the literal theorem RHS.
     """
     if instance_ids is None:
         raise ValueError("Theorem-facing few-shot evaluation requires instance_ids")
@@ -1021,7 +1095,11 @@ def fewshot_curves(
                    instance_ids=instance_ids,
                    _instance_layout=instance_layout)
                for m in m_values}
-        bnd = {int(m): nccc_error_bound(B, r, int(m)) for m in m_values}
+        bnd_raw = {
+            int(m): nccc_error_bound(B, r, int(m), clamp=False)
+            for m in m_values
+        }
+        bnd = {m: min(value, 1.0) for m, value in bnd_raw.items()}
         group_counts = {}
         for m in m_values:
             m = int(m)
@@ -1038,6 +1116,7 @@ def fewshot_curves(
             "B": B,
             "empirical": emp,
             "bound": bnd,
+            "bound_raw": bnd_raw,
             "empirical_sampling": sampling,
             "empirical_group_counts": group_counts,
         }

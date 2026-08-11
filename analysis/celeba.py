@@ -421,11 +421,13 @@ def main(args):
                 print(
                     f"  m={int(mm):4d}  emp={c['empirical']:.4f}  "
                     f"our={_format_optional(c['our_thm41'])}  "
+                    f"our-c2={_format_optional(c['our_c2'])}  "
                     f"luthra-opt={_format_optional(c['luthra2025'])}  "
                     f"luthra-a16={_format_optional(c['luthra2025_a16_published'])}  "
                     f"lim={_format_optional(c['lim'])}"
                 )
                 validity = c["validity"]
+                reporting = c["bound_reporting"]
                 fewshot_dir_rows.append({
                     "method": run_method, "attribute": run_attr, "tag": run_tag,
                     "epoch": epoch, "m": int(mm), "empirical_nccc": c["empirical"],
@@ -437,6 +439,40 @@ def main(args):
                     "luthra2025_a16_published": c[
                         "luthra2025_a16_published"
                     ],
+                    "our_thm41_probability_clipped": reporting[
+                        "our_thm41"
+                    ]["probability_clipped"],
+                    "our_thm41_informative_vs_chance": reporting[
+                        "our_thm41"
+                    ]["informative_vs_chance"],
+                    "our_c2_probability_clipped": reporting["our_c2"][
+                        "probability_clipped"
+                    ],
+                    "our_c2_informative_vs_chance": reporting["our_c2"][
+                        "informative_vs_chance"
+                    ],
+                    "lim_bound_probability_clipped": reporting["lim"][
+                        "probability_clipped"
+                    ],
+                    "lim_bound_informative_vs_chance": reporting["lim"][
+                        "informative_vs_chance"
+                    ],
+                    "luthra2025_optimized_official_probability_clipped": (
+                        reporting["luthra2025_optimized_official"][
+                            "probability_clipped"
+                        ]
+                    ),
+                    "luthra2025_optimized_official_informative_vs_chance": (
+                        reporting["luthra2025_optimized_official"][
+                            "informative_vs_chance"
+                        ]
+                    ),
+                    "luthra2025_a16_published_probability_clipped": reporting[
+                        "luthra2025_a16_published"
+                    ]["probability_clipped"],
+                    "luthra2025_a16_published_informative_vs_chance": reporting[
+                        "luthra2025_a16_published"
+                    ]["informative_vs_chance"],
                     "our_thm41_valid": validity["our_thm41"]["valid"],
                     "our_thm41_invalid_reason": validity["our_thm41"]["reason"],
                     "our_c2_valid": validity["our_c2"]["valid"],
@@ -546,6 +582,7 @@ def main(args):
                             print(
                                 f"    m={int(m):4d}  emp={c['empirical']:.4f}  "
                                 f"new={c['thm45_B']:.4f}  "
+                                f"new-raw={c['thm45_B_raw']:.4f}  "
                                 f"old={_format_optional(c['thm41_dir'])}  "
                                 f"luthra-opt={_format_optional(c['luthra2025'])}  "
                                 "luthra-a16="
@@ -633,17 +670,58 @@ def main(args):
                     for m in args.fewshot_m:
                         c = d["curves"][int(m)]
                         validity = c["validity"]
+                        reporting = c["bound_reporting"]
                         fewshot_rows.append({
                             "method": run_method, "attribute": run_attr, "tag": run_tag,
                             "epoch": epoch, "k_cap": cap_key, "r": r, "B": d["B"],
                             "m": int(m), "empirical_nccc": c["empirical"],
-                            "new_thm45_B": c["thm45_B"], "old_thm41_dir": c["thm41_dir"],
+                            "new_thm45_B": c["thm45_B"],
+                            "new_thm45_B_raw": c["thm45_B_raw"],
+                            "new_thm45_B_probability_clipped": reporting[
+                                "thm45_B"
+                            ]["probability_clipped"],
+                            "new_thm45_B_informative_vs_chance": reporting[
+                                "thm45_B"
+                            ]["informative_vs_chance"],
+                            "old_thm41_dir": c["thm41_dir"],
+                            "old_thm41_dir_probability_clipped": reporting[
+                                "thm41_dir"
+                            ]["probability_clipped"],
+                            "old_thm41_dir_informative_vs_chance": reporting[
+                                "thm41_dir"
+                            ]["informative_vs_chance"],
                             "luthra2025": c["luthra2025"], "lim": c["lim"],
                             "luthra2025_optimized_official": c[
                                 "luthra2025_optimized_official"
                             ],
                             "luthra2025_a16_published": c[
                                 "luthra2025_a16_published"
+                            ],
+                            "luthra2025_optimized_official_probability_clipped": (
+                                reporting["luthra2025_optimized_official"][
+                                    "probability_clipped"
+                                ]
+                            ),
+                            "luthra2025_optimized_official_informative_vs_chance": (
+                                reporting["luthra2025_optimized_official"][
+                                    "informative_vs_chance"
+                                ]
+                            ),
+                            "luthra2025_a16_published_probability_clipped": (
+                                reporting["luthra2025_a16_published"][
+                                    "probability_clipped"
+                                ]
+                            ),
+                            "luthra2025_a16_published_informative_vs_chance": (
+                                reporting["luthra2025_a16_published"][
+                                    "informative_vs_chance"
+                                ]
+                            ),
+                            "lim_probability_clipped": reporting["lim"][
+                                "probability_clipped"
+                            ],
+                            "lim_informative_vs_chance": reporting["lim"][
+                                "informative_vs_chance"
                             ],
                             "old_thm41_valid": validity["thm41_dir"]["valid"],
                             "old_thm41_invalid_reason": validity[
@@ -681,10 +759,19 @@ def main(args):
             os.path.join(metrics_dir,
                          f"metrics_fewshot_{slug(run_method)}_{slug(run_attr)}{suffix}.csv"),
             ["method", "attribute", "tag", "epoch", "k_cap", "r", "B", "m",
-             "empirical_nccc", "new_thm45_B", "old_thm41_dir", "luthra2025",
+             "empirical_nccc", "new_thm45_B", "new_thm45_B_raw",
+             "new_thm45_B_probability_clipped",
+             "new_thm45_B_informative_vs_chance", "old_thm41_dir",
+             "old_thm41_dir_probability_clipped",
+             "old_thm41_dir_informative_vs_chance", "luthra2025",
              "luthra2025_optimized_official", "luthra2025_a16_published",
+             "luthra2025_optimized_official_probability_clipped",
+             "luthra2025_optimized_official_informative_vs_chance",
+             "luthra2025_a16_published_probability_clipped",
+             "luthra2025_a16_published_informative_vs_chance",
              "old_thm41_valid", "old_thm41_invalid_reason", "luthra2025_valid",
-             "luthra2025_invalid_reason", "lim"],
+             "luthra2025_invalid_reason", "lim", "lim_probability_clipped",
+             "lim_informative_vs_chance"],
             fewshot_rows,
         )
         print(f"Saved few-shot CSV: {fs_csv}")
@@ -697,6 +784,15 @@ def main(args):
             ["method", "attribute", "tag", "epoch", "m", "empirical_nccc",
              "our_thm41", "our_c2", "lim_bound", "luthra2025",
              "luthra2025_optimized_official", "luthra2025_a16_published",
+             "our_thm41_probability_clipped",
+             "our_thm41_informative_vs_chance",
+             "our_c2_probability_clipped", "our_c2_informative_vs_chance",
+             "lim_bound_probability_clipped",
+             "lim_bound_informative_vs_chance",
+             "luthra2025_optimized_official_probability_clipped",
+             "luthra2025_optimized_official_informative_vs_chance",
+             "luthra2025_a16_published_probability_clipped",
+             "luthra2025_a16_published_informative_vs_chance",
              "our_thm41_valid", "our_thm41_invalid_reason", "our_c2_valid",
              "our_c2_invalid_reason", "luthra2025_valid",
              "luthra2025_invalid_reason"],

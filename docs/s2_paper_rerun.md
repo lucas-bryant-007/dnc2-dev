@@ -122,7 +122,10 @@ The principal evaluation outputs are:
   dynamically generated results notes;
 - `controls/`: held-out and full-pipeline label nulls;
 - `fewshot/`: empirical curves plus the corrected 2025 fixed/optimized and 2026
-  bounds, with invalid theorem-domain points serialized as unavailable;
+  bounds, with invalid theorem-domain points serialized as unavailable. CSVs
+  retain each literal raw right-hand side separately from display-only
+  probability clipping and flag whether it is below the balanced-binary chance
+  level;
 - `provenance/`: commit, branch, package versions, OS/GPU records, model hashes,
   CUB metadata hashes, frozen protocol, an explicit environment diff against
   the archived run, and artifact checksums.
@@ -131,3 +134,12 @@ Repeated balance seeds are correlated resamples of one held-out test set, not
 independent replications. This rerun is a corrected reproducible analysis, not
 a pristine preregistration, because earlier diagnostic results from these test
 sets were already viewed.
+
+The few-shot curves are plug-in empirical evaluations of population theorems,
+not finite-dataset confidence certificates: the same evaluation population is
+used to estimate the moments and to simulate instance-disjoint support/query
+trials. The SSL subspace/whitener is fitted on an independent latent-instance
+split, and theorem formulas are suppressed for ranks that fail the frozen
+out-of-sample whitening eligibility rule. A raw bound at or above 1 is
+probability-vacuous; on these balanced binary tasks, a raw bound at or above
+0.5 does not guarantee performance better than chance even if it is below 1.

@@ -1,5 +1,11 @@
 # DNC2 — CelebA SSL Geometry: Findings & Limitations
 
+> **Historical report (2026-06-18; superseded).** This document predates the
+> post-audit cross-fit, whitening, normalization, and bound-validity protocol.
+> Its numerical thresholds and figure dispositions must not be cited as current
+> evidence. Use `docs/s2_paper_rerun.md` and a checksum-verified fresh S2 output
+> instead.
+
 Date: 2026-06-18 · Server: s2 · Checkpoints: VICReg ResNet-50 and
 I-JEPA ViT-B/16, CelebA, epoch 1000 (HF `dlf-ssl/*`, converted to Lightning ckpt).
 

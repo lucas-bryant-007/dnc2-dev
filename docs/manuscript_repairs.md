@@ -103,14 +103,83 @@ The compiled draft contains these unresolved references:
 |---:|---|---|
 | 14 | operator “introduced in (??)” | the earlier displayed definition of (T) |
 | 15 | means/covariances “defined in (??)” | the display defining (\mu_\pm,\Sigma_\pm) |
-| 15 | “general few-shot guarantee in (??)” | Theorem 4.5 |
+| 15 | “general few-shot guarantee in (??)” | Luthra et al. (2025), Proposition 1; see the normalization repair below |
 | 17 | “few-shot NCC guarantees from Thm. ??” | Theorem 4.5 |
 
 Use labeled `\eqref{...}` / `\Cref{...}` references rather than hard-coded
-numbers, then build twice and fail the submission check if the PDF text still
-contains `??`.
+numbers for internal references, then build twice and fail the submission check
+if the PDF text still contains `??`. The page-15 few-shot source is an external
+citation, not an internal theorem reference.
 
-## 6. Submission checks
+## 6. Repair the Appendix A few-shot bound
+
+Equation (9) cannot be obtained from Theorem 4.5. Theorem 4.5 requires a
+centered, whitened representation, whereas (F^\star_\gamma) has
+mode-dependent scales. Rewhitening it would recover the selected subspace and
+the capture (B_r), eliminating the claimed (\gamma)-dependent expression.
+
+The algebraic form of Equation (9) instead comes from the fixed-(a=16)
+corollary in Luthra et al. (2025), Proposition 1. That paper's declared metrics
+are ordered single-class quantities. For the balanced binary case, write the
+draft's unhalved symmetric quantities as
+
+\[
+A_\gamma=\frac{C_\gamma}{B_\gamma^2}-1,
+\qquad
+D_\gamma=\frac{S_\gamma}{B_\gamma}-1.
+\]
+
+Then the ordered/original-half metrics are
+
+\[
+\widetilde V_{\rm ord}=\frac{A_\gamma}{4},
+\qquad
+V_{\rm ord}=\frac{D_\gamma}{4},
+\qquad
+V^s_{\rm ord}\leq\sqrt{V_{\rm ord}}
+=\frac12\sqrt{D_\gamma},
+\]
+
+where the last step is Jensen's inequality if only the aggregate variance is
+retained. Consequently, a provenance-correct three-scalar corollary for
+(m\ge10) is
+
+\[
+\operatorname{err}^{\rm NCC}_m(F^\star_\gamma)
+\le
+2A_\gamma
++\frac{4}{\sqrt m}\sqrt{D_\gamma}
++\left(\frac{2}{\sqrt m}+\frac1m\right)D_\gamma.
+\]
+
+Alternatively, retain the two class-specific variances and substitute the
+exact ordered (V^s_{\rm ord}) rather than applying Jensen. Do not describe the
+current Equation (9) as a direct substitution into Theorem 4.5. If a looser
+unhalved conversion is intentionally kept, label it as a conservative
+conversion and show every factor-of-two step explicitly.
+
+## 7. Repair the Theorem 4.5 zero-capture case and reporting language
+
+The proof defines (u=w/\lVert w\rVert), which is undefined when (B(F)=0).
+Begin the proof with:
+
+> If (B(F)=0), the result follows from
+> (\operatorname{err}^{\rm NCC}_m(F)\le1\le2+r/m). Hence assume
+> (B(F)>0) below.
+
+State the equality with the directional-CDNV expression for (B(F)>0), with its
+continuous extended-value interpretation at (B(F)=0).
+
+The displayed theorem right-hand side must be retained in tables before any
+probability clipping. If a figure plots (\min\{1,\mathrm{RHS}\}), label that as
+display-only clipping. On a balanced binary task, distinguish:
+
+- (\mathrm{RHS}\ge1): probability-vacuous;
+- (1/2\le\mathrm{RHS}<1): nontrivial relative to the probability ceiling but
+  not informative relative to chance;
+- (\mathrm{RHS}<1/2): guarantees error below the chance level.
+
+## 8. Submission checks
 
 After the source becomes available:
 
@@ -119,4 +188,7 @@ After the source becomes available:
 3. assert the CDNV definition includes the normalization sentence;
 4. assert the spectral setting includes “complete orthonormal eigenbasis”;
 5. assert the Appendix B optimizer contains (C_{12}^{\top});
-6. replace the superseded PDF and record its source commit and SHA-256.
+6. assert Appendix A cites Luthra et al. Proposition 1, states (m\ge10), and
+   uses an explicit CDNV conversion;
+7. assert Theorem 4.5 handles (B(F)=0) before defining (u);
+8. replace the superseded PDF and record its source commit and SHA-256.
