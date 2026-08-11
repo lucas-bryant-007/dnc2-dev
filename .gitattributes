@@ -1,1 +1,5 @@
 *.sh text eol=lf
+
+# This curated evidence bundle carries a byte-for-byte SHA-256 manifest. Keep
+# its generated text and binary artifacts untouched on every platform.
+paper_outputs/pretrained_crossfit_postaudit_20260810/** -text -diff

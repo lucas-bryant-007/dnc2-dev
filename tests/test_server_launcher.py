@@ -24,3 +24,13 @@ def test_s2_launcher_uses_all_four_workers_and_records_required_controls():
     assert "--n_permutations \"$N_PERMUTATIONS\"" in text
     assert "full_pipeline_label_permutation" in text
     assert "SHA256SUMS" in text
+
+
+def test_server_checkout_preserves_checksummed_artifact_bytes():
+    attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+    assert (
+        "paper_outputs/pretrained_crossfit_postaudit_20260810/** -text -diff"
+        in attributes
+    )
+    text = LAUNCHER.read_text(encoding="utf-8")
+    assert '[[ -s "$1" ]]' in text

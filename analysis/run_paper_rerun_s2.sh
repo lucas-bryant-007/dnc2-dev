@@ -88,7 +88,13 @@ fail() {
 }
 
 require_path() {
-    [[ -e "$1" ]] || fail "Missing required path: $1"
+    if [[ -d "$1" ]]; then
+        [[ -n "$(find "$1" -mindepth 1 -print -quit)" ]] || {
+            fail "Required directory is empty: $1"
+        }
+        return
+    fi
+    [[ -s "$1" ]] || fail "Missing or empty required file: $1"
 }
 
 preflight() {
