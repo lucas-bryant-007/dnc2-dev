@@ -4,10 +4,11 @@
 # Usage:
 #   bash analysis/run_paper_rerun_s2.sh --preflight
 #   bash analysis/run_paper_rerun_s2.sh --detach
+#   bash analysis/run_paper_rerun_s2.sh --finalize-existing
 #
 # The four workers are intentionally fixed before test output is inspected:
-#   GPU 0: VICReg/CelebA full-support reproduction, label null, few-shot
-#   GPU 1: I-JEPA/CelebA full-support reproduction, label null, few-shot
+#   GPU 0: VICReg/CelebA audited full-support run, label null, few-shot
+#   GPU 1: I-JEPA/CelebA audited full-support run, label null, few-shot
 #   GPU 2: official VICReg/CUB-200 corrected 20x350 run
 #   GPU 3: VICReg then I-JEPA CelebA corrected 20x500 stability runs
 
@@ -77,9 +78,11 @@ REFERENCE_DIR="$REPO_DIR/paper_outputs/pretrained_crossfit_postaudit_20260810/me
 REFERENCE_VICREG="$REFERENCE_DIR/hyperrect_crossfit_vicreg_celeba_epoch_1000_full_support_20x_v1.json"
 REFERENCE_IJEPA="$REFERENCE_DIR/hyperrect_crossfit_ijepa_celeba_epoch_1000_full_support_20x_v1.json"
 REFERENCE_CUB="$REFERENCE_DIR/hyperrect_crossfit_vicreg_official_imagenet1k_cub200_bbox_distinct_families_full_support_v3.json"
+REFERENCE_ENV_FREEZE="$REPO_DIR/repro_exports/high_support_crossfit_20260723/provenance/pip_freeze.txt"
 
 usage() {
-    printf 'Usage: bash %s {--preflight|--detach|--run}\n' "${BASH_SOURCE[0]}" >&2
+    printf 'Usage: bash %s {--preflight|--detach|--run|--finalize-existing}\n' \
+        "${BASH_SOURCE[0]}" >&2
 }
 
 fail() {
@@ -99,7 +102,7 @@ require_path() {
 
 preflight() {
     printf 'Preflight for %s at commit %s\n' "$RUN_ID" "$SHORT_COMMIT"
-    for command in git nvidia-smi sha256sum df find sed sort xargs; do
+    for command in git nvidia-smi sha256sum df diff find sed sort xargs; do
         command -v "$command" >/dev/null || fail "Required command is unavailable: $command"
     done
     require_path "$PY"
@@ -114,6 +117,7 @@ preflight() {
     require_path "$REFERENCE_VICREG"
     require_path "$REFERENCE_IJEPA"
     require_path "$REFERENCE_CUB"
+    require_path "$REFERENCE_ENV_FREEZE"
 
     local branch
     branch="$(git -C "$REPO_DIR" branch --show-current)"
@@ -175,6 +179,27 @@ preflight() {
     printf 'Preflight passed: branch, commit, inputs, CUDA, disk, syntax, and tests.\n'
 }
 
+record_environment_comparison() {
+    local provenance="$OUT_BASE/provenance" diff_status exact_match
+    require_result "$provenance/pip_freeze.txt"
+    set +e
+    diff -u "$REFERENCE_ENV_FREEZE" "$provenance/pip_freeze.txt" \
+        >"$provenance/environment_vs_archived_reference.diff"
+    diff_status=$?
+    set -e
+    (( diff_status <= 1 )) || fail "Could not compare Python environments"
+    if (( diff_status == 0 )); then
+        exact_match=true
+    else
+        exact_match=false
+    fi
+    {
+        printf 'archived_reference=%s\n' "$REFERENCE_ENV_FREEZE"
+        printf 'fresh_environment=%s\n' "$provenance/pip_freeze.txt"
+        printf 'exact_match=%s\n' "$exact_match"
+    } >"$provenance/environment_comparison.txt"
+}
+
 record_provenance() {
     local provenance="$OUT_BASE/provenance"
     mkdir -p "$provenance"
@@ -184,6 +209,7 @@ record_provenance() {
     git -C "$REPO_DIR" log -1 --format=fuller >"$provenance/git_log.txt"
     "$PY" --version >"$provenance/python_version.txt" 2>&1
     "$PY" -m pip freeze >"$provenance/pip_freeze.txt"
+    record_environment_comparison
     uname -a >"$provenance/uname.txt"
     cp /etc/os-release "$provenance/os-release"
     nvidia-smi -q >"$provenance/nvidia_smi_start.txt"
@@ -361,6 +387,51 @@ require_result() {
     [[ -s "$1" ]] || fail "Expected result was not created: $1"
 }
 
+require_fewshot_outputs() {
+    local method metrics standard directional
+    for method in vicreg ijepa; do
+        metrics="$FEWSHOT_BASE/${method}_celeba/metrics"
+        require_path "$metrics"
+        standard="$(
+            find "$metrics" -maxdepth 1 -type f \
+                -name 'metrics_fewshot_*.csv' \
+                ! -name 'metrics_fewshot_dir_*.csv' \
+                -size +0c -print -quit
+        )"
+        directional="$(
+            find "$metrics" -maxdepth 1 -type f \
+                -name 'metrics_fewshot_dir_*.csv' \
+                -size +0c -print -quit
+        )"
+        [[ -n "$standard" ]] || {
+            fail "Missing standard few-shot CSV under $metrics"
+        }
+        [[ -n "$directional" ]] || {
+            fail "Missing directional few-shot CSV under $metrics"
+        }
+    done
+}
+
+validate_worker_outputs() {
+    local expected_statuses
+    require_result "$OUT_BASE/worker_exit_status.txt"
+    expected_statuses=$'vicreg_worker=0\nijepa_worker=0\ncub_worker=0\nstability_worker=0'
+    [[ "$(<"$OUT_BASE/worker_exit_status.txt")" == "$expected_statuses" ]] || {
+        fail "One or more recorded GPU workers did not exit successfully"
+    }
+    for result in \
+        "$VICREG_FULL_JSON" \
+        "$IJEPA_FULL_JSON" \
+        "$CUB_JSON" \
+        "$VICREG_STABILITY_JSON" \
+        "$IJEPA_STABILITY_JSON" \
+        "$VICREG_LABEL_NULL_JSON" \
+        "$IJEPA_LABEL_NULL_JSON"; do
+        require_result "$result"
+    done
+    require_fewshot_outputs
+}
+
 selection_succeeded() {
     "$PY" -c \
         'import json, sys; p=json.load(open(sys.argv[1], encoding="utf-8")); sys.exit(0 if p.get("selection_succeeded", True) else 1)' \
@@ -397,11 +468,107 @@ write_checksums() {
         find . -type f \
             ! -name SHA256SUMS \
             ! -name supervisor.log \
+            ! -name COMPLETE \
             ! -name '*.pid' \
             -print0 \
             | sort -z \
             | xargs -0 sha256sum
     ) >"$manifest"
+}
+
+record_finalization_provenance() {
+    local source_commit finalizer_commit
+    require_result "$OUT_BASE/provenance/git_commit.txt"
+    source_commit="$(<"$OUT_BASE/provenance/git_commit.txt")"
+    finalizer_commit="$(git -C "$REPO_DIR" rev-parse HEAD)"
+    git -C "$REPO_DIR" cat-file -e "${source_commit}^{commit}" || {
+        fail "Recorded compute commit is unavailable: $source_commit"
+    }
+    git -C "$REPO_DIR" merge-base --is-ancestor \
+        "$source_commit" "$finalizer_commit" || {
+        fail "Finalizer commit is not a descendant of compute commit $source_commit"
+    }
+    {
+        printf 'source_compute_commit=%s\n' "$source_commit"
+        printf 'finalizer_commit=%s\n' "$finalizer_commit"
+        printf 'reason=resume_after_legacy_fatal_archived_protocol_comparison\n'
+        printf 'result_tensors_or_metrics_refit=false\n'
+        printf 'controls_comparisons_figures_and_checksums_regenerated=true\n'
+        printf 'started_at=%s\n' "$(date --iso-8601=seconds)"
+    } >"$OUT_BASE/provenance/finalization.txt"
+    git -C "$REPO_DIR" diff --stat "$source_commit..$finalizer_commit" \
+        >"$OUT_BASE/provenance/finalization_code_diff_stat.txt"
+    sha256sum "$SCRIPT_DIR/run_paper_rerun_s2.sh" \
+        >"$OUT_BASE/provenance/finalizer_launcher_sha256.txt"
+    record_environment_comparison
+}
+
+finalize_outputs() {
+    validate_worker_outputs
+
+    printf 'Running held-out permutation controls.\n'
+    run_heldout_null "$VICREG_FULL_JSON" "$CONTROL_BASE/heldout/full_support/vicreg_celeba"
+    run_heldout_null "$IJEPA_FULL_JSON" "$CONTROL_BASE/heldout/full_support/ijepa_celeba"
+    run_heldout_null "$CUB_JSON" "$CONTROL_BASE/heldout/full_support/vicreg_cub200"
+    run_heldout_null "$VICREG_STABILITY_JSON" "$CONTROL_BASE/heldout/capped_stability/vicreg_celeba"
+    run_heldout_null "$IJEPA_STABILITY_JSON" "$CONTROL_BASE/heldout/capped_stability/ijepa_celeba"
+
+    printf 'Rendering run-level figures.\n'
+    for result in \
+        "$VICREG_FULL_JSON" \
+        "$IJEPA_FULL_JSON" \
+        "$CUB_JSON" \
+        "$VICREG_STABILITY_JSON" \
+        "$IJEPA_STABILITY_JSON"; do
+        render_run "$result"
+    done
+
+    if selection_succeeded "$VICREG_FULL_JSON" \
+        && selection_succeeded "$IJEPA_FULL_JSON" \
+        && selection_succeeded "$CUB_JSON"; then
+        "$PY" -u "$REPO_DIR/analysis/compare_pretrained_crossfit.py" \
+            --reference_json "$REFERENCE_VICREG" "$REFERENCE_IJEPA" "$REFERENCE_CUB" \
+            --fresh_json "$VICREG_FULL_JSON" "$IJEPA_FULL_JSON" "$CUB_JSON" \
+            --out_dir "$OUT_BASE/comparison/full_support_reproduction" \
+            --reproduction_atol "$REPRODUCTION_ATOL"
+        "$PY" -u "$REPO_DIR/analysis/compare_pretrained_crossfit.py" \
+            --reference_json "$VICREG_FULL_JSON" "$IJEPA_FULL_JSON" \
+            --fresh_json "$VICREG_STABILITY_JSON" "$IJEPA_STABILITY_JSON" \
+            --out_dir "$OUT_BASE/comparison/capped_stability_vs_fresh_full_support"
+    else
+        printf 'A primary run is a fixed-constraint negative result; skipping numeric comparison.\n'
+    fi
+
+    local full_vicreg_null="$CONTROL_BASE/heldout/full_support/vicreg_celeba/heldout_permutation_null_vicreg_celeba.json"
+    local full_ijepa_null="$CONTROL_BASE/heldout/full_support/ijepa_celeba/heldout_permutation_null_ijepa_celeba.json"
+    local cub_null="$CONTROL_BASE/heldout/full_support/vicreg_cub200/heldout_permutation_null_vicreg_official_imagenet1k_cub200.json"
+    local capped_vicreg_null="$CONTROL_BASE/heldout/capped_stability/vicreg_celeba/heldout_permutation_null_vicreg_celeba.json"
+    local capped_ijepa_null="$CONTROL_BASE/heldout/capped_stability/ijepa_celeba/heldout_permutation_null_ijepa_celeba.json"
+    if selection_succeeded "$VICREG_FULL_JSON" \
+        && selection_succeeded "$IJEPA_FULL_JSON" \
+        && selection_succeeded "$CUB_JSON"; then
+        "$PY" -u "$REPO_DIR/analysis/plot_strict_pretrained_paper.py" \
+            --run_json "$VICREG_FULL_JSON" "$IJEPA_FULL_JSON" "$CUB_JSON" \
+            --null_json "$full_vicreg_null" "$full_ijepa_null" "$cub_null" \
+            --full_null_json "$VICREG_LABEL_NULL_JSON" "$IJEPA_LABEL_NULL_JSON" \
+            --out_dir "$OUT_BASE/paper_full_support"
+    fi
+    if selection_succeeded "$VICREG_STABILITY_JSON" \
+        && selection_succeeded "$IJEPA_STABILITY_JSON" \
+        && selection_succeeded "$CUB_JSON"; then
+        "$PY" -u "$REPO_DIR/analysis/plot_strict_pretrained_paper.py" \
+            --run_json "$VICREG_STABILITY_JSON" "$IJEPA_STABILITY_JSON" "$CUB_JSON" \
+            --null_json "$capped_vicreg_null" "$capped_ijepa_null" "$cub_null" \
+            --full_null_json "$VICREG_LABEL_NULL_JSON" "$IJEPA_LABEL_NULL_JSON" \
+            --out_dir "$OUT_BASE/paper_capped_stability"
+    fi
+
+    nvidia-smi -q >"$OUT_BASE/provenance/nvidia_smi_end.txt"
+    df -h "$ROOT" "$OUT_BASE" >"$OUT_BASE/provenance/disk_end.txt"
+    write_checksums
+    date --iso-8601=seconds >"$OUT_BASE/COMPLETE"
+    printf 'All post-audit server runs, controls, comparisons, and checksums finished.\n'
+    printf 'Results: %s\n' "$OUT_BASE"
 }
 
 run_all() {
@@ -430,81 +597,7 @@ run_all() {
         fail "At least one GPU worker failed; inspect logs under $OUT_BASE"
     fi
 
-    for result in \
-        "$VICREG_FULL_JSON" \
-        "$IJEPA_FULL_JSON" \
-        "$CUB_JSON" \
-        "$VICREG_STABILITY_JSON" \
-        "$IJEPA_STABILITY_JSON" \
-        "$VICREG_LABEL_NULL_JSON" \
-        "$IJEPA_LABEL_NULL_JSON"; do
-        require_result "$result"
-    done
-
-    printf 'Running held-out permutation controls.\n'
-    run_heldout_null "$VICREG_FULL_JSON" "$CONTROL_BASE/heldout/full_support/vicreg_celeba"
-    run_heldout_null "$IJEPA_FULL_JSON" "$CONTROL_BASE/heldout/full_support/ijepa_celeba"
-    run_heldout_null "$CUB_JSON" "$CONTROL_BASE/heldout/full_support/vicreg_cub200"
-    run_heldout_null "$VICREG_STABILITY_JSON" "$CONTROL_BASE/heldout/capped_stability/vicreg_celeba"
-    run_heldout_null "$IJEPA_STABILITY_JSON" "$CONTROL_BASE/heldout/capped_stability/ijepa_celeba"
-
-    printf 'Rendering run-level figures.\n'
-    for result in \
-        "$VICREG_FULL_JSON" \
-        "$IJEPA_FULL_JSON" \
-        "$CUB_JSON" \
-        "$VICREG_STABILITY_JSON" \
-        "$IJEPA_STABILITY_JSON"; do
-        render_run "$result"
-    done
-
-    if selection_succeeded "$VICREG_FULL_JSON" \
-        && selection_succeeded "$IJEPA_FULL_JSON" \
-        && selection_succeeded "$CUB_JSON"; then
-        "$PY" -u "$REPO_DIR/analysis/compare_pretrained_crossfit.py" \
-            --reference_json "$REFERENCE_VICREG" "$REFERENCE_IJEPA" "$REFERENCE_CUB" \
-            --fresh_json "$VICREG_FULL_JSON" "$IJEPA_FULL_JSON" "$CUB_JSON" \
-            --out_dir "$OUT_BASE/comparison/full_support_reproduction" \
-            --reproduction_atol "$REPRODUCTION_ATOL" \
-            --require_reproduction
-        "$PY" -u "$REPO_DIR/analysis/compare_pretrained_crossfit.py" \
-            --reference_json "$REFERENCE_VICREG" "$REFERENCE_IJEPA" \
-            --fresh_json "$VICREG_STABILITY_JSON" "$IJEPA_STABILITY_JSON" \
-            --out_dir "$OUT_BASE/comparison/capped_stability_vs_full_support_reference"
-    else
-        printf 'A primary run is a fixed-constraint negative result; skipping numeric reproduction gate.\n'
-    fi
-
-    local full_vicreg_null="$CONTROL_BASE/heldout/full_support/vicreg_celeba/heldout_permutation_null_vicreg_celeba.json"
-    local full_ijepa_null="$CONTROL_BASE/heldout/full_support/ijepa_celeba/heldout_permutation_null_ijepa_celeba.json"
-    local cub_null="$CONTROL_BASE/heldout/full_support/vicreg_cub200/heldout_permutation_null_vicreg_official_imagenet1k_cub200.json"
-    local capped_vicreg_null="$CONTROL_BASE/heldout/capped_stability/vicreg_celeba/heldout_permutation_null_vicreg_celeba.json"
-    local capped_ijepa_null="$CONTROL_BASE/heldout/capped_stability/ijepa_celeba/heldout_permutation_null_ijepa_celeba.json"
-    if selection_succeeded "$VICREG_FULL_JSON" \
-        && selection_succeeded "$IJEPA_FULL_JSON" \
-        && selection_succeeded "$CUB_JSON"; then
-        "$PY" -u "$REPO_DIR/analysis/plot_strict_pretrained_paper.py" \
-            --run_json "$VICREG_FULL_JSON" "$IJEPA_FULL_JSON" "$CUB_JSON" \
-            --null_json "$full_vicreg_null" "$full_ijepa_null" "$cub_null" \
-            --full_null_json "$VICREG_LABEL_NULL_JSON" "$IJEPA_LABEL_NULL_JSON" \
-            --out_dir "$OUT_BASE/paper_full_support"
-    fi
-    if selection_succeeded "$VICREG_STABILITY_JSON" \
-        && selection_succeeded "$IJEPA_STABILITY_JSON" \
-        && selection_succeeded "$CUB_JSON"; then
-        "$PY" -u "$REPO_DIR/analysis/plot_strict_pretrained_paper.py" \
-            --run_json "$VICREG_STABILITY_JSON" "$IJEPA_STABILITY_JSON" "$CUB_JSON" \
-            --null_json "$capped_vicreg_null" "$capped_ijepa_null" "$cub_null" \
-            --full_null_json "$VICREG_LABEL_NULL_JSON" "$IJEPA_LABEL_NULL_JSON" \
-            --out_dir "$OUT_BASE/paper_capped_stability"
-    fi
-
-    date --iso-8601=seconds >"$OUT_BASE/COMPLETE"
-    nvidia-smi -q >"$OUT_BASE/provenance/nvidia_smi_end.txt"
-    df -h "$ROOT" "$OUT_BASE" >"$OUT_BASE/provenance/disk_end.txt"
-    write_checksums
-    printf 'All post-audit server runs, controls, comparisons, and checksums finished.\n'
-    printf 'Results: %s\n' "$OUT_BASE"
+    finalize_outputs
 }
 
 case "${1:-}" in
@@ -546,6 +639,16 @@ case "${1:-}" in
         fi
         mkdir -p "$OUT_BASE"
         run_all
+        ;;
+    --finalize-existing)
+        preflight
+        [[ -d "$OUT_BASE" ]] || fail "Output path does not exist: $OUT_BASE"
+        [[ ! -e "$OUT_BASE/COMPLETE" ]] || {
+            fail "Output is already marked complete: $OUT_BASE"
+        }
+        validate_worker_outputs
+        record_finalization_provenance
+        finalize_outputs
         ;;
     *)
         usage

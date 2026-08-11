@@ -1,8 +1,9 @@
 """Compare fresh pretrained cross-fit results with frozen reference artifacts.
 
 The comparison deliberately distinguishes exact-protocol reproduction from a
-different sampling design.  A lower point estimate is not called a
-"reproduction" when the selected triple or per-cell sampling cap changed.
+different estimator or sampling design.  A lower point estimate is not called
+a "reproduction" when the whitening/capture protocol, selected triple, or
+per-cell sampling cap changed.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ class Snapshot:
     primary_seed: int | None
     max_test_cell_samples: int | None
     sampling_cap_source: str
+    analysis_protocol: dict[str, Any]
     samples_per_cell: int | None
     primary_rmse: float | None
     aggregate_capture: dict[str, float]
@@ -51,6 +53,115 @@ def _optional_float(value: Any) -> float | None:
     return result
 
 
+_PROTOCOL_IDENTITY_KEYS = (
+    "analysis_protocol_version",
+    "population",
+    "population_estimand",
+    "selection_split",
+    "evaluation_split",
+    "selection_objective",
+    "min_class_frac",
+    "min_capture",
+    "cos_ceiling",
+    "crop_to_official_bounding_box",
+    "attribute_source",
+    "attribute_family_constraint",
+    "rewhitening",
+    "analysis_whitening_option",
+    "test_statistics_used_to_fit_rewhitening",
+    "capture_and_cosine_estimator",
+    "training_capture_interpretation",
+    "headline_inference_source",
+    "box_axes_and_predicted_corners",
+    "fixed_test_criteria",
+)
+
+
+def _present_keys(source: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    return {key: source[key] for key in keys if key in source}
+
+
+def _analysis_protocol_signature(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return estimator-defining metadata, excluding seeds and sample caps.
+
+    The old comparator treated a matching triple, seed, and test sampling cap as
+    a matching protocol.  That is insufficient: the archived package fitted a
+    regularized ZCA map on the whole selected training population, whereas the
+    audited pipeline fits exact rank-truncated whitening on an independent
+    third fold.  Those procedures estimate different quantities even when the
+    selected triple happens to be unchanged.
+    """
+
+    protocol = payload.get("protocol") or {}
+    train_balance = payload.get("train_balance") or {}
+    train_rewhitener = train_balance.get("rewhitener") or {}
+    first_stage = payload.get("first_stage_ssl_whitener")
+    signature: dict[str, Any] = {
+        "protocol": _present_keys(protocol, _PROTOCOL_IDENTITY_KEYS),
+        "train_estimator": _present_keys(
+            train_balance,
+            (
+                "whitening_fit_samples_per_cell",
+                "crossfit_samples_per_cell_a",
+                "crossfit_samples_per_cell_b",
+                "probe_estimator",
+                "training_capture_statistical_interpretation",
+                "predicted_box_capture_estimator",
+                "predicted_box_capture_statistical_interpretation",
+            ),
+        ),
+        "train_rewhitener": _present_keys(
+            train_rewhitener,
+            (
+                "kind",
+                "ridge_rel",
+                "requested_rel_eig_threshold",
+                "numerical_rel_eig_floor",
+                "fit_split",
+                "fit_population",
+                "independent_of_split_half_probe_folds",
+                "frozen_for_test",
+            ),
+        ),
+    }
+    if isinstance(first_stage, dict):
+        signature["first_stage_ssl_whitener"] = _present_keys(
+            first_stage,
+            (
+                "stage",
+                "fit_split",
+                "fit_population",
+                "view_marginal",
+                "requested_rank_cap",
+                "relative_rank_cutoff",
+                "transform_frozen_after_fit",
+                "frozen_for_downstream_evaluation",
+                "frozen_for_test",
+            ),
+        )
+        fit_loader = first_stage.get("fit_loader")
+        if isinstance(fit_loader, dict):
+            signature["first_stage_fit_loader"] = _present_keys(
+                fit_loader,
+                (
+                    "role",
+                    "dataset_repository",
+                    "dataset_split",
+                    "dataset_name",
+                    "augmentation_method",
+                    "image_size",
+                    "num_augmented_views_per_instance",
+                    "collate_function",
+                    "drop_last",
+                    "sampler_class",
+                    "sampler_replacement",
+                    "distributed_sharding",
+                    "covers_full_dataset_exactly_once_per_pass",
+                ),
+            )
+    return signature
+
+
 def load_snapshot(path: str | Path) -> Snapshot:
     source = Path(path).expanduser().resolve()
     payload = json.loads(source.read_text(encoding="utf-8"))
@@ -58,6 +169,7 @@ def load_snapshot(path: str | Path) -> Snapshot:
     method = str(payload["method"]).lower()
     succeeded = bool(payload.get("selection_succeeded", True))
     protocol = payload.get("protocol") or {}
+    analysis_protocol = _analysis_protocol_signature(payload)
     test_balance = payload.get("test_balance") or {}
     primary_seed = protocol.get("primary_test_balance_seed")
     if primary_seed is None and test_balance.get("seed") is not None:
@@ -84,6 +196,7 @@ def load_snapshot(path: str | Path) -> Snapshot:
             primary_seed=int(primary_seed) if primary_seed is not None else None,
             max_test_cell_samples=int(cap) if cap is not None else None,
             sampling_cap_source=cap_source,
+            analysis_protocol=analysis_protocol,
             samples_per_cell=None,
             primary_rmse=None,
             aggregate_capture={},
@@ -124,6 +237,7 @@ def load_snapshot(path: str | Path) -> Snapshot:
         primary_seed=int(primary_seed) if primary_seed is not None else None,
         max_test_cell_samples=int(cap) if cap is not None else None,
         sampling_cap_source=cap_source,
+        analysis_protocol=analysis_protocol,
         samples_per_cell=(
             int(test_balance["samples_per_cell"])
             if test_balance.get("samples_per_cell") is not None
@@ -179,6 +293,11 @@ def compare_snapshots(
         "fresh_max_test_cell_samples": fresh.max_test_cell_samples,
         "reference_sampling_cap_source": reference.sampling_cap_source,
         "fresh_sampling_cap_source": fresh.sampling_cap_source,
+        "reference_analysis_protocol": reference.analysis_protocol,
+        "fresh_analysis_protocol": fresh.analysis_protocol,
+        "same_analysis_protocol": (
+            reference.analysis_protocol == fresh.analysis_protocol
+        ),
         "same_sampling_cap": (
             reference.max_test_cell_samples == fresh.max_test_cell_samples
         ),
@@ -257,7 +376,8 @@ def compare_snapshots(
         }
 
     same_protocol = bool(
-        result["same_selected_triple"]
+        result["same_analysis_protocol"]
+        and result["same_selected_triple"]
         and result["same_sampling_cap"]
         and reference.primary_seed == fresh.primary_seed
     )
@@ -265,7 +385,9 @@ def compare_snapshots(
     result["reproduced_within_tolerance"] = bool(
         same_protocol and abs(rmse_delta) <= reproduction_atol
     )
-    if not result["same_selected_triple"]:
+    if not result["same_analysis_protocol"]:
+        result["verdict"] = "different_analysis_protocol_not_a_reproduction"
+    elif not result["same_selected_triple"]:
         result["verdict"] = "selected_triple_changed_not_directly_comparable"
     elif not result["same_sampling_cap"]:
         result["verdict"] = "different_sampling_design_not_a_reproduction"
@@ -283,11 +405,15 @@ def _write_markdown(comparisons: list[dict[str, Any]], path: Path) -> None:
         "# Pretrained cross-fit comparison",
         "",
         "Lower normalized corner RMSE and lower task-direction overlap are better; "
-        "higher capture is better. Different selected triples or sampling caps are "
-        "reported as different estimands rather than ranked as reproductions.",
+        "higher capture is better. Different estimators, selected triples, or "
+        "sampling caps are reported as different estimands rather than ranked as "
+        "reproductions.",
         "",
-        "| Dataset | Method | Reference RMSE | Fresh RMSE | Delta | Verdict |",
-        "|---|---|---:|---:|---:|---|",
+        (
+            "| Dataset | Method | Protocol match | Triple match | Reference RMSE | "
+            "Fresh RMSE | Delta | Verdict |"
+        ),
+        "|---|---|---|---|---:|---:|---:|---|",
     ]
     for item in comparisons:
         reference = item.get("reference_primary_rmse")
@@ -295,11 +421,15 @@ def _write_markdown(comparisons: list[dict[str, Any]], path: Path) -> None:
         delta = item.get("primary_rmse_delta")
         lines.append(
             f"| {item['dataset']} | {item['method']} | "
+            f"{item.get('same_analysis_protocol', False)} | "
+            f"{item.get('same_selected_triple', False)} | "
             f"{reference:.6f} | {fresh:.6f} | {delta:+.6f} | "
             f"{item['verdict']} |"
             if reference is not None and fresh is not None and delta is not None
             else (
-                f"| {item['dataset']} | {item['method']} |  |  |  | "
+                f"| {item['dataset']} | {item['method']} | "
+                f"{item.get('same_analysis_protocol', False)} | "
+                f"{item.get('same_selected_triple', False)} |  |  |  | "
                 f"{item['verdict']} |"
             )
         )
@@ -331,11 +461,15 @@ def write_comparison(
     ]
     destination = Path(output_dir).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
+    all_reproduced = all(
+        item.get("reproduced_within_tolerance", False) for item in comparisons
+    )
     (destination / "comparison.json").write_text(
         json.dumps(
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "reproduction_atol": reproduction_atol,
+                "all_reproduced_within_tolerance": all_reproduced,
                 "comparisons": comparisons,
                 "reference_snapshots": [
                     asdict(references[key]) for key in sorted(references)
@@ -355,6 +489,7 @@ def write_comparison(
         fieldnames = [
             "dataset",
             "method",
+            "same_analysis_protocol",
             "reference_primary_rmse",
             "fresh_primary_rmse",
             "primary_rmse_delta",

@@ -6,6 +6,16 @@ from pathlib import Path
 from analysis.compare_pretrained_crossfit import load_snapshot, write_comparison
 
 
+ROOT = Path(__file__).resolve().parents[1]
+ARCHIVED_VICREG = (
+    ROOT
+    / "paper_outputs"
+    / "pretrained_crossfit_postaudit_20260810"
+    / "metrics"
+    / "hyperrect_crossfit_vicreg_celeba_epoch_1000_full_support_20x_v1.json"
+)
+
+
 def _payload(*, rmse=0.2, cap=None, triple=None, values=None):
     triple = triple or ["a", "b", "c"]
     values = values or [0.20, 0.21]
@@ -22,8 +32,11 @@ def _payload(*, rmse=0.2, cap=None, triple=None, values=None):
         "selection_succeeded": True,
         "selected_triple": triple,
         "protocol": {
+            "analysis_protocol_version": "synthetic_independent_third_fold_v1",
             "primary_test_balance_seed": 7,
             "max_test_cell_samples": cap,
+            "rewhitening": "independent third-fold exact whitening",
+            "capture_and_cosine_estimator": "split-half cross-Gram",
         },
         "test_balance": {"samples_per_cell": 500 if cap else 788},
         "test_box_diagnostics": {"normalized_centroid_rmse": rmse},
@@ -62,6 +75,46 @@ class ComparePretrainedCrossfitTest(unittest.TestCase):
             self.assertTrue((output / "comparison.json").is_file())
             self.assertTrue((output / "comparison.csv").is_file())
             self.assertTrue((output / "COMPARISON.md").is_file())
+            serialized = json.loads((output / "comparison.json").read_text())
+            self.assertTrue(serialized["all_reproduced_within_tolerance"])
+
+    def test_archived_reference_is_identified_as_legacy_whole_population_zca(
+        self,
+    ):
+        snapshot = load_snapshot(ARCHIVED_VICREG)
+        protocol = snapshot.analysis_protocol["protocol"]
+        rewhitener = snapshot.analysis_protocol["train_rewhitener"]
+        self.assertNotIn("analysis_protocol_version", protocol)
+        self.assertIn(
+            "selected jointly balanced training population",
+            protocol["rewhitening"],
+        )
+        self.assertEqual(rewhitener["kind"], "zca")
+        self.assertEqual(
+            rewhitener["fit_population"],
+            "uniform_over_selected_eight_label_cells",
+        )
+
+    def test_estimator_change_is_not_mislabeled_as_same_protocol(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            reference_payload = _payload()
+            reference_payload["protocol"]["rewhitening"] = (
+                "whole-population regularized ZCA"
+            )
+            reference_payload["protocol"].pop("analysis_protocol_version")
+            reference = self._write(root, "reference.json", reference_payload)
+            fresh = self._write(root, "fresh.json", _payload(rmse=0.1))
+            output = root / "comparison"
+            item = write_comparison([reference], [fresh], output)[0]
+            self.assertFalse(item["same_analysis_protocol"])
+            self.assertFalse(item["same_primary_protocol"])
+            self.assertEqual(
+                item["verdict"],
+                "different_analysis_protocol_not_a_reproduction",
+            )
+            serialized = json.loads((output / "comparison.json").read_text())
+            self.assertFalse(serialized["all_reproduced_within_tolerance"])
 
     def test_sampling_change_is_not_mislabeled_as_reproduction(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -43,6 +43,11 @@ import metrics_io as mio
 from training.config_loader import dict_to_namespace, load_config, namespace_to_dict
 
 
+ANALYSIS_PROTOCOL_VERSION = (
+    "celeba_full_train_ssl_whitening_independent_third_fold_v1"
+)
+
+
 def _loader(dataset, data_cfg, transforms, attr_names):
     return DataLoader(
         dataset,
@@ -139,6 +144,7 @@ def _write_selection_failure_artifact(
         },
         protocol={
             "name": protocol_name,
+            "analysis_protocol_version": ANALYSIS_PROTOCOL_VERSION,
             "population_estimand": "uniform_over_selected_eight_attribute_cells",
             "selection_split": "train",
             "evaluation_split": "test_not_reached",
@@ -1261,6 +1267,7 @@ def main(args):
         "config": args.config,
         "ckpt_path": ckpt_path,
         "protocol": {
+            "analysis_protocol_version": ANALYSIS_PROTOCOL_VERSION,
             "population": (
                 "uniform_over_selected_eight_label_cells"
                 if args.joint_balance

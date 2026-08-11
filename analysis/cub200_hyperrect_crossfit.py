@@ -38,6 +38,7 @@ import metrics_io as mio
 
 OFFICIAL_VICREG_REPOSITORY = "facebookresearch/vicreg:main"
 OFFICIAL_VICREG_WEIGHTS = "https://dl.fbaipublicfiles.com/vicreg/resnet50.pth"
+ANALYSIS_PROTOCOL_VERSION = "cub200_independent_third_fold_whitening_v1"
 
 
 def _eval_transform(image_size: int):
@@ -180,6 +181,7 @@ def _write_selection_failure_artifact(
         },
         protocol={
             "name": "fixed_constraint_train_selection",
+            "analysis_protocol_version": ANALYSIS_PROTOCOL_VERSION,
             "population_estimand": "uniform_over_selected_eight_attribute_cells",
             "selection_split": "train",
             "evaluation_split": "test_not_reached",
@@ -436,6 +438,7 @@ def main(args):
             "weights_url": OFFICIAL_VICREG_WEIGHTS,
         },
         "protocol": {
+            "analysis_protocol_version": ANALYSIS_PROTOCOL_VERSION,
             "population": "uniform_over_selected_eight_attribute_cells",
             "selection_split": "train",
             "evaluation_split": "test",

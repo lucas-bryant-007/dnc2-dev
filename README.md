@@ -44,7 +44,8 @@ Experiment drivers:
   see `docs/s2_paper_rerun.md`.
 - `analysis/run_pretrained_crossfit.sh` - historical full-support launcher.
 - `analysis/compare_pretrained_crossfit.py` - protocol-aware fresh/reference
-  comparison and reproduction gate.
+  comparison; estimator changes are reported as non-reproductions rather than
+  ranked as if they were the same estimand.
 - `analysis/pusht/` - future-factor recoverability and regret.
 
 Required figure generators:
