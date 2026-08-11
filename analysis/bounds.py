@@ -26,8 +26,30 @@ from typing import List, Sequence
 import torch
 
 try:
+    from .cdnv_conventions import (
+        CANONICAL_CDNV_NORMALIZATION,
+        CDNV_CONVENTION_PROVENANCE,
+        ORDERED_SINGLE_CLASS,
+        ORIGINAL_HALF_SYMMETRIC,
+        UNHALVED_SYMMETRIC,
+        cdnv_from_captured_energy,
+        directional_cdnv_from_captured_energy,
+        ordered_cdnv_from_class_variance,
+        symmetric_cdnv_from_class_variances,
+    )
     from .br.whitening import canonicalize_binary_labels
 except ImportError:  # direct script execution from analysis/
+    from cdnv_conventions import (
+        CANONICAL_CDNV_NORMALIZATION,
+        CDNV_CONVENTION_PROVENANCE,
+        ORDERED_SINGLE_CLASS,
+        ORIGINAL_HALF_SYMMETRIC,
+        UNHALVED_SYMMETRIC,
+        cdnv_from_captured_energy,
+        directional_cdnv_from_captured_energy,
+        ordered_cdnv_from_class_variance,
+        symmetric_cdnv_from_class_variances,
+    )
     from br.whitening import canonicalize_binary_labels
 
 
@@ -38,25 +60,67 @@ def _validate_B(B: float, eps: float = 1e-12) -> float:
     return min(B, 1.0)
 
 
+def _validate_integer(value: int, *, minimum: int, name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer >= {minimum}, got {value}")
+    try:
+        integer = int(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(
+            f"{name} must be an integer >= {minimum}, got {value}"
+        ) from error
+    if integer != value or integer < minimum:
+        raise ValueError(f"{name} must be an integer >= {minimum}, got {value}")
+    return integer
+
+
 # ---------------------------------------------------------------------------
 # Prop 4.1: directional-collapse law
 # ---------------------------------------------------------------------------
-def directional_cdnv_from_B(B: float, eps: float = 1e-12) -> float:
-    """V~_F = (1 - B)/(2B); +inf at B = 0."""
+def directional_cdnv_from_B(
+    B: float,
+    eps: float = 1e-12,
+    *,
+    normalization: str = CANONICAL_CDNV_NORMALIZATION,
+) -> float:
+    """Directional CDNV from B, with an explicit symmetric normalization.
+
+    The default is the paper's unhalved convention, ``(1-B)/(2B)``.  Under the
+    original ICLR 2022 half-normalization the value is ``(1-B)/(4B)``.
+    """
     B = _validate_B(B, eps)
     if B <= eps:
-        return float("inf")
-    return (1.0 - B) / (2.0 * B)
+        return directional_cdnv_from_captured_energy(
+            0.0,
+            normalization=normalization,
+        )
+    return directional_cdnv_from_captured_energy(
+        B,
+        normalization=normalization,
+    )
 
 
-def cdnv_from_B(B: float, r: int, eps: float = 1e-12) -> float:
-    """V_F = (r - B)/(2B); +inf at B = 0."""
+def cdnv_from_B(
+    B: float,
+    r: int,
+    eps: float = 1e-12,
+    *,
+    normalization: str = CANONICAL_CDNV_NORMALIZATION,
+) -> float:
+    """Full CDNV from B, with an explicit symmetric normalization.
+
+    The default is the paper's unhalved convention, ``(r-B)/(2B)``.  Under the
+    original ICLR 2022 half-normalization the value is ``(r-B)/(4B)``.
+    """
     B = _validate_B(B, eps)
-    if r < 1:
-        raise ValueError(f"r must be positive, got {r}")
+    r = _validate_integer(r, minimum=1, name="r")
     if B <= eps:
-        return float("inf")
-    return (float(r) - B) / (2.0 * B)
+        return cdnv_from_captured_energy(
+            0.0,
+            r,
+            normalization=normalization,
+        )
+    return cdnv_from_captured_energy(B, r, normalization=normalization)
 
 
 # ---------------------------------------------------------------------------
@@ -67,13 +131,12 @@ def nccc_error_bound(B: float, r: int, m: int, clamp: bool = True) -> float:
 
     The leading (1 - B) is the uncaptured posterior energy (irreducible floor);
     the rest are finite-sample centroid-estimation terms vanishing as m -> inf.
-    B = 0 gives a vacuous bound (+inf, or 1.0 if ``clamp``).
+    At B = 0 the displayed right-hand side is the finite but vacuous value
+    ``2 + r/m`` (or 1.0 when clamped to the probability range).
     """
     B = _validate_B(B)
-    if r < 1 or m < 1:
-        raise ValueError(f"r and m must be positive, got r={r}, m={m}")
-    if B <= 0.0:
-        return 1.0 if clamp else float("inf")
+    r = _validate_integer(r, minimum=1, name="r")
+    m = _validate_integer(m, minimum=1, name="m")
     val = (1.0 - B) + (r - B) / m + (1.0 - B) / (1.0 - B + 2.0 * m * B)
     return min(val, 1.0) if clamp else val
 
@@ -84,12 +147,15 @@ def nccc_error_bound_from_tilde_v(tilde_v: float, r: int, m: int, clamp: bool = 
         2V~/(1+2V~) + ((r-1)+2rV~)/(m(1+2V~)) + V~/(V~+m).
     """
     tv = float(tilde_v)
-    if tv < 0 or r < 1 or m < 1:
+    r = _validate_integer(r, minimum=1, name="r")
+    m = _validate_integer(m, minimum=1, name="m")
+    if math.isnan(tv) or tv < 0:
         raise ValueError(
             f"tilde_v must be nonnegative and r,m positive; got {tv}, {r}, {m}"
         )
-    if not math.isfinite(tv):
-        return 1.0 if clamp else float("inf")
+    if math.isinf(tv):
+        val = 2.0 + float(r) / m
+        return min(val, 1.0) if clamp else val
     val = (
         (2.0 * tv) / (1.0 + 2.0 * tv)
         + ((r - 1) + 2.0 * r * tv) / (m * (1.0 + 2.0 * tv))
@@ -107,8 +173,8 @@ def hyperrectangle_half_side_lengths(Bs: Sequence[float]) -> List[float]:
 
 
 def hyperrectangle_side_lengths(Bs: Sequence[float]) -> List[float]:
-    """Backward-compatible alias; values are half-sides, not full side lengths."""
-    return hyperrectangle_half_side_lengths(Bs)
+    """Full edge lengths ``2*sqrt(B_t)`` of the predicted hyper-rectangle."""
+    return [2.0 * value for value in hyperrectangle_half_side_lengths(Bs)]
 
 
 def centroid_geometry_rhs(Bs: Sequence[float]) -> float:
@@ -140,16 +206,64 @@ def near_orthogonality_bound(
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Directional-CDNV few-shot bounds from "Directional Neural Collapse Explains
-# Few-Shot Transfer in SSL" (Luthra, Salunkhe, Galanti 2026). These act on the
-# *raw* frozen features and are the curves in that paper's Figure 3:
-#   - "Our bound"   = Thm 4.1 (optimized) / Thm C.2 (lambda=1)
-#   - "Lim bound"   = m->inf limit = 4 * Vtilde
-#   - "Luthra 2025" = the prior bound (Luthra et al. 2025b), a=16 instance
-# Each pairwise dict entry has keys d2, vi, vj, Vij, Vtilde_ij, Theta_ij
-# (exactly what geometry.GeometricEvaluator.compute_pairwise_metrics returns).
+# Few-Shot Transfer in SSL" (Luthra, Salunkhe, Galanti 2026), plus the 2025
+# comparison.  The two papers use incompatible CDNV normalizations.  New-bound
+# pairwise V is unhalved symmetric, while the 2025 aggregate is ordered
+# single-class (equivalently original-half after averaging both directions).
+# Baseline adapters therefore derive their inputs from vi, vj, and d2 instead
+# of consuming the ambiguous legacy Vij key.
 # ---------------------------------------------------------------------------
+BOUND_PROVENANCE = {
+    "cdnv_conventions": CDNV_CONVENTION_PROVENANCE,
+    "luthra2025_fixed_a16": {
+        "formula": "NeurIPS 2025 Proposition 1, displayed a=16 corollary",
+        "interpretation": "declared symbols; proof later uses unhalved symmetric V_ij",
+        "directional_normalization": ORDERED_SINGLE_CLASS,
+        "cdnv_normalization": ORDERED_SINGLE_CLASS,
+        "sqrt_cdnv": "mean_over_ordered_pairs_of_sqrt(v_i/d_ij^2)",
+        "minimum_m": 10,
+    },
+    "luthra2025_official_optimized": {
+        "source_repository": "https://github.com/DLFundamentals/directional-nc",
+        "source_commit": "947f1410e12034a5a6097bf2884040110cc1b8c7",
+        "source_file": "bound_analysis/old_bound_core.py",
+        "directional_normalization": ORDERED_SINGLE_CLASS,
+        "cdnv_normalization": ORIGINAL_HALF_SYMMETRIC,
+        "sqrt_cdnv": "sqrt(aggregate_cdnv), matching official code",
+        "empirical_variance_denominator": "N, matching eval_utils/geometry.py",
+        "minimum_m": 10,
+    },
+    "luthra2026_pairwise": {
+        "Vij_normalization": UNHALVED_SYMMETRIC,
+        "Vtilde_ij_normalization": ORDERED_SINGLE_CLASS,
+        "theorem_4_1_minimum_m": 10,
+        "theorem_C_2_minimum_m": 1,
+        "additional_required_guard": "d_ij^2 + (v_j-v_i)/m > 0",
+    },
+}
+
+
+def _nonnegative_finite(value: float, name: str) -> float:
+    value = float(value)
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError(f"{name} must be finite and nonnegative, got {value}")
+    return value
+
+
+def _validate_m(m: int, *, minimum: int, theorem: str) -> int:
+    try:
+        return _validate_integer(m, minimum=minimum, name=f"{theorem} m")
+    except ValueError as error:
+        raise ValueError(
+            f"{theorem} requires integer m >= {minimum}, got {m}"
+        ) from error
+
+
 def _E_terms(V: float, Theta: float, m: int):
     """E1, E2, E3 from Prop C.1 (the finite-shot leakage / tail terms)."""
+    V = _nonnegative_finite(V, "V")
+    Theta = _nonnegative_finite(Theta, "Theta")
+    m = _validate_m(m, minimum=1, theorem="finite-shot correction")
     E1 = (4.0 / m) * (V * V + 0.25 * V)
     E2 = V / m
     E3 = (Theta + 2.0 * (m - 1) * V * V) / (m ** 3)
@@ -157,12 +271,31 @@ def _E_terms(V: float, Theta: float, m: int):
 
 
 def _imbalance_denom(vi: float, vj: float, dij2: float, m: int) -> float:
-    """(1 + (v_j - v_i)/(m d_ij^2))^2 variance-imbalance factor."""
-    return (1.0 + (vj - vi) / (m * dij2)) ** 2
+    """Validated squared variance-imbalance factor.
+
+    The Chebyshev step requires the expected pairwise margin
+    ``dij2 + (vj-vi)/m`` to be strictly positive.  Squaring a nonpositive
+    margin would otherwise turn an inapplicable theorem into a finite curve.
+    """
+    vi = _nonnegative_finite(vi, "vi")
+    vj = _nonnegative_finite(vj, "vj")
+    dij2 = float(dij2)
+    if not math.isfinite(dij2) or dij2 <= 0.0:
+        raise ValueError(f"dij2 must be finite and positive, got {dij2}")
+    m = _validate_m(m, minimum=1, theorem="pairwise NCC bound")
+    expected_margin = dij2 + (vj - vi) / m
+    if not math.isfinite(expected_margin) or expected_margin <= 0.0:
+        raise ValueError(
+            "pairwise NCC bound requires positive expected margin "
+            f"dij2 + (vj-vi)/m > 0, got {expected_margin}"
+        )
+    return (expected_margin / dij2) ** 2
 
 
 def nccc_pair_thm41(Vt, V, Theta, vi, vj, dij2, m) -> float:
     """Pairwise NCC bound, Thm 4.1 form: 4*Vt + (sqrt E1 + sqrt E2 + sqrt E3)^2."""
+    m = _validate_m(m, minimum=10, theorem="2026 Theorem 4.1")
+    Vt = _nonnegative_finite(Vt, "Vtilde")
     E1, E2, E3 = _E_terms(V, Theta, m)
     num = 4.0 * Vt + (math.sqrt(E1) + math.sqrt(E2) + math.sqrt(E3)) ** 2
     return num / _imbalance_denom(vi, vj, dij2, m)
@@ -174,16 +307,58 @@ def nccc_pair_c2(Vt, V, Theta, vi, vj, dij2, m) -> float:
     By Cauchy-Schwarz (sqrt E1+sqrt E2+sqrt E3)^2 <= 3(E1+E2+E3), so the Thm 4.1
     bound is always <= this one.
     """
+    m = _validate_m(m, minimum=1, theorem="2026 Theorem C.2")
+    Vt = _nonnegative_finite(Vt, "Vtilde")
     E1, E2, E3 = _E_terms(V, Theta, m)
     num = 4.0 * Vt + 3.0 * (E1 + E2 + E3)
     return num / _imbalance_denom(vi, vj, dij2, m)
 
 
 def _pairwise_classes(pairwise: dict):
+    if not pairwise:
+        raise ValueError("pairwise metrics must not be empty")
     cs = set()
-    for (i, j) in pairwise:
+    for key in pairwise:
+        if not isinstance(key, tuple) or len(key) != 2:
+            raise ValueError(f"pairwise key must be an ordered (i, j) tuple: {key!r}")
+        i, j = key
+        if i == j:
+            raise ValueError(f"pairwise metrics must exclude diagonal key {key!r}")
         cs.add(i); cs.add(j)
-    return sorted(cs)
+    classes = sorted(cs)
+    if len(classes) < 2:
+        raise ValueError("pairwise metrics must contain at least two classes")
+    expected = {(i, j) for i in classes for j in classes if i != j}
+    missing = expected.difference(pairwise)
+    extra = set(pairwise).difference(expected)
+    if missing or extra:
+        raise ValueError(
+            "multiclass bounds require every ordered class pair; "
+            f"missing={sorted(missing)}, extra={sorted(extra)}"
+        )
+    return classes
+
+
+def _pairwise_new_bound_values(pair: dict) -> tuple:
+    """Return the 2026 metrics with V recomputed in its declared convention."""
+    required = ("Vtilde_ij", "Theta_ij", "vi", "vj", "d2")
+    missing = [key for key in required if key not in pair]
+    if missing:
+        raise ValueError(f"pairwise metrics are missing required keys: {missing}")
+    V = symmetric_cdnv_from_class_variances(
+        pair["vi"],
+        pair["vj"],
+        pair["d2"],
+        normalization=UNHALVED_SYMMETRIC,
+    )
+    return (
+        _nonnegative_finite(pair["Vtilde_ij"], "Vtilde_ij"),
+        V,
+        _nonnegative_finite(pair["Theta_ij"], "Theta_ij"),
+        pair["vi"],
+        pair["vj"],
+        pair["d2"],
+    )
 
 
 def directional_nccc_bound(pairwise: dict, m: int, kind: str = "thm41") -> float:
@@ -191,32 +366,239 @@ def directional_nccc_bound(pairwise: dict, m: int, kind: str = "thm41") -> float
 
     kind in {"thm41", "c2", "lim"} (lim = m->inf limit, 4*Vtilde, m-independent).
     """
+    if kind == "thm41":
+        _validate_m(m, minimum=10, theorem="2026 Theorem 4.1")
+    elif kind in {"c2", "lim"}:
+        _validate_m(m, minimum=1, theorem=(
+            "2026 Theorem C.2" if kind == "c2" else "directional limit"
+        ))
+    else:
+        raise ValueError(f"kind must be one of 'thm41', 'c2', or 'lim', got {kind!r}")
     classes = _pairwise_classes(pairwise)
     Cp = len(classes)
     if kind == "lim":
-        return sum(4.0 * p["Vtilde_ij"] for p in pairwise.values()) / Cp
+        values = [_pairwise_new_bound_values(pair) for pair in pairwise.values()]
+        return sum(4.0 * value[0] for value in values) / Cp
     fn = {"thm41": nccc_pair_thm41, "c2": nccc_pair_c2}[kind]
     return sum(
-        fn(p["Vtilde_ij"], p["Vij"], p["Theta_ij"], p["vi"], p["vj"], p["d2"], m)
-        for p in pairwise.values()
+        fn(*_pairwise_new_bound_values(pair), m)
+        for pair in pairwise.values()
     ) / Cp
 
 
-def luthra2025_nccc_bound(pairwise: dict, m: int) -> float:
-    """Prior bound (Luthra et al. 2025b), a=16 instance:
-
-        (C'-1) [ 8 Vtilde_f + (sqrt8/m) Vs_f + (sqrt8/m + 4/m) V_f ],
-    with Vtilde_f, V_f, Vs_f = averaged directional CDNV, CDNV, sqrt(CDNV).
-    """
+def _luthra2025_aggregates(pairwise: dict) -> tuple:
+    """Aggregate the 2025 ordered metrics without using legacy ``Vij``."""
     classes = _pairwise_classes(pairwise)
-    Cp = len(classes)
-    pairs = list(pairwise.values())
-    n = len(pairs)
-    Vt_f = sum(p["Vtilde_ij"] for p in pairs) / n
-    V_f = sum(p["Vij"] for p in pairs) / n
-    Vs_f = sum(math.sqrt(max(p["Vij"], 0.0)) for p in pairs) / n
-    s8 = math.sqrt(8.0)
-    return (Cp - 1) * (8.0 * Vt_f + (s8 / m) * Vs_f + (s8 / m + 4.0 / m) * V_f)
+    ordered_directional = []
+    ordered_cdnv = []
+    for pair in pairwise.values():
+        required = ("Vtilde_ij", "vi", "d2")
+        missing = [key for key in required if key not in pair]
+        if missing:
+            raise ValueError(f"pairwise metrics are missing required keys: {missing}")
+        ordered_directional.append(
+            _nonnegative_finite(pair["Vtilde_ij"], "Vtilde_ij")
+        )
+        ordered_cdnv.append(
+            ordered_cdnv_from_class_variance(pair["vi"], pair["d2"])
+        )
+    n = len(ordered_cdnv)
+    return (
+        len(classes),
+        sum(ordered_directional) / n,
+        sum(ordered_cdnv) / n,
+        sum(math.sqrt(value) for value in ordered_cdnv) / n,
+    )
+
+
+@torch.no_grad()
+def luthra2025_aggregates_from_features(
+    features: torch.Tensor,
+    labels: torch.Tensor,
+) -> tuple:
+    """Reproduce the official 2025 metric estimators from feature rows.
+
+    The authors' comparison curve is fed by ``compute_cdnv`` and
+    ``compute_directional_cdnv``, both of which use population second moments
+    (denominator N), unlike the unbiased pairwise covariance used by the 2026
+    bound implementation.
+    """
+    if features.ndim != 2:
+        raise ValueError(f"features must be 2D, got shape {features.shape}")
+    labels = labels.reshape(-1)
+    if labels.numel() != features.shape[0]:
+        raise ValueError("features and labels must have the same number of rows")
+    if not bool(torch.isfinite(features).all().item()):
+        raise ValueError("features must contain only finite values")
+    classes = torch.unique(labels, sorted=True)
+    if classes.numel() < 2:
+        raise ValueError("2025 metrics require at least two classes")
+    means = {}
+    trace_variances = {}
+    centered = {}
+    for class_value in classes:
+        key = class_value.item()
+        class_features = features[labels == class_value]
+        if class_features.shape[0] == 0:
+            raise ValueError(f"class {key} has no feature rows")
+        mean = class_features.mean(dim=0)
+        residual = class_features - mean
+        means[key] = mean
+        centered[key] = residual
+        trace_variances[key] = residual.pow(2).sum(dim=1).mean()
+
+    directional_values = []
+    cdnv_values = []
+    class_keys = [value.item() for value in classes]
+    for i in class_keys:
+        for j in class_keys:
+            if i == j:
+                continue
+            delta = means[j] - means[i]
+            dij2_tensor = torch.dot(delta, delta)
+            dij2 = float(dij2_tensor.item())
+            if not math.isfinite(dij2) or dij2 <= 0.0:
+                raise ValueError(f"class pair ({i}, {j}) has nonpositive mean gap")
+            direction = delta / math.sqrt(dij2)
+            directional_variance = (centered[i] @ direction).pow(2).mean()
+            directional_values.append(float(directional_variance.item()) / dij2)
+            cdnv_values.append(float(trace_variances[i].item()) / dij2)
+    n = len(cdnv_values)
+    return (
+        len(class_keys),
+        sum(directional_values) / n,
+        sum(cdnv_values) / n,
+        sum(math.sqrt(value) for value in cdnv_values) / n,
+    )
+
+
+def luthra2025_fixed_a16_from_aggregates(
+    directional_cdnv: float,
+    cdnv: float,
+    sqrt_cdnv_mean: float,
+    m: int,
+    n_classes: int,
+) -> float:
+    """Exact displayed 2025 Proposition 1 corollary with ``a=16``."""
+    m = _validate_m(m, minimum=10, theorem="2025 Proposition 1")
+    n_classes = _validate_integer(
+        n_classes, minimum=2, name="n_classes"
+    )
+    Vt_f = _nonnegative_finite(directional_cdnv, "directional_cdnv")
+    V_f = _nonnegative_finite(cdnv, "cdnv")
+    Vs_f = _nonnegative_finite(sqrt_cdnv_mean, "sqrt_cdnv_mean")
+    inv_sqrt_m = 1.0 / math.sqrt(m)
+    return (n_classes - 1) * (
+        8.0 * Vt_f
+        + 8.0 * inv_sqrt_m * Vs_f
+        + (8.0 * inv_sqrt_m + 4.0 / m) * V_f
+    )
+
+
+def luthra2025_fixed_a16_bound(pairwise: dict, m: int) -> float:
+    """Published fixed-``a=16`` comparison with explicit 2025 metrics.
+
+    ``V_f`` is the ordered single-class/original-half aggregate, not the
+    unhalved ``Vij`` stored for the 2026 bound.
+    """
+    Cp, Vt_f, V_f, Vs_f = _luthra2025_aggregates(pairwise)
+    return luthra2025_fixed_a16_from_aggregates(Vt_f, V_f, Vs_f, m, Cp)
+
+
+def _real_cuberoot(value: float) -> float:
+    return math.copysign(abs(value) ** (1.0 / 3.0), value)
+
+
+def luthra2025_official_optimized_details(
+    directional_cdnv: float,
+    cdnv: float,
+    m: int,
+    n_classes: int,
+) -> dict:
+    """Port of the authors' optimized-``a`` implementation.
+
+    This intentionally uses ``sqrt(aggregate CDNV)`` because that is what
+    official ``bound_analysis/old_bound_core.py`` computes.  The distinction
+    from the published pair-average ``V_f^s`` is retained in provenance.
+    """
+    m = _validate_m(m, minimum=10, theorem="2025 optimized corollary")
+    n_classes = _validate_integer(
+        n_classes, minimum=2, name="n_classes"
+    )
+    alpha = _nonnegative_finite(directional_cdnv, "directional_cdnv")
+    beta = _nonnegative_finite(cdnv, "cdnv")
+    A = 2.0 + (2.0 ** 1.5) / m
+    Bcoef = 0.25 * (
+        2.0 * math.sqrt(beta / m)
+        + 2.0 * beta / math.sqrt(m)
+        + beta / m
+    )
+    if Bcoef == 0.0:
+        value = (n_classes - 1) * 4.0 * alpha
+        return {
+            "value": value,
+            "a_opt": float("inf"),
+            "A": A,
+            "B": Bcoef,
+            "F": None,
+        }
+
+    F = (2.0 * alpha * A) / Bcoef
+    threshold = (8.0 * F) / 27.0
+    if A * A >= threshold:
+        radical = math.sqrt(max(A * A - threshold, 0.0))
+        y_star = _real_cuberoot(8.0 * F * (A + radical)) + _real_cuberoot(
+            8.0 * F * (A - radical)
+        )
+    else:
+        acos_arg = 3.0 * A * math.sqrt(3.0 / (8.0 * F))
+        acos_arg = min(max(acos_arg, -1.0), 1.0)
+        y_star = 4.0 * math.sqrt((2.0 * F) / 3.0) * math.cos(
+            math.acos(acos_arg) / 3.0
+        )
+    a_opt = max(5.0, 2.0 * A + y_star)
+    coefficient = 0.5 - 2.0 / a_opt - (2.0 ** 1.5) / (a_opt * m)
+    per_competitor = coefficient ** -2 * alpha + Bcoef * a_opt
+    return {
+        "value": (n_classes - 1) * per_competitor,
+        "a_opt": a_opt,
+        "A": A,
+        "B": Bcoef,
+        "F": F,
+    }
+
+
+def luthra2025_official_optimized_from_aggregates(
+    directional_cdnv: float,
+    cdnv: float,
+    m: int,
+    n_classes: int,
+) -> float:
+    return luthra2025_official_optimized_details(
+        directional_cdnv,
+        cdnv,
+        m,
+        n_classes,
+    )["value"]
+
+
+def luthra2025_official_optimized_bound(pairwise: dict, m: int) -> float:
+    """Authors' optimized comparison curve, using their metric convention."""
+    Cp, Vt_f, V_f, _Vs_f = _luthra2025_aggregates(pairwise)
+    return luthra2025_official_optimized_from_aggregates(Vt_f, V_f, m, Cp)
+
+
+def luthra2025_nccc_bound(pairwise: dict, m: int) -> float:
+    """Backward-compatible name for the official optimized 2025 baseline."""
+    return luthra2025_official_optimized_bound(pairwise, m)
+
+
+def _bound_status(function, *args) -> dict:
+    """Evaluate a theorem curve without turning an invalid point into a number."""
+    try:
+        return {"value": float(function(*args)), "valid": True, "reason": None}
+    except ValueError as error:
+        return {"value": None, "valid": False, "reason": str(error)}
 
 
 @torch.no_grad()
@@ -229,9 +611,31 @@ def directional_fewshot_curves(
     ``pairwise`` is precomputed (e.g. GeometricEvaluator.compute_pairwise_metrics)
     on the same ``features`` so the bound geometry and empirical error match.
     """
+    old_Cp, old_Vt, old_V, old_Vs = luthra2025_aggregates_from_features(
+        features,
+        labels,
+    )
     out = {}
     for m in m_values:
         m = int(m)
+        thm41 = _bound_status(directional_nccc_bound, pairwise, m, "thm41")
+        c2 = _bound_status(directional_nccc_bound, pairwise, m, "c2")
+        limit = _bound_status(directional_nccc_bound, pairwise, m, "lim")
+        old_a16 = _bound_status(
+            luthra2025_fixed_a16_from_aggregates,
+            old_Vt,
+            old_V,
+            old_Vs,
+            m,
+            old_Cp,
+        )
+        old_optimized = _bound_status(
+            luthra2025_official_optimized_from_aggregates,
+            old_Vt,
+            old_V,
+            m,
+            old_Cp,
+        )
         out[m] = {
             "empirical": empirical_nccc_error(
                 features,
@@ -242,10 +646,21 @@ def directional_fewshot_curves(
                 max_query,
                 assume_single_view=True,
             ),
-            "our_thm41": directional_nccc_bound(pairwise, m, "thm41"),
-            "our_c2": directional_nccc_bound(pairwise, m, "c2"),
-            "lim": directional_nccc_bound(pairwise, m, "lim"),
-            "luthra2025": luthra2025_nccc_bound(pairwise, m),
+            "our_thm41": thm41["value"],
+            "our_c2": c2["value"],
+            "lim": limit["value"],
+            # The legacy field now means the authors' optimized comparison.
+            "luthra2025": old_optimized["value"],
+            "luthra2025_optimized_official": old_optimized["value"],
+            "luthra2025_a16_published": old_a16["value"],
+            "validity": {
+                "our_thm41": thm41,
+                "our_c2": c2,
+                "lim": limit,
+                "luthra2025_optimized_official": old_optimized,
+                "luthra2025_a16_published": old_a16,
+            },
+            "bound_provenance": BOUND_PROVENANCE,
         }
     return out
 
@@ -286,6 +701,10 @@ def combined_fewshot_curves(
         psir = psi[:, :r]
         B = float(B_by_r[r])
         pw = pairwise_by_r[r]
+        old_Cp, old_Vt, old_V, old_Vs = luthra2025_aggregates_from_features(
+            psir,
+            labels,
+        )
         curves = {}
         for m in m_values:
             m = int(m)
@@ -295,6 +714,23 @@ def combined_fewshot_curves(
             if max_query is not None:
                 query_negative = min(query_negative, max_query)
                 query_positive = min(query_positive, max_query)
+            thm41 = _bound_status(directional_nccc_bound, pw, m, "thm41")
+            limit = _bound_status(directional_nccc_bound, pw, m, "lim")
+            old_a16 = _bound_status(
+                luthra2025_fixed_a16_from_aggregates,
+                old_Vt,
+                old_V,
+                old_Vs,
+                m,
+                old_Cp,
+            )
+            old_optimized = _bound_status(
+                luthra2025_official_optimized_from_aggregates,
+                old_Vt,
+                old_V,
+                m,
+                old_Cp,
+            )
             curves[m] = {
                 "empirical": empirical_nccc_error(
                     psir,
@@ -307,9 +743,18 @@ def combined_fewshot_curves(
                     _instance_layout=instance_layout,
                 ),
                 "thm45_B": nccc_error_bound(B, r, m),                  # NEW (draft)
-                "thm41_dir": directional_nccc_bound(pw, m, "thm41"),   # OLD (published)
-                "luthra2025": luthra2025_nccc_bound(pw, m),            # oldest
-                "lim": directional_nccc_bound(pw, m, "lim"),           # 4*Vtilde
+                "thm41_dir": thm41["value"],
+                "luthra2025": old_optimized["value"],
+                "luthra2025_optimized_official": old_optimized["value"],
+                "luthra2025_a16_published": old_a16["value"],
+                "lim": limit["value"],
+                "validity": {
+                    "thm41_dir": thm41,
+                    "lim": limit,
+                    "luthra2025_optimized_official": old_optimized,
+                    "luthra2025_a16_published": old_a16,
+                },
+                "bound_provenance": BOUND_PROVENANCE,
                 "empirical_group_counts": {
                     "support_instances_per_class": m,
                     "query_instances": {

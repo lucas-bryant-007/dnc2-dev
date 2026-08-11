@@ -1,5 +1,20 @@
 import torch
 
+try:
+    from .cdnv_conventions import (
+        ORDERED_SINGLE_CLASS,
+        ORIGINAL_HALF_SYMMETRIC,
+        UNHALVED_SYMMETRIC,
+        convert_symmetric_cdnv,
+    )
+except ImportError:  # direct script execution from analysis/
+    from cdnv_conventions import (
+        ORDERED_SINGLE_CLASS,
+        ORIGINAL_HALF_SYMMETRIC,
+        UNHALVED_SYMMETRIC,
+        convert_symmetric_cdnv,
+    )
+
 class GeometricEvaluator:
     def __init__(self, num_classes=10, device='cuda'):
         self.num_classes = num_classes
@@ -27,7 +42,13 @@ class GeometricEvaluator:
             moments.append((class_feats ** 2).mean(dim=0))
         return moments
 
-    def compute_cdnv(self, features, labels):
+    def compute_cdnv(
+        self,
+        features,
+        labels,
+        normalization=ORIGINAL_HALF_SYMMETRIC,
+    ):
+        """Average CDNV, defaulting to the original ICLR 2022 normalization."""
         features = features.to(self.device)
         labels = labels.to(self.device)
 
@@ -43,6 +64,13 @@ class GeometricEvaluator:
                     continue
 
                 dist_sq = torch.norm(means[i] - means[j])**2
+                if (
+                    not bool(torch.isfinite(dist_sq).item())
+                    or float(dist_sq.item()) <= 0.0
+                ):
+                    raise ValueError(
+                        f"class pair ({i}, {j}) has nonpositive squared mean gap"
+                    )
                 # variance = E[x^2] - (E[x])^2, computed as mean_s - mean**2
                 var_i = (moments[i] - means[i]**2).sum()
                 var_j = (moments[j] - means[j]**2).sum()
@@ -51,9 +79,27 @@ class GeometricEvaluator:
                 cdnv_total += (avg_var / dist_sq)
                 num_pairs += 1
 
-        return (cdnv_total / num_pairs).item() if num_pairs > 0 else None
+        if num_pairs == 0:
+            return None
+        original = (cdnv_total / num_pairs).item()
+        return convert_symmetric_cdnv(
+            original,
+            source=ORIGINAL_HALF_SYMMETRIC,
+            target=normalization,
+        )
 
-    def compute_directional_cdnv(self, features, labels, means=None):
+    def compute_directional_cdnv(
+        self,
+        features,
+        labels,
+        means=None,
+        normalization=ORIGINAL_HALF_SYMMETRIC,
+    ):
+        """Average ordered directional CDNV with explicit symmetric scaling.
+
+        Averaging every ordered pair gives the original-half symmetric
+        aggregate.  Request ``unhalved_symmetric`` to compare with the B-law.
+        """
         features = features.to(self.device)
         labels = labels.to(self.device)
 
@@ -86,7 +132,14 @@ class GeometricEvaluator:
                 dir_cdnv_total += dir_cdnv
                 num_pairs += 1
 
-        return (dir_cdnv_total / num_pairs).item() if num_pairs > 0 else None
+        if num_pairs == 0:
+            return None
+        original = (dir_cdnv_total / num_pairs).item()
+        return convert_symmetric_cdnv(
+            original,
+            source=ORIGINAL_HALF_SYMMETRIC,
+            target=normalization,
+        )
 
     def compute_class_covariances(self, features, labels, means):
         covs, vars_trace = [], []
@@ -96,6 +149,10 @@ class GeometricEvaluator:
                 covs.append(None)
                 vars_trace.append(None)
                 continue
+            if len(idxs) < 2:
+                raise ValueError(
+                    f"class {c} needs at least two rows for unbiased covariance"
+                )
             xc = features[idxs] - means[c]
             # unbiased covariance (d x d)
             cov = (xc.T @ xc) / (len(idxs)-1)
@@ -131,10 +188,15 @@ class GeometricEvaluator:
                     continue
                 D = means[j] - means[i]
                 d2 = torch.norm(D, p=2) ** 2
+                if not bool(torch.isfinite(d2).item()) or float(d2.item()) <= 0.0:
+                    raise ValueError(
+                        f"class pair ({i}, {j}) has nonpositive squared mean gap"
+                    )
                 u = D / torch.sqrt(d2)
 
                 vi, vj = vars_trace[i], vars_trace[j]
                 Vij = (vi + vj) / d2
+                Vij_original = 0.5 * Vij
                 Vtilde_ij = (u @ covs[i] @ u) / d2
                 Theta_ij = (M4[i] + M4[j]) / (d2 ** 2)
 
@@ -143,7 +205,12 @@ class GeometricEvaluator:
                     "vi": vi.item(),
                     "vj": vj.item(),
                     "Vij": Vij.item(),
+                    "Vij_normalization": UNHALVED_SYMMETRIC,
+                    "Vij_unhalved_symmetric": Vij.item(),
+                    "Vij_original_half_symmetric": Vij_original.item(),
                     "Vtilde_ij": Vtilde_ij.item(),
+                    "Vtilde_ij_normalization": ORDERED_SINGLE_CLASS,
+                    "Vtilde_ij_ordered_single_class": Vtilde_ij.item(),
                     "Theta_ij": Theta_ij.item(),
                 }
         return results

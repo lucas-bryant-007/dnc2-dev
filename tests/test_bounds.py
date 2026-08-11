@@ -5,9 +5,198 @@ import torch
 from analysis.bounds import (
     _build_instance_sampling_layout,
     _sample_grouped_binary_trial,
+    cdnv_from_B,
     combined_fewshot_curves,
+    directional_cdnv_from_B,
+    directional_nccc_bound,
     empirical_nccc_error,
+    hyperrectangle_half_side_lengths,
+    hyperrectangle_side_lengths,
+    luthra2025_aggregates_from_features,
+    luthra2025_fixed_a16_from_aggregates,
+    luthra2025_official_optimized_bound,
+    luthra2025_official_optimized_details,
+    nccc_error_bound,
+    nccc_error_bound_from_tilde_v,
+    nccc_pair_c2,
+    nccc_pair_thm41,
 )
+from analysis.cdnv_conventions import (
+    ORIGINAL_HALF_SYMMETRIC,
+    UNHALVED_SYMMETRIC,
+    convert_symmetric_cdnv,
+)
+from analysis.spectral import estimate_B_r_corrected
+
+
+def _two_way_pairwise():
+    return {
+        (0, 1): {
+            "Vtilde_ij": 0.10,
+            "Vij": 999.0,
+            "Theta_ij": 0.20,
+            "vi": 0.20,
+            "vj": 0.30,
+            "d2": 1.0,
+        },
+        (1, 0): {
+            "Vtilde_ij": 0.20,
+            "Vij": 999.0,
+            "Theta_ij": 0.20,
+            "vi": 0.30,
+            "vj": 0.20,
+            "d2": 1.0,
+        },
+    }
+
+
+class PublishedFormulaTest(unittest.TestCase):
+    def test_cdnv_normalization_conversions_and_B_identities(self):
+        self.assertEqual(
+            convert_symmetric_cdnv(
+                3.0,
+                source=ORIGINAL_HALF_SYMMETRIC,
+                target=UNHALVED_SYMMETRIC,
+            ),
+            6.0,
+        )
+        self.assertEqual(
+            convert_symmetric_cdnv(
+                6.0,
+                source=UNHALVED_SYMMETRIC,
+                target=ORIGINAL_HALF_SYMMETRIC,
+            ),
+            3.0,
+        )
+        self.assertAlmostEqual(directional_cdnv_from_B(0.2), 2.0)
+        self.assertAlmostEqual(
+            directional_cdnv_from_B(
+                0.2,
+                normalization=ORIGINAL_HALF_SYMMETRIC,
+            ),
+            1.0,
+        )
+        self.assertAlmostEqual(cdnv_from_B(0.2, 3), 7.0)
+        self.assertAlmostEqual(
+            cdnv_from_B(0.2, 3, normalization=ORIGINAL_HALF_SYMMETRIC),
+            3.5,
+        )
+        with self.assertRaisesRegex(ValueError, "integer"):
+            cdnv_from_B(0.2, 1.5)
+        with self.assertRaisesRegex(ValueError, "unsupported CDNV"):
+            directional_cdnv_from_B(0.0, normalization="ambiguous")
+
+    def test_luthra_fixed_a16_golden_coefficients(self):
+        self.assertAlmostEqual(
+            luthra2025_fixed_a16_from_aggregates(0.1, 0.25, 0.5, 10, 2),
+            2.7973665961010274,
+        )
+        self.assertAlmostEqual(
+            luthra2025_fixed_a16_from_aggregates(0.1, 0.25, 0.5, 100, 2),
+            1.4100000000000001,
+        )
+
+    def test_official_optimized_a_matches_reference_commit(self):
+        expected = {
+            10: (2.5357338875451765, 11.526335664232267),
+            100: (1.3233244738990941, 14.875033254353715),
+        }
+        for m, (value, a_opt) in expected.items():
+            details = luthra2025_official_optimized_details(
+                0.1,
+                0.25,
+                m,
+                2,
+            )
+            self.assertAlmostEqual(details["value"], value)
+            self.assertAlmostEqual(details["a_opt"], a_opt)
+
+    def test_2025_adapter_ignores_ambiguous_legacy_Vij(self):
+        pairwise = _two_way_pairwise()
+        observed = luthra2025_official_optimized_bound(pairwise, 10)
+        # Ordered aggregates are alpha=.15 and beta=.25. Vij=999 must not leak
+        # into the provenance-exact 2025 interface.
+        expected = luthra2025_official_optimized_details(0.15, 0.25, 10, 2)[
+            "value"
+        ]
+        self.assertAlmostEqual(observed, expected)
+
+    def test_official_feature_aggregates_use_population_variance(self):
+        features = torch.tensor([[-2.0], [0.0], [0.0], [2.0]])
+        labels = torch.tensor([0, 0, 1, 1])
+        n_classes, directional, cdnv, sqrt_cdnv = (
+            luthra2025_aggregates_from_features(features, labels)
+        )
+        self.assertEqual(n_classes, 2)
+        self.assertAlmostEqual(directional, 0.25)
+        self.assertAlmostEqual(cdnv, 0.25)
+        self.assertAlmostEqual(sqrt_cdnv, 0.5)
+
+    def test_theorem_validity_domains_are_enforced(self):
+        with self.assertRaisesRegex(ValueError, "m >= 10"):
+            nccc_pair_thm41(0.1, 0.2, 0.3, 0.2, 0.3, 1.0, 9)
+        self.assertGreater(
+            nccc_pair_c2(0.1, 0.2, 0.3, 0.2, 0.3, 1.0, 1),
+            0.0,
+        )
+        with self.assertRaisesRegex(ValueError, "positive expected margin"):
+            nccc_pair_c2(0.1, 0.2, 0.3, 10.0, 1.0, 1.0, 1)
+        with self.assertRaisesRegex(ValueError, "m >= 10"):
+            luthra2025_official_optimized_bound(_two_way_pairwise(), 5)
+        with self.assertRaisesRegex(ValueError, "dij2 must be finite and positive"):
+            pairwise = _two_way_pairwise()
+            pairwise[(0, 1)]["d2"] = 0.0
+            directional_nccc_bound(
+                pairwise,
+                10,
+                "thm41",
+            )
+        with self.assertRaisesRegex(ValueError, "every ordered class pair"):
+            directional_nccc_bound({(0, 1): _two_way_pairwise()[(0, 1)]}, 10)
+
+    def test_edge_lengths_and_B_zero_bound_are_literal(self):
+        self.assertEqual(hyperrectangle_half_side_lengths([0.25]), [0.5])
+        self.assertEqual(hyperrectangle_side_lengths([0.25]), [1.0])
+        for B in (0.1, 0.25, 0.75, 1.0):
+            tilde_v = directional_cdnv_from_B(B)
+            self.assertAlmostEqual(
+                nccc_error_bound(B, 3, 10, clamp=False),
+                nccc_error_bound_from_tilde_v(
+                    tilde_v,
+                    3,
+                    10,
+                    clamp=False,
+                ),
+            )
+        self.assertAlmostEqual(nccc_error_bound(0.0, 3, 2, clamp=False), 3.5)
+        self.assertAlmostEqual(
+            nccc_error_bound_from_tilde_v(float("inf"), 3, 2, clamp=False),
+            3.5,
+        )
+        with self.assertRaisesRegex(ValueError, "tilde_v"):
+            nccc_error_bound_from_tilde_v(float("nan"), 3, 2)
+        with self.assertRaisesRegex(ValueError, "integer"):
+            nccc_error_bound(0.5, 1.5, 2)
+
+    def test_legacy_corrected_estimator_honors_center_labels(self):
+        psi = torch.tensor([[1.0], [2.0], [3.0]])
+        labels = torch.tensor([1.0, 1.0, -1.0])
+        uncentered = estimate_B_r_corrected(
+            psi,
+            labels,
+            [1],
+            center_labels=False,
+            ridge=0.0,
+        )[1]
+        centered = estimate_B_r_corrected(
+            psi,
+            labels,
+            [1],
+            center_labels=True,
+            ridge=0.0,
+        )[1]
+        self.assertAlmostEqual(uncentered, 0.0)
+        self.assertGreater(centered, 0.0)
 
 
 class InstanceAwareNccTest(unittest.TestCase):
@@ -72,7 +261,15 @@ class InstanceAwareNccTest(unittest.TestCase):
                 "vi": 0.0,
                 "vj": 0.0,
                 "d2": 1.0,
-            }
+            },
+            (1, 0): {
+                "Vtilde_ij": 0.1,
+                "Vij": 0.2,
+                "Theta_ij": 0.1,
+                "vi": 0.0,
+                "vj": 0.0,
+                "d2": 1.0,
+            },
         }
         curves = combined_fewshot_curves(
             self.features,
@@ -108,6 +305,11 @@ class InstanceAwareNccTest(unittest.TestCase):
                 "query_instances": {"-1": 2, "+1": 2},
             },
         )
+        point = curves[1]["curves"][1]
+        self.assertIsNone(point["thm41_dir"])
+        self.assertFalse(point["validity"]["thm41_dir"]["valid"])
+        self.assertIn("m >= 10", point["validity"]["thm41_dir"]["reason"])
+        self.assertIsNotNone(point["validity"]["lim"]["value"])
 
     def test_conflicting_sibling_labels_are_rejected(self):
         labels = self.labels.clone()

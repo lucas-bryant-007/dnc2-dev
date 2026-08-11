@@ -47,8 +47,9 @@ class RunSummary:
     capture: tuple[float, float, float]
     aggregate_max_cos: float
     rmse: tuple[float, ...]
-    pass_count: int
-    n_resamples: int
+    corner_stability_status: str
+    pass_count: int | None
+    n_resamples: int | None
     samples_per_cell: int
     feasible_train_candidates: int | None
     plot_coords: np.ndarray
@@ -77,9 +78,7 @@ def _method_label(method: str) -> str:
 
 
 def _dataset_label(dataset: str) -> str:
-    return {"celeba": "CelebA", "cub200": "CUB-200"}.get(
-        dataset.lower(), dataset
-    )
+    return {"celeba": "CelebA", "cub200": "CUB-200"}.get(dataset.lower(), dataset)
 
 
 def _display_label(dataset: str, method: str) -> str:
@@ -96,10 +95,15 @@ def _friendly_factor(name: str) -> str:
 
 
 def _extract_feasible_count(text: str) -> int | None:
-    match = re.search(
-        r"Balanced proxy candidates meeting train feasibility:\s*(\d+)", text
-    )
+    match = re.search(r"Balanced proxy candidates meeting train feasibility:\s*(\d+)", text)
     return int(match.group(1)) if match else None
+
+
+def _portable_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return path.name
 
 
 def _real_run_feasible_count(json_path: Path) -> int | None:
@@ -107,9 +111,7 @@ def _real_run_feasible_count(json_path: Path) -> int | None:
     if not log_dir.is_dir():
         return None
     for log_path in sorted(log_dir.glob("*.log")):
-        count = _extract_feasible_count(
-            log_path.read_text(encoding="utf-8", errors="replace")
-        )
+        count = _extract_feasible_count(log_path.read_text(encoding="utf-8", errors="replace"))
         if count is not None:
             return count
     return None
@@ -129,9 +131,7 @@ def _ordered_box(entries: list[dict[str, Any]], source: Path) -> np.ndarray:
     return ordered
 
 
-def _load_plot_points(
-    json_path: Path, payload: dict[str, Any]
-) -> tuple[np.ndarray, np.ndarray]:
+def _load_plot_points(json_path: Path, payload: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
     record = payload.get("plot_points") or {}
     artifact = record.get("artifact")
     if not artifact:
@@ -151,9 +151,7 @@ def _load_plot_points(
     if np.any((granular_task < 0) | (granular_task > 7)):
         raise ValueError("Plot-point group labels must be in 0..7")
     if point_triple != expected_triple:
-        raise ValueError(
-            f"Plot-point triple {point_triple} does not match {expected_triple}"
-        )
+        raise ValueError(f"Plot-point triple {point_triple} does not match {expected_triple}")
     return coords, granular_task
 
 
@@ -168,9 +166,34 @@ def load_run(path: str | Path) -> RunSummary:
     records = stability["records"]
     if len(triple) != 3 or not records:
         raise ValueError(f"Incomplete strict result in {path}")
+    corner_status = str(
+        (stability.get("corner_fidelity_status") or {}).get("status", "legacy_unverified_geometry")
+    )
+    corner_stability_valid = corner_status == "valid_current_geometry"
+    primary_rmse = float(payload["test_box_diagnostics"]["normalized_centroid_rmse"])
+    if corner_stability_valid:
+        rmse = tuple(float(row["normalized_centroid_rmse"]) for row in records)
+        pass_count = int(stability["pass_count"])
+        n_resamples = int(stability["n_resamples"])
+    else:
+        # Pre-repair result files serialized corners produced by the obsolete
+        # cross-term construction. Their 20 corner-fidelity values cannot be
+        # repaired from compact primary-split exports.
+        rmse = (primary_rmse,)
+        pass_count = None
+        n_resamples = None
     coords, granular_task = _load_plot_points(path, payload)
     test_evaluation = payload["test_evaluation"]
     capture_by_name = aggregate["capture_B"]
+    feasible_train_candidates = (payload.get("post_audit_repair") or {}).get(
+        "train_feasible_candidates"
+    )
+    if feasible_train_candidates is None:
+        feasible_train_candidates = (payload.get("train_balance") or {}).get(
+            "feasible_proxy_candidate_count"
+        )
+    if feasible_train_candidates is None:
+        feasible_train_candidates = _real_run_feasible_count(path)
     return RunSummary(
         dataset=str(payload["dataset"]),
         method=str(payload["method"]),
@@ -178,11 +201,12 @@ def load_run(path: str | Path) -> RunSummary:
         triple=triple,
         capture=tuple(float(capture_by_name[name]) for name in triple),
         aggregate_max_cos=float(aggregate["max_abs_cos"]),
-        rmse=tuple(float(row["normalized_centroid_rmse"]) for row in records),
-        pass_count=int(stability["pass_count"]),
-        n_resamples=int(stability["n_resamples"]),
+        rmse=rmse,
+        corner_stability_status=corner_status,
+        pass_count=pass_count,
+        n_resamples=n_resamples,
         samples_per_cell=int(payload["test_balance"]["samples_per_cell"]),
-        feasible_train_candidates=_real_run_feasible_count(path),
+        feasible_train_candidates=feasible_train_candidates,
         plot_coords=coords,
         granular_task=granular_task,
         observed_box=_ordered_box(test_evaluation["box"], path),
@@ -205,22 +229,31 @@ def load_full_pipeline_null(path: str | Path) -> FullPipelineNull:
     path = Path(path).expanduser().resolve()
     payload = json.loads(path.read_text(encoding="utf-8"))
     protocol = payload["protocol"]
-    if protocol["name"] != "full_pipeline_independent_column_label_permutation":
+    randomization = protocol.get("label_randomization") or {}
+    protocol_name = protocol.get("name") or randomization.get("name")
+    if protocol_name != "full_pipeline_independent_column_label_permutation":
         raise ValueError(f"Unexpected full-pipeline null in {path}")
+    train_seed = protocol.get("train_label_permutation_seed")
+    if train_seed is None:
+        train_seed = randomization.get("train_seed")
+    if train_seed is None:
+        raise ValueError(f"Missing training-label permutation seed in {path}")
     outcome_path = path.parent.parent / "outcome.txt"
     outcome = (
-        outcome_path.read_text(encoding="utf-8", errors="replace")
-        if outcome_path.is_file()
-        else ""
+        outcome_path.read_text(encoding="utf-8", errors="replace") if outcome_path.is_file() else ""
     )
     feasible = _extract_feasible_count(outcome)
+    if feasible is None:
+        feasible = (payload.get("train_balance") or {}).get(
+            "feasible_proxy_candidate_count"
+        )
     if feasible is None:
         raise ValueError(f"Missing feasible-candidate count for {path}")
     method = str(payload["method"])
     return FullPipelineNull(
         method=method,
         label=_method_label(method),
-        seed=int(protocol["train_label_permutation_seed"]),
+        seed=int(train_seed),
         feasible_train_candidates=feasible,
         selection_succeeded=bool(payload["selection_succeeded"]),
         source=path,
@@ -297,9 +330,7 @@ def _plot_cube(axis: plt.Axes, run: RunSummary) -> None:
     visible_upper = center + 1.03 * half_span
     for cell, color in enumerate(CLUSTER_COLORS):
         points = cloud[cloud_task == cell]
-        points = points[
-            np.all((points >= visible_lower) & (points <= visible_upper), axis=1)
-        ]
+        points = points[np.all((points >= visible_lower) & (points <= visible_upper), axis=1)]
         axis.scatter(
             points[:, 0],
             points[:, 1],
@@ -475,11 +506,9 @@ def plot_celeba_cubes(
     return _save_figure(figure, output_stem)
 
 
-def plot_cub_boundary(runs: list[RunSummary], output_stem: Path) -> list[Path]:
+def plot_cub_primary(runs: list[RunSummary], output_stem: Path) -> list[Path]:
     celeba = next(
-        run
-        for run in runs
-        if run.dataset.lower() == "celeba" and run.method.lower() == "vicreg"
+        run for run in runs if run.dataset.lower() == "celeba" and run.method.lower() == "vicreg"
     )
     cub = next(run for run in runs if run.dataset.lower() == "cub200")
 
@@ -507,7 +536,7 @@ def plot_cub_boundary(runs: list[RunSummary], output_stem: Path) -> list[Path]:
     )
 
     figure.suptitle(
-        "Strong directions, weak cube transfer",
+        "Primary held-out geometry after corner repair",
         y=0.985,
         fontsize=17,
         fontweight="bold",
@@ -525,6 +554,7 @@ def write_metrics_table(runs: list[RunSummary], output: Path) -> None:
         "aggregate_min_capture_B",
         "aggregate_max_abs_cos",
         "primary_normalized_centroid_rmse",
+        "corner_stability_status",
         "mean_normalized_centroid_rmse",
         "min_normalized_centroid_rmse",
         "max_normalized_centroid_rmse",
@@ -537,22 +567,28 @@ def write_metrics_table(runs: list[RunSummary], output: Path) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         for run in runs:
+            has_stability = run.corner_stability_status == "valid_current_geometry"
             writer.writerow(
                 {
                     "model_dataset": run.label,
                     "selected_triple": " | ".join(run.triple),
                     "primary_samples_per_cell": run.samples_per_cell,
-                    "aggregate_capture_B": " | ".join(
-                        f"{value:.4f}" for value in run.capture
-                    ),
+                    "aggregate_capture_B": " | ".join(f"{value:.4f}" for value in run.capture),
                     "aggregate_min_capture_B": f"{min(run.capture):.4f}",
                     "aggregate_max_abs_cos": f"{run.aggregate_max_cos:.4f}",
                     "primary_normalized_centroid_rmse": f"{run.rmse[0]:.4f}",
-                    "mean_normalized_centroid_rmse": f"{np.mean(run.rmse):.4f}",
-                    "min_normalized_centroid_rmse": f"{min(run.rmse):.4f}",
-                    "max_normalized_centroid_rmse": f"{max(run.rmse):.4f}",
-                    "resamples_passing": run.pass_count,
-                    "n_resamples": run.n_resamples,
+                    "corner_stability_status": run.corner_stability_status,
+                    "mean_normalized_centroid_rmse": (
+                        f"{np.mean(run.rmse):.4f}" if has_stability else ""
+                    ),
+                    "min_normalized_centroid_rmse": (
+                        f"{min(run.rmse):.4f}" if has_stability else ""
+                    ),
+                    "max_normalized_centroid_rmse": (
+                        f"{max(run.rmse):.4f}" if has_stability else ""
+                    ),
+                    "resamples_passing": run.pass_count if has_stability else "",
+                    "n_resamples": run.n_resamples if has_stability else "",
                     "train_feasible_candidates": run.feasible_train_candidates,
                 }
             )
@@ -580,9 +616,7 @@ def write_train_null_table(
             writer.writerow(
                 {
                     "model": item.label,
-                    "real_label_feasible_triples": real[
-                        item.method
-                    ].feasible_train_candidates,
+                    "real_label_feasible_triples": real[item.method].feasible_train_candidates,
                     "permuted_label_feasible_triples": item.feasible_train_candidates,
                     "permutation_seed": item.seed,
                     "selection_succeeded_under_null": item.selection_succeeded,
@@ -604,6 +638,49 @@ def write_results_note(
     null_by_method = {str(item["method"]): item for item in nulls}
     vicreg_null = null_by_method["vicreg"]
     ijepa_null = null_by_method["ijepa"]
+    all_stability_current = all(
+        run.corner_stability_status == "valid_current_geometry" for run in runs
+    )
+    if all_stability_current:
+        stability_summary = " ".join(
+            (
+                f"{run.label}: mean={np.mean(run.rmse):.3f}, "
+                f"range={min(run.rmse):.3f}-{max(run.rmse):.3f}, "
+                f"passes={run.pass_count}/{run.n_resamples}."
+            )
+            for run in runs
+        )
+        cub_interpretation = (
+            "Corrected resampling is available and should be used, rather than "
+            "the primary split alone, for the CUB-versus-CelebA comparison."
+        )
+        cub_caption_suffix = (
+            f"Across {cub.n_resamples} correlated balance resamples, normalized "
+            f"mismatch had mean {np.mean(cub.rmse):.3f} and range "
+            f"{min(cub.rmse):.3f}-{max(cub.rmse):.3f}."
+        )
+        stability_guardrail = (
+            "- Repeated balance seeds are correlated resamples of one held-out "
+            "test set, not independent replications."
+        )
+    else:
+        stability_summary = (
+            "Corrected multi-resample corner fidelity is pending because the "
+            "compact archive does not contain every held-out feature sample."
+        )
+        cub_interpretation = (
+            "The corrected primary split does not support the earlier CUB "
+            "boundary-case claim by itself; that comparison requires a fresh "
+            "corrected resampling run."
+        )
+        cub_caption_suffix = (
+            "The obsolete 20-resample corner values were invalidated; the "
+            "compact archive lacks the full held-out features needed to recompute them."
+        )
+        stability_guardrail = (
+            "- The previous 20-seed corner-fidelity summaries used obsolete "
+            "corners and are not reported; a full feature-level rerun is required."
+        )
     lines = [
         "# Strict pretrained hyperrectangle results",
         "",
@@ -620,21 +697,22 @@ def write_results_note(
         ),
         "",
         (
-            "CUB-200 is a useful boundary case. Its attribute directions remain strong "
-            f"(minimum capture {min(cub.capture):.3f}) and separate (maximum cosine "
-            f"{cub.aggregate_max_cos:.3f}), but its mean corner mismatch is "
-            f"{np.mean(cub.rmse):.3f}. Recoverable directions therefore do not guarantee "
-            "additive cube composition."
+            "Using axis-aligned plus-or-minus sqrt(B_t) predicted corners, the "
+            "CUB-200 primary mismatch is "
+            f"{cub.rmse[0]:.3f} (VICReg/CelebA: {vicreg.rmse[0]:.3f}; "
+            f"I-JEPA/CelebA: {ijepa.rmse[0]:.3f}). {cub_interpretation}"
         ),
         "",
-        "| Model / dataset | Images / corner | Weakest factor signal | Direction overlap | Primary mismatch | Mean mismatch |",
-        "|---|---:|---:|---:|---:|---:|",
+        stability_summary,
+        "",
+        "| Model / dataset | Images / corner | Weakest factor signal | Direction overlap | Primary mismatch | Corrected resampling |",
+        "|---|---:|---:|---:|---:|---|",
     ]
     for run in runs:
         lines.append(
             f"| {run.label} | {run.samples_per_cell} | {min(run.capture):.3f} | "
             f"{run.aggregate_max_cos:.3f} | {run.rmse[0]:.3f} | "
-            f"{np.mean(run.rmse):.3f} |"
+            f"{'available' if run.corner_stability_status == 'valid_current_geometry' else 'pending full rerun'} |"
         )
     lines.extend(["", "## Controls", ""])
     for item in nulls:
@@ -674,23 +752,19 @@ def write_results_note(
             "## Figure 2 caption",
             "",
             (
-                "CUB-200 provides a boundary case for VICReg. Faint points are "
+                "Held-out CUB-200 geometry using the corrected plus-or-minus sqrt(B_t) "
+                "corner construction. Faint points are "
                 "deterministic, disjoint mini-batch means within the eight held-out "
                 "attribute groups; the solid black box joins their full centroids; and "
                 "the red dashed box is predicted from training data. The displayed "
                 f"balanced sample has normalized corner mismatch {cub.rmse[0]:.3f} "
-                f"(CelebA: {vicreg.rmse[0]:.3f}); the means across 20 overlapping "
-                f"balanced test resamples are {np.mean(cub.rmse):.3f} and "
-                f"{np.mean(vicreg.rmse):.3f}. CUB-200 nevertheless retains strong, "
-                "separate attribute "
-                "directions, showing that directional structure and additive corner "
-                "composition are distinct properties."
+                f"(VICReg/CelebA: {vicreg.rmse[0]:.3f}). {cub_caption_suffix}"
             ),
             "",
             "## Interpretation guardrails",
             "",
             "- Corner mismatch is normalized so 0 is perfect and shuffled held-out labels are approximately 1.",
-            "- The 20 balance seeds are overlapping resamples of the same saved test features, not training seeds.",
+            stability_guardrail,
             "- The 5,000-draw test is conditional on the training-learned geometry and one held-out sample.",
             "- The full training-pipeline control currently uses one label permutation per encoder.",
             "- The invalid same-family CUB diagnostic is excluded from every paper-facing figure and table.",
@@ -699,6 +773,52 @@ def write_results_note(
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines), encoding="utf-8")
+
+
+def update_repaired_package_status(
+    output_dir: Path,
+    nulls: list[dict[str, Any]],
+    full_nulls: list[FullPipelineNull],
+) -> None:
+    """Finalize status when plotting a post-audit primary-only package."""
+    status_path = output_dir / "STATUS.json"
+    if not status_path.is_file():
+        return
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    if status.get("status") != "primary_geometry_repaired_resampling_pending":
+        return
+    regenerated = list(status.get("regenerated") or [])
+    for item in (
+        "three 5,000-draw held-out label-permutation controls",
+        "primary paper-facing figures, table, and results text",
+    ):
+        if item not in regenerated:
+            regenerated.append(item)
+    status["regenerated"] = regenerated
+    status["heldout_permutation_controls"] = [
+        {
+            "dataset": item["dataset"],
+            "method": item["method"],
+            "n_permutations": item["n_permutations"],
+            "seed": item["seed"],
+            "observed_normalized_centroid_rmse": item[
+                "observed_normalized_centroid_rmse"
+            ],
+            "null_mean": item["null_mean"],
+            "empirical_lower_tail_p": item["empirical_lower_tail_p"],
+        }
+        for item in nulls
+    ]
+    status["reused_full_pipeline_controls"] = [
+        {
+            "method": item.method,
+            "seed": item.seed,
+            "source": _portable_path(item.source),
+            "reason": "train selection does not consume serialized box corners",
+        }
+        for item in full_nulls
+    ]
+    status_path.write_text(json.dumps(status, indent=2) + "\n", encoding="utf-8")
 
 
 def main(args: argparse.Namespace) -> None:
@@ -711,9 +831,9 @@ def main(args: argparse.Namespace) -> None:
         nulls,
         output_dir / "figures" / "main" / "figure1_celeba_heldout_cubes",
     )
-    figure2_outputs = plot_cub_boundary(
+    figure2_outputs = plot_cub_primary(
         runs,
-        output_dir / "figures" / "main" / "figure2_cub_boundary_case",
+        output_dir / "figures" / "main" / "figure2_cub_primary_geometry",
     )
     metrics_output = output_dir / "tables" / "pretrained_crossfit_metrics.csv"
     train_null_output = output_dir / "tables" / "train_selection_null.csv"
@@ -721,6 +841,7 @@ def main(args: argparse.Namespace) -> None:
     write_metrics_table(runs, metrics_output)
     write_train_null_table(runs, full_nulls, train_null_output)
     write_results_note(runs, nulls, full_nulls, note_output)
+    update_repaired_package_status(output_dir, nulls, full_nulls)
     for output in [
         *figure1_outputs,
         *figure2_outputs,

@@ -50,7 +50,10 @@ Thm 4.4 hyper-rectangle, Thm 4.5 few-shot bound).
 ## 3. Findings (real)
 
 ### 3.1 Directional-collapse law holds on real SSL (Prop 4.1)
-Predicted `Ṽ=(1−B)/(2B)` vs observed directional CDNV on the SSL subspace, CelebA
+Predicted `Ṽ=(1−B)/(2B)` vs observed directional CDNV on the SSL subspace,
+CelebA. This is the repository's explicitly **unhalved symmetric** convention;
+the original ICLR 2022 normalization is half this value. See
+`docs/cdnv_conventions.md`.
 "Male", epoch 1000:
 
 | r | I-JEPA pred / obs | VICReg pred / obs |

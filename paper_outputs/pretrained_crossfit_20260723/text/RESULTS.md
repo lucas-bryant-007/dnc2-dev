@@ -1,5 +1,10 @@
 # Strict pretrained hyperrectangle results
 
+> **SUPERSEDED — DO NOT CITE.** Every corner mismatch and the CUB boundary-case
+> conclusion below used obsolete predicted corners. This text is retained only
+> as an audit record. Use the
+> [post-audit results](../../pretrained_crossfit_postaudit_20260810/text/RESULTS.md).
+
 ## Result
 
 Attribute geometry learned only from training images predicts the eight held-out CelebA group centroids. Primary-sample normalized corner mismatch was 0.203 for VICReg and 0.237 for I-JEPA, versus shuffled-label means of 1.003 and 1.004. None of 5,000 held-out label permutations matched either observed result (finite-permutation p=0.0002).

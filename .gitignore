@@ -125,3 +125,13 @@ repro_exports/
 artifacts/
 *.tar.gz
 meeting.pdf
+
+# Version the post-audit paper package and the machine-readable tombstone for
+# the superseded July package. Other generated paper outputs remain ignored.
+!paper_outputs/
+paper_outputs/*
+!paper_outputs/pretrained_crossfit_postaudit_20260810/
+!paper_outputs/pretrained_crossfit_postaudit_20260810/**
+!paper_outputs/pretrained_crossfit_20260723/
+paper_outputs/pretrained_crossfit_20260723/**
+!paper_outputs/pretrained_crossfit_20260723/STATUS.json

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Launch the matched pretrained cross-fit experiments on three GPUs.
+# Historical full-support launcher retained for exact provenance.
+# Use run_paper_rerun_s2.sh for the post-audit paper run.
 #
 # Usage:
 #   bash analysis/run_pretrained_crossfit.sh --detach

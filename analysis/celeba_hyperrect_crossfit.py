@@ -377,6 +377,11 @@ def _summarize_stability(records, triple_names):
             ),
         }
     return {
+        "corner_fidelity_status": {
+            "status": "valid_current_geometry",
+            "predicted_corner_formula": "coordinate_t = (2*y_t-1)*sqrt(B_t)",
+            "cross_task_gram_terms_used": False,
+        },
         "n_resamples": len(records),
         "test_balance_seeds": [row["test_balance_seed"] for row in records],
         "pass_count": sum(row["headline_criteria_passed"] for row in records),
@@ -442,7 +447,7 @@ def _split_balanced_sample(selected, samples_per_cell):
 
 
 def _inject_crossfit_probe_geometry(result, geometry):
-    """Replace plug-in geometry and retain its selection-aware interpretation."""
+    """Replace plug-in metrics and invalidate the now-stale plug-in box."""
     by_name = {row["name"]: row for row in result["metrics"]}
     interpretation = geometry["statistical_interpretation"]
     for name, capture in geometry["capture_B"].items():
@@ -456,6 +461,22 @@ def _inject_crossfit_probe_geometry(result, geometry):
     else:
         result["cosine_matrix"] = None
         result["triple_max_abs_cos"] = 1.0
+    # H.analyze sized this box with same-sample ||w_hat||^2.  Once capture_B is
+    # replaced, retaining those corners would serialize two different
+    # geometries.  A caller must install the matching fitted BoxReference.
+    result["predicted_box"] = None
+    result["predicted_box_status"] = "invalidated_after_crossfit_capture_replacement"
+    return result
+
+
+def _install_box_reference(result, box_reference, *, reference_split):
+    """Install one internally consistent predicted box and its provenance."""
+    if list(result.get("triple_names") or []) != list(box_reference.triple_names):
+        raise ValueError("box reference triple does not match result triple")
+    result["predicted_box"] = box_reference.predicted_box
+    result["predicted_box_status"] = "fitted_reference_installed"
+    result["box_reference_split"] = reference_split
+    result["predicted_box_capture_B"] = box_reference.capture
     return result
 
 
@@ -624,8 +645,14 @@ def _select_balanced_train_triple(
                 candidate["names"],
                 capture=predicted_capture,
             )
+            _install_box_reference(
+                result,
+                box_reference,
+                reference_split="train",
+            )
             return result, {
                 "selected_candidate": candidate,
+                "feasible_proxy_candidate_count": len(ranked),
                 "original_cell_counts": counts,
                 "samples_per_cell": per_cell,
                 "whitening_fit_samples_per_cell": int(
@@ -670,7 +697,11 @@ def _select_balanced_train_triple(
             torch.cuda.empty_cache()
     return (
         None,
-        {"selected_candidate": None, "exact_attempts": attempts},
+        {
+            "selected_candidate": None,
+            "feasible_proxy_candidate_count": len(ranked),
+            "exact_attempts": attempts,
+        },
         None,
         None,
     )
@@ -737,8 +768,11 @@ def _evaluate_balanced_test_seed(
     result["coords"] = coords
     result["box"] = box
     result["granular_task"] = granular_task
-    result["predicted_box"] = train_box_reference.predicted_box
-    result["box_reference_split"] = "train"
+    _install_box_reference(
+        result,
+        train_box_reference,
+        reference_split="train",
+    )
     balance = {
         "seed": int(test_seed),
         "original_cell_counts": counts,

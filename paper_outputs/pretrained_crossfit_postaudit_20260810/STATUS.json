@@ -1,0 +1,117 @@
+{
+  "status": "primary_geometry_repaired_resampling_pending",
+  "repair_date": "2026-08-10",
+  "runs": [
+    {
+      "dataset": "celeba",
+      "method": "vicreg",
+      "selected_triple": [
+        "Smiling",
+        "Wavy_Hair",
+        "Black_Hair"
+      ],
+      "capture_B_used": {
+        "Smiling": 0.2883266806602478,
+        "Wavy_Hair": 0.1148676648736,
+        "Black_Hair": 0.1376132220029831
+      },
+      "primary_normalized_centroid_rmse": 0.14330599343599543,
+      "headline_criteria_passed": true,
+      "train_feasible_candidates": 99,
+      "metrics_json": "metrics/hyperrect_crossfit_vicreg_celeba_epoch_1000_full_support_20x_v1.json",
+      "plot_points": "plot_data/hyperrect_points_crossfit_vicreg_celeba_epoch_1000_full_support_20x_v1.npz"
+    },
+    {
+      "dataset": "celeba",
+      "method": "ijepa",
+      "selected_triple": [
+        "Black_Hair",
+        "Smiling",
+        "Arched_Eyebrows"
+      ],
+      "capture_B_used": {
+        "Black_Hair": 0.3070111870765686,
+        "Smiling": 0.1136544719338417,
+        "Arched_Eyebrows": 0.12263783812522888
+      },
+      "primary_normalized_centroid_rmse": 0.25580642845632523,
+      "headline_criteria_passed": false,
+      "train_feasible_candidates": 47,
+      "metrics_json": "metrics/hyperrect_crossfit_ijepa_celeba_epoch_1000_full_support_20x_v1.json",
+      "plot_points": "plot_data/hyperrect_points_crossfit_ijepa_celeba_epoch_1000_full_support_20x_v1.npz"
+    },
+    {
+      "dataset": "cub200",
+      "method": "vicreg_official_imagenet1k",
+      "selected_triple": [
+        "breast_color=white",
+        "primary_color=black",
+        "breast_pattern=solid"
+      ],
+      "capture_B_used": {
+        "breast_color=white": 0.23037290573120117,
+        "primary_color=black": 0.1921447217464447,
+        "breast_pattern=solid": 0.16400451958179474
+      },
+      "primary_normalized_centroid_rmse": 0.29592962903412556,
+      "headline_criteria_passed": true,
+      "train_feasible_candidates": 121,
+      "metrics_json": "metrics/hyperrect_crossfit_vicreg_official_imagenet1k_cub200_bbox_distinct_families_full_support_v3.json",
+      "plot_points": "plot_data/hyperrect_points_crossfit_vicreg_official_imagenet1k_cub200_bbox_distinct_families_full_support_v3.npz"
+    }
+  ],
+  "regenerated": [
+    "axis-aligned serialized predicted boxes",
+    "primary-split corner diagnostics",
+    "primary headline criteria",
+    "three 5,000-draw held-out label-permutation controls",
+    "primary paper-facing figures, table, and results text"
+  ],
+  "pending_full_rerun": [
+    "20-seed corrected corner-fidelity stability summaries",
+    "few-shot bound curves requiring raw pairwise moments/features"
+  ],
+  "heldout_permutation_controls": [
+    {
+      "dataset": "celeba",
+      "method": "vicreg",
+      "n_permutations": 5000,
+      "seed": 20260723,
+      "observed_normalized_centroid_rmse": 0.14330598462774816,
+      "null_mean": 1.0038388245171426,
+      "empirical_lower_tail_p": 0.0001999600079984003
+    },
+    {
+      "dataset": "celeba",
+      "method": "ijepa",
+      "n_permutations": 5000,
+      "seed": 20260723,
+      "observed_normalized_centroid_rmse": 0.2558064446498021,
+      "null_mean": 1.0046616060360032,
+      "empirical_lower_tail_p": 0.0001999600079984003
+    },
+    {
+      "dataset": "cub200",
+      "method": "vicreg_official_imagenet1k",
+      "n_permutations": 5000,
+      "seed": 20260723,
+      "observed_normalized_centroid_rmse": 0.2959296305243937,
+      "null_mean": 1.0059844860977716,
+      "empirical_lower_tail_p": 0.0001999600079984003
+    }
+  ],
+  "reused_full_pipeline_controls": [
+    {
+      "method": "vicreg",
+      "seed": 3101,
+      "source": "paper_outputs/pretrained_crossfit_20260723/controls/full_pipeline_label_permutation/vicreg_seed3101/metrics/hyperrect_crossfit_vicreg_celeba_epoch_1000_full_pipeline_label_null_seed3101.json",
+      "reason": "train selection does not consume serialized box corners"
+    },
+    {
+      "method": "ijepa",
+      "seed": 3101,
+      "source": "paper_outputs/pretrained_crossfit_20260723/controls/full_pipeline_label_permutation/ijepa_seed3101/metrics/hyperrect_crossfit_ijepa_celeba_epoch_1000_full_pipeline_label_null_seed3101.json",
+      "reason": "train selection does not consume serialized box corners"
+    }
+  ]
+}

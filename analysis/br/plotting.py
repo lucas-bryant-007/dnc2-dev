@@ -47,11 +47,14 @@ def plot_fewshot_compare(curves_for_r, save_path=None, title="Few-shot NCC: new 
     # Bounds are error PROBABILITIES; clip the display at 1 so a vacuous/huge
     # bound (e.g. the Euclidean CDNV bound on a whitened rep) can't blow up the
     # axis. Empirical is left unclipped (it is always <= 0.5 for a balanced task).
+    def numeric(value):
+        return np.nan if value is None else float(value)
+
     def col(key):
-        return [cv[m][key] for m in ms]
+        return [numeric(cv[m].get(key)) for m in ms]
 
     def colc(key):
-        return [min(cv[m][key], 1.0) for m in ms]
+        return [min(value, 1.0) if np.isfinite(value) else np.nan for value in col(key)]
     plt.figure(figsize=(7.5, 5.5))
     plt.plot(ms, col("empirical"), marker="o", color="black", label="empirical NCC")
     plt.plot(ms, colc("thm45_B"), marker="s", color="tab:red",
@@ -59,7 +62,16 @@ def plot_fewshot_compare(curves_for_r, save_path=None, title="Few-shot NCC: new 
     plt.plot(ms, colc("thm41_dir"), marker="^", linestyle="--", color="tab:blue",
              label=r"OLD: dir-CDNV (Thm 4.1)")
     plt.plot(ms, colc("luthra2025"), marker="x", linestyle=":", color="tab:purple",
-             label="Luthra 2025")
+             label="Luthra 2025 (official optimized $a$)")
+    if any(cv[m].get("luthra2025_a16_published") is not None for m in ms):
+        plt.plot(
+            ms,
+            colc("luthra2025_a16_published"),
+            marker="+",
+            linestyle="-.",
+            color="tab:orange",
+            label="Luthra 2025 (published $a=16$)",
+        )
     plt.plot(ms, colc("lim"), linestyle=":", color="tab:green", label=r"$4\tilde{V}$ (lim)")
     plt.axhline(0.5, color="gray", linewidth=0.9, alpha=0.6)
     plt.xscale("log"); plt.yscale("log")
@@ -83,15 +95,35 @@ def plot_directional_fewshot(curves, save_path=None,
     """
     style.apply_style()
     ms = sorted(curves.keys())
-    emp = [curves[m]["empirical"] for m in ms]
-    our = [curves[m]["our_thm41"] for m in ms]
-    lim = [curves[m]["lim"] for m in ms]
-    luthra = [curves[m]["luthra2025"] for m in ms]
+    def numeric(value):
+        return np.nan if value is None else float(value)
+
+    emp = [numeric(curves[m]["empirical"]) for m in ms]
+    our = [numeric(curves[m].get("our_thm41")) for m in ms]
+    lim = [numeric(curves[m].get("lim")) for m in ms]
+    luthra = [numeric(curves[m].get("luthra2025")) for m in ms]
+    luthra_a16 = [
+        numeric(curves[m].get("luthra2025_a16_published")) for m in ms
+    ]
 
     plt.figure(figsize=(7.5, 5.5))
     plt.plot(ms, emp, marker="o", color="black", label="NCC error (empirical)")
     plt.plot(ms, our, marker="s", color="tab:red", label="Our bound (Thm 4.1)")
-    plt.plot(ms, luthra, linestyle="--", color="tab:blue", label="Luthra 2025")
+    plt.plot(
+        ms,
+        luthra,
+        linestyle="--",
+        color="tab:blue",
+        label="Luthra 2025 (official optimized $a$)",
+    )
+    if np.isfinite(luthra_a16).any():
+        plt.plot(
+            ms,
+            luthra_a16,
+            linestyle="-.",
+            color="tab:orange",
+            label="Luthra 2025 (published $a=16$)",
+        )
     plt.plot(ms, lim, linestyle=":", color="tab:green", label=r"Lim bound ($4\tilde{V}$)")
     plt.axhline(0.5, color="gray", linewidth=0.9, alpha=0.6)  # chance for binary
     plt.xscale("log")

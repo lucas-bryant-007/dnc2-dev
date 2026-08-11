@@ -1,0 +1,12 @@
+{
+  "status": "superseded_do_not_cite",
+  "reason": "Predicted corners used cross-task Gram terms instead of coordinate_t=(2*y_t-1)*sqrt(B_t).",
+  "invalid": [
+    "primary corner-fidelity values",
+    "20-resample corner-fidelity values",
+    "held-out permutation controls tied to obsolete corners",
+    "main and supplementary box figures",
+    "CUB-200 boundary-case interpretation"
+  ],
+  "replacement": "../pretrained_crossfit_postaudit_20260810/STATUS.json"
+}

@@ -1,5 +1,9 @@
 # Figure gallery
 
+> **SUPERSEDED — DO NOT CITE OR SEND.** Both main figures visualize obsolete
+> predicted corners. Corrected primary figures are in the
+> [post-audit package](../pretrained_crossfit_postaudit_20260810/README.md).
+
 ## Figure 1: held-out CelebA cubes
 
 ![Held-out CelebA cubes](figures/main/figure1_celeba_heldout_cubes.png)

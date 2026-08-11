@@ -1,5 +1,10 @@
 # Provenance manifest
 
+> **SUPERSEDED ARTIFACT MANIFEST.** The sources remain immutable audit inputs,
+> but the derived corner geometry is invalid. See
+> `paper_outputs/pretrained_crossfit_postaudit_20260810/STATUS.json` for the
+> repaired primary outputs and the explicit full-rerun boundary.
+
 Paper-facing files are derived from the following immutable exports.
 
 | Curated result | Source |

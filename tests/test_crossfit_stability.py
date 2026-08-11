@@ -2,11 +2,14 @@ import csv
 import json
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 import torch
 
 from analysis.celeba_hyperrect_crossfit import (
     _evaluate_balanced_test_seed,
+    _inject_crossfit_probe_geometry,
+    _install_box_reference,
     _permute_attribute_columns,
     _rank_balanced_candidates,
     _summarize_stability,
@@ -21,6 +24,44 @@ from analysis.plot_crossfit_stability import load_stability, plot_stability
 
 
 TRIPLE = ["Smiling", "Heavy_Makeup", "Black_Hair"]
+
+
+def test_crossfit_capture_invalidates_then_rebuilds_training_predicted_box():
+    attrs = torch.tensor(
+        [[(cell >> bit) & 1 for bit in range(3)] for cell in range(8)],
+        dtype=torch.long,
+    )
+    features = 2.0 * attrs.float() - 1.0
+    result = {
+        "triple_names": TRIPLE,
+        "metrics": [{"name": name, "capture_B": 9.0} for name in TRIPLE],
+        "predicted_box": [{"combo": [0, 0, 0], "center": [99.0, 99.0, 99.0]}],
+    }
+    geometry = {
+        "capture_B": dict(zip(TRIPLE, [0.25, 0.36, 0.49], strict=True)),
+        "estimator": "symmetrized_split_half_cross_gram",
+        "statistical_interpretation": {"reported_role": "test"},
+        "valid_positive_diagonal": True,
+        "cosine_matrix": np.eye(3).tolist(),
+        "max_abs_cos": 0.0,
+    }
+
+    _inject_crossfit_probe_geometry(result, geometry)
+    assert result["predicted_box"] is None
+    assert result["predicted_box_status"].startswith("invalidated")
+
+    reference = fit_box_reference(
+        features,
+        attrs,
+        TRIPLE,
+        capture=[0.25, 0.36, 0.49],
+    )
+    _install_box_reference(result, reference, reference_split="train")
+
+    assert result["predicted_box"] == reference.predicted_box
+    assert result["predicted_box_capture_B"] == [0.25, 0.36, 0.49]
+    assert result["box_reference_split"] == "train"
+    assert [row["capture_B"] for row in result["metrics"]] == [0.25, 0.36, 0.49]
 
 
 def _record(seed, offset=0.0, passed=True):
@@ -67,6 +108,11 @@ def test_stability_summary_records_spread_and_pass_rate():
     assert summary["statistics"]["triple_max_abs_cos"]["mean"] == pytest.approx(0.04)
     assert summary["capture_B"]["Black_Hair"]["min"] == pytest.approx(0.40)
     assert summary["test_balance_seeds"] == [7, 8, 9]
+    assert (
+        summary["corner_fidelity_status"]["status"]
+        == "valid_current_geometry"
+    )
+    assert not summary["corner_fidelity_status"]["cross_task_gram_terms_used"]
     aggregate = summary["aggregate_crossfit_probe_geometry"]
     assert aggregate["n_splits"] == 3
     assert aggregate["capture_B"]["Smiling"] == pytest.approx(0.51)

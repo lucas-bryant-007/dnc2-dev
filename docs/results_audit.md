@@ -22,6 +22,13 @@ factorization are the stronger claims.
 
 ## Artifacts requiring regeneration
 
+- The repaired primary pretrained results are now 0.143306 for
+  VICReg/CelebA, 0.255806 for I-JEPA/CelebA, and 0.295930 for
+  VICReg/CUB-200. Their 5,000-draw held-out permutation controls were
+  regenerated. The earlier 20-seed corner summaries and CUB “boundary case”
+  claim remain invalid until a full feature-level rerun; see
+  `docs/artifact_regeneration_status.md`.
+
 - Existing RO2 interference JSON/figures are marked `legacy_squared_pearson_r2`
   and `legacy_all_rows`. The corrected drivers fit whitening on training rows,
   compute genuine held-out R², aggregate five split seeds, and plot uncertainty.

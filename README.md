@@ -28,6 +28,8 @@ Core geometry and estimators:
 
 - `analysis/hyperrect.py` - task probes, cross-fit geometry, and box diagnostics.
 - `analysis/bounds.py` - directional-CDNV and few-shot bounds.
+- `analysis/cdnv_conventions.py` - canonical normalization and paper-interface
+  conversions; see `docs/cdnv_conventions.md`.
 - `analysis/interference_core.py` - shared-bottleneck interference estimators.
 - `analysis/br/` - directional-collapse estimators and SSL subspace utilities.
 
@@ -38,7 +40,11 @@ Experiment drivers:
 - `analysis/permutation_box_null.py` - held-out permutation controls.
 - `analysis/dsprites_hyperrect.py` and `analysis/wide_interference.py` -
   controlled synthetic experiments.
-- `analysis/run_pretrained_crossfit.sh` - matched pretrained batch run.
+- `analysis/run_paper_rerun_s2.sh` - frozen four-GPU post-audit paper rerun;
+  see `docs/s2_paper_rerun.md`.
+- `analysis/run_pretrained_crossfit.sh` - historical full-support launcher.
+- `analysis/compare_pretrained_crossfit.py` - protocol-aware fresh/reference
+  comparison and reproduction gate.
 - `analysis/pusht/` - future-factor recoverability and regret.
 
 Required figure generators:
@@ -62,6 +68,7 @@ Supporting packages:
 - `docs/training_from_scratch.md`
 - `docs/celeba_experiment.md`
 - `docs/cub200_experiment.md`
+- `docs/s2_paper_rerun.md`
 - `analysis/pusht/README.md`
 
 ## Current state
@@ -82,5 +89,21 @@ restored on this branch are a research record, not automatically current paper
 evidence. In particular, quantitative artifacts created before commits
 `a3c85b1` and `7f97d2d` must be regenerated before citation because the
 theorem-facing estimands and provenance requirements changed.
+
+The July 23 pretrained package is additionally invalidated by the historical
+nonorthogonal corner projection. It is retained as an audit record and is not a
+current curated result. The repaired primary-only package is
+`paper_outputs/pretrained_crossfit_postaudit_20260810/`. The checked-in point
+archives permit regeneration of the primary held-out samples and their
+conditional permutation nulls only;
+20-resample stability and few-shot curves require the original features or a
+fresh checkpoint/data run.
+
+The next paper run is frozen in `analysis/run_paper_rerun_s2.sh`. It keeps the
+full-support reproduction estimand separate from the 500-example-per-cell
+CelebA stability estimand, uses all four S2 GPUs, reruns both null families and
+few-shot curves, records the complete software/model provenance, and compares
+the fresh full-support results with the repaired primary-only package before
+declaring the run complete.
 
 The project is active research code; citation metadata has not been released.

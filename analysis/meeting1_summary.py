@@ -3,7 +3,7 @@
 Reads the saved box metrics JSONs and produces:
   * a grouped bar chart of captured energy B(F) per axis per run, annotated with
     the max pairwise |cos| (orthogonality) for each run, and
-  * a markdown table (B, sqrt(B) side, max|cos|).
+  * a markdown table (B, sqrt(B) half-side, max|cos|).
 
 Honest by construction: it just reports the measured B and cosines side by side, so
 the robust part (orthogonality) and the variable part (capture) are both visible.

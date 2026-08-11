@@ -1,5 +1,10 @@
 # Pretrained natural-image factor geometry
 
+> **SUPERSEDED — DO NOT CITE.** This package used the obsolete corner
+> construction with cross-task Gram terms. Its primary and 20-resample
+> corner-fidelity values, plots, tables, and CUB boundary-case interpretation
+> are invalid. Use the [post-audit package](../pretrained_crossfit_postaudit_20260810/README.md).
+
 ## Start here
 
 1. [CelebA held-out cubes](figures/main/figure1_celeba_heldout_cubes.png)

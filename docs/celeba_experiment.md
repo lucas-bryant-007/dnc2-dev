@@ -57,20 +57,24 @@ Use `--record_only` to validate an existing repaired checkpoint.
 
 ## Run
 
-The launcher runs VICReg/CelebA, I-JEPA/CelebA, and the matched CUB-200 boundary
-experiment concurrently, then runs held-out permutation controls:
+For the post-audit paper run, use the frozen S2 launcher. It runs separate
+full-support reproduction and 500-example-per-cell stability estimands, the
+matched CUB-200 experiment, null controls, corrected few-shot curves, and the
+fresh/reference comparison:
 
 ```bash
 export ROOT=/path/to/dnc2_workspace
 export PY="$ROOT/dnc2_env/bin/python"
-export OUT_BASE="$ROOT/results/pretrained_crossfit"
-bash analysis/run_pretrained_crossfit.sh --detach
+export RUN_ID=paper_rerun_20260811_auditfix
+export OUT_BASE="$ROOT/results/$RUN_ID"
+bash analysis/run_paper_rerun_s2.sh --preflight
+bash analysis/run_paper_rerun_s2.sh --detach
 ```
 
-Override `VICREG_GPU`, `IJEPA_GPU`, and `CUB_GPU` when the default devices 0, 1,
-and 2 are unavailable. Run either model individually with
-`analysis/celeba_hyperrect_crossfit.py`; its `--help` output documents every
-launcher argument.
+The default worker devices are GPUs 0 through 3. See `s2_paper_rerun.md` for
+the complete frozen matrix, monitoring commands, and completion checks. The
+older `run_pretrained_crossfit.sh` is retained only to reproduce the historical
+full-support batch and must not be used for the post-audit paper package.
 
 ## Inspect a completed run
 

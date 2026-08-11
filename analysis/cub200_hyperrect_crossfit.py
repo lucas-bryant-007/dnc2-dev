@@ -480,6 +480,11 @@ def main(args):
             "box_axes_and_predicted_corners": (
                 "fit on selected balanced train population and frozen for test"
             ),
+            "primary_test_balance_seed": int(args.test_balance_seeds[0]),
+            "test_balance_seeds": [
+                int(seed) for seed in args.test_balance_seeds
+            ],
+            "max_test_cell_samples": int(args.max_test_cell_samples),
             "criteria_status": (
                 "numeric_criteria_unchanged_after_first_diagnostic; "
                 "distinct_attribute_family_constraint_added_after_the_first_"

@@ -1,13 +1,35 @@
 import torch
 import math
 from .diagnostics import _as_pm_one
+try:
+    from ..cdnv_conventions import (
+        CANONICAL_CDNV_NORMALIZATION,
+        UNHALVED_SYMMETRIC,
+        cdnv_from_captured_energy,
+        convert_symmetric_cdnv,
+        directional_cdnv_from_captured_energy,
+    )
+except ImportError:  # imported as top-level br package by legacy scripts
+    from cdnv_conventions import (
+        CANONICAL_CDNV_NORMALIZATION,
+        UNHALVED_SYMMETRIC,
+        cdnv_from_captured_energy,
+        convert_symmetric_cdnv,
+        directional_cdnv_from_captured_energy,
+    )
 
 # -----------------------------------------------------------------------------
 # CDNV estimators
 # -----------------------------------------------------------------------------
 
-def estimate_tilde_V(psi: torch.Tensor, y: torch.Tensor, r: int) -> float:
-    """Directional CDNV on the top-r SSL coordinates."""
+def estimate_tilde_V(
+    psi: torch.Tensor,
+    y: torch.Tensor,
+    r: int,
+    *,
+    normalization: str = CANONICAL_CDNV_NORMALIZATION,
+) -> float:
+    """Directional CDNV on the top-r coordinates; unhalved by default."""
     y = _as_pm_one(y)
     f = psi[:, :r]
 
@@ -32,11 +54,22 @@ def estimate_tilde_V(psi: torch.Tensor, y: torch.Tensor, r: int) -> float:
 
     var_pos = directional_variance(f[pos])
     var_neg = directional_variance(f[neg])
-    return float(((var_pos + var_neg) / delta_norm_sq).item())
+    unhalved = float(((var_pos + var_neg) / delta_norm_sq).item())
+    return convert_symmetric_cdnv(
+        unhalved,
+        source=UNHALVED_SYMMETRIC,
+        target=normalization,
+    )
 
 
 
-def estimate_V(psi: torch.Tensor, y: torch.Tensor, r: int) -> float:
+def estimate_V(
+    psi: torch.Tensor,
+    y: torch.Tensor,
+    r: int,
+    *,
+    normalization: str = CANONICAL_CDNV_NORMALIZATION,
+) -> float:
     """
     Full CDNV on the top-r SSL coordinates:
         V = (tr(Sigma_+) + tr(Sigma_-)) / ||Delta||^2.
@@ -62,18 +95,37 @@ def estimate_V(psi: torch.Tensor, y: torch.Tensor, r: int) -> float:
 
     tr_pos = trace_cov(f[pos])
     tr_neg = trace_cov(f[neg])
-    return float(((tr_pos + tr_neg) / delta_norm_sq).item())
+    unhalved = float(((tr_pos + tr_neg) / delta_norm_sq).item())
+    return convert_symmetric_cdnv(
+        unhalved,
+        source=UNHALVED_SYMMETRIC,
+        target=normalization,
+    )
 
 
 
-def predict_tilde_V_from_B(B_r: float, eps: float = 1e-12) -> float:
+def predict_tilde_V_from_B(
+    B_r: float,
+    eps: float = 1e-12,
+    *,
+    normalization: str = CANONICAL_CDNV_NORMALIZATION,
+) -> float:
     if B_r <= eps:
         return float("inf")
-    return (1.0 - B_r) / (2.0 * B_r)
+    return directional_cdnv_from_captured_energy(
+        B_r,
+        normalization=normalization,
+    )
 
 
 
-def predict_V_from_B(B_r: float, r: int, eps: float = 1e-12) -> float:
+def predict_V_from_B(
+    B_r: float,
+    r: int,
+    eps: float = 1e-12,
+    *,
+    normalization: str = CANONICAL_CDNV_NORMALIZATION,
+) -> float:
     if B_r <= eps:
         return float("inf")
-    return (float(r) - B_r) / (2.0 * B_r)
+    return cdnv_from_captured_energy(B_r, r, normalization=normalization)

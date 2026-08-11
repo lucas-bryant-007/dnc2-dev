@@ -20,6 +20,8 @@ priority. Favor *observation over prediction*. Keep figures drop-in ready.
 2. **Training GIF — DONE.** `figures/dsprites_box_evolution.gif`: the cube
    sharpening over epochs 0→80, fixed camera, epoch in corner.
 3. **Directional CDNV / Prop 4.1 — have.** Predicted-vs-observed `Ṽ=(1−B)/2B`
+   in the explicitly unhalved symmetric convention (the original ICLR 2022
+   value is `Ṽ/2`; see `docs/cdnv_conventions.md`)
    on real CelebA SSL (~6–10% error); directional CDNV collapsing over training
    (epoch sweep `metrics/metrics_vicreg_male_epoch_*`) while classical CDNV stays
    large — reproduces the published Fig. 2.

@@ -375,6 +375,18 @@ class ExactWhiteningTest(unittest.TestCase):
         )
         self.assertTrue(provenance["transform_frozen_after_fit"])
         self.assertTrue(provenance["frozen_for_test"])
+        spectrum = provenance["ssl_spectrum"]
+        self.assertEqual(
+            spectrum["eigenvalues_descending"],
+            [float(value) for value in estimator.ssl_eigvals_.tolist()],
+        )
+        self.assertTrue(spectrum["self_adjoint_by_construction"])
+        self.assertTrue(spectrum["complete_finite_dimensional_eigenbasis"])
+        rank = estimator.rank_spectral_diagnostics(2)
+        self.assertEqual(rank["rank"], 2)
+        self.assertEqual(rank["lambda_r"], float(estimator.ssl_eigvals_[1]))
+        self.assertEqual(rank["lambda_r_plus_1"], float(estimator.ssl_eigvals_[2]))
+        self.assertFalse(rank["boundary_eigengap_required_for_optimal_value"])
 
     def test_paired_analysis_loader_provenance_matches_full_loader(self):
         module = object.__new__(CelebADataModule)
