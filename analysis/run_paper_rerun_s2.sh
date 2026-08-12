@@ -629,6 +629,7 @@ case "${1:-}" in
             HF_DATASETS_CACHE="$HF_DATASETS_CACHE" \
             TORCH_HOME="$TORCH_HOME" \
             REPRODUCTION_ATOL="$REPRODUCTION_ATOL" \
+            PROP41_EXACT_WHITENING="${PROP41_EXACT_WHITENING:-0}" \
             RUN_TESTS=0 \
             DETACHED_CHILD=1 \
             bash "$SCRIPT_DIR/run_paper_rerun_s2.sh" --run \
