@@ -779,6 +779,7 @@ def _evaluate_balanced_test_seed(
             seed=test_seed,
             max_per_cell=args.max_test_cell_samples,
             rel_eig_threshold=args.analysis_whiten_rel_eig_threshold,
+            subspace_dim=getattr(args, "prop41_subspace_dim", None),
         )
     _inject_crossfit_probe_geometry(result, crossfit_geometry)
     coords, box, granular_task = H.subclass_box(
@@ -1506,9 +1507,23 @@ if __name__ == "__main__":
             "unaffected and still uses the frozen train-fitted transform."
         ),
     )
+    parser.add_argument(
+        "--prop41_subspace_dim",
+        type=int,
+        default=256,
+        help=(
+            "Leading principal directions to keep before the Prop 4.1 check. "
+            "The cross-fit comparison has a noise floor that grows with D/N: on "
+            "data where the identity holds exactly, N=6632 gives 1.3%% error at "
+            "D=256 but 36.9%% at D=2048, so the full-dimension result cannot tell "
+            "a violation from an unmeasurable one. Pass 0 to disable."
+        ),
+    )
     parser.add_argument("--out_dir", default=".")
     parser.add_argument("--tag", default="crossfit")
     parsed = parser.parse_args()
+    if getattr(parsed, "prop41_subspace_dim", 0) in (0, None):
+        parsed.prop41_subspace_dim = None
     argv_options = {value.split("=", 1)[0] for value in sys.argv[1:]}
     used_current = "--analysis_whiten_rel_eig_threshold" in argv_options
     used_legacy = "--analysis_whiten_ridge_rel" in argv_options

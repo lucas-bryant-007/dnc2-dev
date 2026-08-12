@@ -35,17 +35,66 @@ def _synthetic(n: int = 6000, d: int = 48, gaps=(1.4, 1.0, 0.7), seed: int = 0):
     return features @ rotation, attrs
 
 
-def test_in_sample_whitening_restores_identity():
+def test_whitening_is_exact_in_sample():
     features, attrs = _synthetic()
-    result = prop41_identity(features, attrs, NAMES)
-
-    diagnostics = result["whitening_diagnostics"]
+    diagnostics = prop41_identity(features, attrs, NAMES)["whitening_diagnostics"]
     assert diagnostics["second_moment_min_eigenvalue"] == pytest.approx(1.0, abs=1e-3)
     assert diagnostics["second_moment_max_eigenvalue"] == pytest.approx(1.0, abs=1e-3)
 
+
+def test_plug_in_comparison_is_vacuous_on_pure_noise():
+    """The trap this module exists to avoid.
+
+    With exact whitening and balanced labels the plug-in Vtilde and the plug-in B
+    carry the same finite-sample optimism, so their ratio satisfies the identity
+    whatever the data. Here there is no signal at all and it still "passes" --
+    which is why a small plug-in error is not evidence for the proposition.
+    """
+    generator = torch.Generator().manual_seed(11)
+    features = torch.randn(6000, 64, generator=generator)
+    attrs = torch.randint(0, 2, (6000, 3), generator=generator)
+    result = prop41_identity(features, attrs, NAMES)
     errors = [a["relative_error_plug_in"] for a in result["attributes"]]
+    assert max(errors) < 0.01, (
+        "plug-in comparison is expected to pass even on noise; if this fails the "
+        f"forced-identity account is wrong: {errors}"
+    )
+
+
+def test_crossfit_identity_holds_when_the_proposition_applies():
+    features, attrs = _synthetic(n=12000, d=48)
+    result = prop41_identity(features, attrs, NAMES)
+    errors = [a["relative_error_crossfit"] for a in result["attributes"]]
     assert all(e is not None for e in errors)
-    assert max(errors) < 0.05, f"identity should be near-exact under whitening, got {errors}"
+    assert max(errors) < 0.15, f"both-sides-held-out identity should hold: {errors}"
+
+
+def test_crossfit_check_can_fail():
+    """A check that cannot fail is not a check.
+
+    Scaling the measured spread away from its true value must show up as error,
+    otherwise the comparison is forced the way the plug-in one is.
+    """
+    features, attrs = _synthetic(n=12000, d=48)
+    result = prop41_identity(features, attrs, NAMES)
+    record = result["attributes"][0]
+    honest = record["relative_error_crossfit"]
+    corrupted_v = record["directional_cdnv_crossfit"] * 2.0
+    predicted = record["predicted_tilde_v_crossfit"]
+    corrupted = abs(corrupted_v - predicted) / predicted
+    assert corrupted > 0.5 > honest, (honest, corrupted)
+
+
+def test_mixed_comparison_misses_as_expected():
+    """Cross-fit B against plug-in Vtilde: debiased on one side only."""
+    features, attrs = _synthetic(n=12000, d=512)
+    result = prop41_identity(features, attrs, NAMES)
+    mixed = [a["relative_error_mixed"] for a in result["attributes"]]
+    crossfit = [a["relative_error_crossfit"] for a in result["attributes"]]
+    assert max(mixed) > max(crossfit), (
+        f"mixing a debiased B with a plug-in Vtilde should be worse than "
+        f"debiasing both: mixed={mixed} crossfit={crossfit}"
+    )
 
 
 def test_out_of_sample_whitening_still_misses():
@@ -67,12 +116,12 @@ def test_out_of_sample_whitening_still_misses():
     assert worst > 0.05, "out-of-sample whitening is expected to miss the identity"
 
 
-def test_identity_holds_at_high_dimension_ratio():
+def test_whitening_stays_exact_at_high_dimension_ratio():
     """Exactness comes from fitting in sample, so it should survive large D/N."""
     features, attrs = _synthetic(n=1200, d=400, seed=3)
-    result = prop41_identity(features, attrs, NAMES)
-    errors = [a["relative_error_plug_in"] for a in result["attributes"]]
-    assert max(errors) < 0.05, errors
+    diagnostics = prop41_identity(features, attrs, NAMES)["whitening_diagnostics"]
+    assert diagnostics["second_moment_min_eigenvalue"] == pytest.approx(1.0, abs=1e-3)
+    assert diagnostics["second_moment_max_eigenvalue"] == pytest.approx(1.0, abs=1e-3)
 
 
 def test_reports_balance_and_is_label_free():

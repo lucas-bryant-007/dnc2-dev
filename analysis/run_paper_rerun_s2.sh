@@ -276,6 +276,7 @@ run_celeba_geometry() {
     # affected either way.
     if [[ "${PROP41_EXACT_WHITENING:-0}" == "1" ]]; then
         optional_args+=(--prop41_exact_whitening)
+        optional_args+=(--prop41_subspace_dim "${PROP41_SUBSPACE_DIM:-256}")
     fi
     printf 'Starting %s CelebA geometry (%s) on GPU %s\n' "$method" "$tag" "$gpu"
     (
@@ -630,6 +631,7 @@ case "${1:-}" in
             TORCH_HOME="$TORCH_HOME" \
             REPRODUCTION_ATOL="$REPRODUCTION_ATOL" \
             PROP41_EXACT_WHITENING="${PROP41_EXACT_WHITENING:-0}" \
+            PROP41_SUBSPACE_DIM="${PROP41_SUBSPACE_DIM:-256}" \
             RUN_TESTS=0 \
             DETACHED_CHILD=1 \
             bash "$SCRIPT_DIR/run_paper_rerun_s2.sh" --run \
