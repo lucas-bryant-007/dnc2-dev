@@ -92,12 +92,13 @@ def make_collate(image_key, tfms, attr_names):
 
 
 @torch.no_grad()
-def extract_features_and_attrs(loader, backbone, device, max_samples=None):
+def extract_features_and_attrs(loader, backbone, device, max_samples=None,
+                               vit_pooling="cls"):
     feats_list, attr_list = [], []
     seen = 0
     for imgs, attrs in tqdm(loader):
         imgs = imgs.to(device, non_blocking=True)
-        feats = extract_backbone_features(backbone, imgs)
+        feats = extract_backbone_features(backbone, imgs, vit_pooling)
         feats = F.normalize(feats, dim=1)
         feats_list.append(feats.cpu())
         attr_list.append(attrs)

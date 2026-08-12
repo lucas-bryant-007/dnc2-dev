@@ -22,14 +22,29 @@ def find_checkpoint_files(ckpt_dir, start=0, end=1000):
     files.sort(key=lambda x: (x[0] == 'last', x[0] if isinstance(x[0], int) else 9999))
     return files
 
+#: Which token(s) of a ViT sequence become the representation.
+#:
+#: "cls" takes token 0. That is wrong for I-JEPA: this implementation excludes
+#: index 0 from both the context (``idx_keep``) and the prediction targets
+#: (``idx_mask``) -- see the guard in ``models/ijepa.py`` -- so the CLS token
+#: receives no training signal and evaluating it measures an untrained token.
+#: "mean" averages the patch tokens, which is the protocol the I-JEPA paper uses.
+VIT_POOLINGS = ("cls", "mean")
+
+
 @torch.no_grad()
-def extract_backbone_features(backbone, images):
+def extract_backbone_features(backbone, images, vit_pooling="cls"):
     """
     Extract features from backbone, handling both ViT and ResNet architectures.
     Returns features [B, D].
+
+    ``vit_pooling`` only affects sequence-shaped [B, tokens, D] outputs; ResNet
+    backbones are unaffected.
     """
+    if vit_pooling not in VIT_POOLINGS:
+        raise ValueError(f"vit_pooling must be one of {VIT_POOLINGS}, got {vit_pooling!r}")
     out = None
-    
+
     # Handle models with nested `vit` attribute (some wrappers)
     if hasattr(backbone, 'vit'):
         vit = backbone.vit
@@ -41,12 +56,20 @@ def extract_backbone_features(backbone, images):
         # Direct call
         out = backbone(images)
 
+    def _pool_sequence(hidden):
+        """[B, tokens, D] -> [B, D] under the requested pooling."""
+        if vit_pooling == "cls":
+            return hidden[:, 0]
+        # Drop token 0 before averaging; it is the CLS slot.
+        patches = hidden[:, 1:] if hidden.shape[1] > 1 else hidden
+        return patches.mean(dim=1)
+
     # Unwrap outputs
     feats = None
     if hasattr(out, 'last_hidden_state') or hasattr(out, 'pooler_output'):
         hidden = getattr(out, 'last_hidden_state', None)
         if hidden is not None:
-            feats = hidden[:, 0] if hidden.dim() == 3 else hidden
+            feats = _pool_sequence(hidden) if hidden.dim() == 3 else hidden
         else:
             pooled = getattr(out, 'pooler_output', None)
             if pooled is not None:
@@ -54,12 +77,12 @@ def extract_backbone_features(backbone, images):
     elif isinstance(out, dict):
         if 'last_hidden_state' in out:
             hidden = out['last_hidden_state']
-            feats = hidden[:, 0] if hidden.dim() == 3 else hidden
+            feats = _pool_sequence(hidden) if hidden.dim() == 3 else hidden
         elif 'pooler_output' in out:
             feats = out['pooler_output']
     elif isinstance(out, torch.Tensor):
         if out.dim() == 3:
-            feats = out[:, 0]
+            feats = _pool_sequence(out)
         elif out.dim() > 2:
             feats = torch.flatten(out, 1)
         else:
@@ -70,9 +93,13 @@ def extract_backbone_features(backbone, images):
     return feats
 
 @torch.no_grad()
-def extract_features(loader, backbone, device, 
-                     both_views=False, max_batches=999999):
-    """Extract features and labels from a dataloader."""
+def extract_features(loader, backbone, device,
+                     both_views=False, max_batches=999999, vit_pooling="cls"):
+    """Extract features and labels from a dataloader.
+
+    ``vit_pooling`` is forwarded to :func:`extract_backbone_features`; see the
+    note there on why "cls" is the wrong choice for I-JEPA.
+    """
     feats_view1_list, feats_view2_list, y_list = [], [], []
 
     for batch_idx, batch in enumerate(tqdm(loader)):
@@ -91,10 +118,10 @@ def extract_features(loader, backbone, device,
             images_view2 = views[1].to(device, non_blocking=True)
             
         with torch.no_grad():
-            feats_view1 = extract_backbone_features(backbone, images_view1)
+            feats_view1 = extract_backbone_features(backbone, images_view1, vit_pooling)
             feats_view1 = F.normalize(feats_view1, dim=1)
             if images_view2 is not None:
-                feats_view2 = extract_backbone_features(backbone, images_view2)
+                feats_view2 = extract_backbone_features(backbone, images_view2, vit_pooling)
                 feats_view2 = F.normalize(feats_view2, dim=1)
         feats_view1_list.append(feats_view1.cpu())
         if both_views and images_view2 is not None:

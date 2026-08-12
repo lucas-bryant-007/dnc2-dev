@@ -74,6 +74,7 @@ def _fixed_train_constraints(args):
         "min_class_frac": args.min_class_frac,
         "min_capture": args.min_capture,
         "cos_ceiling": args.cos_ceiling,
+        "vit_pooling": getattr(args, "vit_pooling", "cls"),
         "analysis_whiten_rel_eig_threshold": (
             args.analysis_whiten_rel_eig_threshold
         ),
@@ -849,6 +850,7 @@ def _extract_dataset_coordinates(
         model.backbone,
         args.device,
         max_samples=args.max_samples,
+        vit_pooling=args.vit_pooling,
     )
     print(f"Extracted features {tuple(features.shape)}, attrs {tuple(attr_matrix.shape)}")
     features_dev = _transform_on_device(
@@ -978,6 +980,7 @@ def main(args):
         model.backbone,
         device=args.device,
         both_views=True,
+        vit_pooling=args.vit_pooling,
     )
     paired_loader_record = paired_view_loader_provenance(
         paired_train_loader,
@@ -1517,6 +1520,16 @@ if __name__ == "__main__":
             "data where the identity holds exactly, N=6632 gives 1.3%% error at "
             "D=256 but 36.9%% at D=2048, so the full-dimension result cannot tell "
             "a violation from an unmeasurable one. Pass 0 to disable."
+        ),
+    )
+    parser.add_argument(
+        "--vit_pooling", choices=("cls", "mean"), default="cls",
+        help=(
+            "How to reduce a ViT token sequence to one vector. 'cls' takes token "
+            "0, which for I-JEPA is untrained: this implementation excludes index "
+            "0 from both idx_keep and idx_mask, so the CLS token never receives a "
+            "gradient. 'mean' averages the patch tokens, the protocol the I-JEPA "
+            "paper uses. No effect on ResNet backbones."
         ),
     )
     parser.add_argument("--out_dir", default=".")
