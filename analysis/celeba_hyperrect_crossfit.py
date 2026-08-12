@@ -40,6 +40,7 @@ from eval_utils import (
 )
 import hyperrect as H
 import metrics_io as mio
+from prop41_check import prop41_identity
 from training.config_loader import dict_to_namespace, load_config, namespace_to_dict
 
 
@@ -765,6 +766,20 @@ def _evaluate_balanced_test_seed(
         "probe_fold_a": H.whitening_diagnostics(first_features).as_dict(),
         "probe_fold_b": H.whitening_diagnostics(second_features).as_dict(),
     }
+    if getattr(args, "prop41_exact_whitening", False):
+        # Additive and independent of everything above: Prop 4.1 assumes a
+        # whitened representation, which the frozen train-fitted transform does
+        # not deliver out of sample. Recomputed here against a whitener fitted on
+        # this sample so the hypothesis holds. Deliberately does not touch the
+        # box, whose claim is that train-only geometry generalises.
+        result["prop41_exact_whitening"] = prop41_identity(
+            test_features,
+            test_attrs[:, selected_indices],
+            frozen_triple,
+            seed=test_seed,
+            max_per_cell=args.max_test_cell_samples,
+            rel_eig_threshold=args.analysis_whiten_rel_eig_threshold,
+        )
     _inject_crossfit_probe_geometry(result, crossfit_geometry)
     coords, box, granular_task = H.subclass_box(
         balanced_features,
@@ -1480,6 +1495,16 @@ if __name__ == "__main__":
         "--export_plot_points",
         action="store_true",
         help="Save genuine held-out 3D coordinates for deterministic paper rendering",
+    )
+    parser.add_argument(
+        "--prop41_exact_whitening",
+        action="store_true",
+        help=(
+            "Additionally evaluate the Prop 4.1 identity against a whitener "
+            "fitted on the evaluation sample, so the proposition's whitening "
+            "hypothesis holds. Emitted as a separate block; the held-out box is "
+            "unaffected and still uses the frozen train-fitted transform."
+        ),
     )
     parser.add_argument("--out_dir", default=".")
     parser.add_argument("--tag", default="crossfit")

@@ -271,6 +271,12 @@ run_celeba_geometry() {
     local optional_args=()
     [[ "$cap" == "none" ]] || optional_args+=(--max_test_cell_samples "$cap")
     [[ "$label_seed" == "none" ]] || optional_args+=(--label_permutation_seed "$label_seed")
+    # Additive Prop 4.1 block evaluated under exact in-sample whitening. Off by
+    # default so the shipped protocol is unchanged; the held-out box is not
+    # affected either way.
+    if [[ "${PROP41_EXACT_WHITENING:-0}" == "1" ]]; then
+        optional_args+=(--prop41_exact_whitening)
+    fi
     printf 'Starting %s CelebA geometry (%s) on GPU %s\n' "$method" "$tag" "$gpu"
     (
         export CUDA_VISIBLE_DEVICES="$gpu"
