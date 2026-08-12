@@ -262,7 +262,7 @@ def test_small_end_to_end_evaluation_checks_manifest_and_writes_crossfit_rows(tm
             test_cache=str(test_cache),
             output_dir=str(output),
             device="cpu",
-            shots=[2],
+            shots=[2, 4],
             whiten_rel_eig_threshold=1e-3,
         )
     )
@@ -272,7 +272,7 @@ def test_small_end_to_end_evaluation_checks_manifest_and_writes_crossfit_rows(tm
     with (output / "transfer.csv").open(newline="", encoding="utf-8") as handle:
         transfer_rows = list(csv.DictReader(handle))
     assert len(geometry_rows) == 6 * 2 * 2
-    assert len(transfer_rows) == 6 * 2 * 2 * 2
+    assert len(transfer_rows) == 6 * 2 * 2 * 2 * 2
     assert all(row["valid"] == "True" for row in transfer_rows)
     assert all(
         float(row["source_ood_balanced_accuracy"]) >= 0.75
@@ -289,12 +289,30 @@ def test_small_end_to_end_evaluation_checks_manifest_and_writes_crossfit_rows(tm
             primary_shot=2,
             bootstrap_repetitions=10,
             bootstrap_seed=31,
+            predictive_cv_repetitions=3,
+            predictive_null_permutations=5,
         )
     )
     assert (summary_output / "model_summary.csv").is_file()
     assert (summary_output / "predictive_increment.csv").is_file()
+    assert (summary_output / "dependence_strata.csv").is_file()
+    assert (summary_output / "model_selection.csv").is_file()
+    assert (summary_output / "geometry_transfer_forest.pdf").is_file()
     assert (summary_output / "paired_model_comparisons.csv").is_file()
     assert (summary_output / "context_heldout_accuracy.pdf").is_file()
+    with (summary_output / "model_summary.csv").open(
+        newline="", encoding="utf-8"
+    ) as handle:
+        model_summary = next(csv.DictReader(handle))
+    assert int(model_summary["valid_transfer_replicates"]) == 6 * 2 * 2 * 2
+    assert int(model_summary["total_transfer_replicates"]) == 6 * 2 * 2 * 2
+    with (summary_output / "predictive_increment.csv").open(
+        newline="", encoding="utf-8"
+    ) as handle:
+        predictive_fields = next(csv.reader(handle))
+    assert "capture_plus_representation_geometry_r2" in predictive_fields
+    assert "capture_plus_geometry_and_dependence_r2" in predictive_fields
+    assert "capture_plus_geometry_r2" not in predictive_fields
 
 
 def test_s2_launcher_requires_reviewed_manifests_and_runs_the_fixed_model_matrix():

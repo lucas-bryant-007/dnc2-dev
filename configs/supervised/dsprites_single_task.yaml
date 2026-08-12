@@ -1,0 +1,81 @@
+exp_name: resnet18_supervised_dsprites_scale
+seed: ${oc.env:DSPRITES_SEED,6}
+
+data:
+  name: dsprites
+  npz_path: ${oc.env:DSPRITES_NPZ,./data/dsprites/dsprites.npz}
+  img_size: 64
+  batch_size: 512
+  num_workers: 16
+  num_views: 2
+  task_factors: [scale, posX, posY]
+  shapes: [0, 1]
+  scale_threshold: 3
+  posx_threshold: 16
+  posy_threshold: 16
+  keep_levels:
+    scale: [0, 1, 4, 5]
+    posX: [0, 1, 2, 3, 28, 29, 30, 31]
+    posY: [0, 1, 2, 3, 28, 29, 30, 31]
+  pair_mode: exact
+  pair_factors: [scale, posX, posY]
+  max_samples: 200000
+  seed: 6
+
+model:
+  resnet_name: resnet18
+  pretrained: false
+  target_name: scale
+  lr: 3.0e-4
+  weight_decay: 1.0e-6
+  warmup_epochs: 5
+  min_lr: 0.0002
+
+trainer:
+  devices: 1
+  accelerator: gpu
+  strategy: auto
+  max_epochs: 81
+  accumulate_grad_batches: 1
+  use_distributed_sampler: false
+  num_sanity_val_steps: 0
+  log_every_n_steps: 50
+
+method:
+  name: supervised
+
+logging:
+  backend: csv
+  project: dnc
+  entity: null
+  run_name: supervised_dsprites_scale
+  tags: [supervised, dsprites, single_task]
+  log_model: false
+  log_every_n_steps: 50
+
+precision: bf16-mixed
+
+paths:
+  output_root: ${oc.env:OUTPUT_ROOT,./checkpoints}
+  exp_dir: ${oc.env:EXP_DIR,null}
+  resume_from_checkpoint: ${oc.env:RESUME_FROM_CHECKPOINT,null}
+
+ckpt_schedule:
+  dirpath: ${oc.env:CKPT_DIR,checkpoints/supervised_dsprites_scale}
+  early_every: 5
+  early_until: 40
+  late_every: 20
+  save_last: true
+
+probe:
+  enabled: false
+  every_n_epochs: 500
+  max_epochs: 10
+  lr: 0.1
+  weight_decay: 1.0e-6
+  batch_size: 256
+
+cdnv:
+  enabled: false
+  every_n_epochs: 20
+  num_classes: 2

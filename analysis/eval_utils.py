@@ -129,6 +129,9 @@ def load_model_from_checkpoint(ckpt_path, device='cpu'):
     elif method_name == 'ijepa':
         from models.ijepa import LightlyIJEPA
         model = LightlyIJEPA(cfg)
+    elif method_name == 'supervised':
+        from models.supervised import SupervisedAttributeModel
+        model = SupervisedAttributeModel(cfg)
     else:
         raise ValueError(f"Unsupported method {method_name} in checkpoint {ckpt_path}")
 
@@ -138,8 +141,10 @@ def load_model_from_checkpoint(ckpt_path, device='cpu'):
     return model, cfg
 
 def freeze_model(model):
+    model.eval()
     for param in model.parameters():
         param.requires_grad = False
+    return model
 
 def set_seed(seed=42):
     torch.manual_seed(seed)

@@ -419,7 +419,7 @@ def build_train_manifest(
             },
             "incremental_prediction_test": (
                 "target_clustered_cross_validated_capture_only_vs_"
-                "capture_plus_compositional_geometry"
+                "capture_plus_representation_geometry_then_label_dependence"
             ),
         },
     }
@@ -1536,11 +1536,20 @@ def _cluster_bootstrap_spearman(
 def _aggregate_evaluation(directory: Path, primary_shot: int) -> tuple[dict, list[dict]]:
     metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
     geometry = _read_csv(directory / "geometry.csv")
+    all_transfer = _read_csv(directory / "transfer.csv")
     transfer = [
         row
-        for row in _read_csv(directory / "transfer.csv")
+        for row in all_transfer
         if int(row["shot"]) == primary_shot and row["valid"] == "True"
     ]
+    metadata = {
+        **metadata,
+        "summary_primary_shot": int(primary_shot),
+        "primary_shot_transfer_rows": sum(
+            int(row["shot"]) == primary_shot for row in all_transfer
+        ),
+        "primary_shot_valid_transfer_rows": len(transfer),
+    }
     geometry_by_key = {
         (row["pair_id"], row["geometry_fold"], row["source_context"]): row
         for row in geometry
@@ -1574,6 +1583,10 @@ def _aggregate_evaluation(directory: Path, primary_shot: int) -> tuple[dict, lis
             "oracle_transfer_gap",
         ):
             record[metric] = _mean(_float(row, metric) for row in replicate_rows)
+        record["all_context_ood_gain"] = (
+            record["oracle_ood_balanced_accuracy"]
+            - record["source_ood_balanced_accuracy"]
+        )
         for metric in (
             "conditional_axis_cosine",
             "conditional_axis_abs_cosine",
@@ -1594,12 +1607,17 @@ def _aggregate_evaluation(directory: Path, primary_shot: int) -> tuple[dict, lis
 
 def _target_level_rows(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     numeric_keys = (
+        "source_id_balanced_accuracy",
         "source_ood_balanced_accuracy",
+        "source_transfer_gap",
+        "oracle_ood_balanced_accuracy",
+        "all_context_ood_gain",
         "target_capture_balanced",
         "conditional_axis_cosine",
         "interaction_defect_normalized",
         "midpoint_drift_abs",
         "transported_margin",
+        "target_context_abs_cosine",
         "abs_train_phi",
     )
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1609,7 +1627,7 @@ def _target_level_rows(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         {
             "target": target,
             **{
-                key: _mean(float(row[key]) for row in target_rows)
+                key: _mean(float(row.get(key, float("nan"))) for row in target_rows)
                 for key in numeric_keys
             },
         }
@@ -1622,7 +1640,14 @@ def _cross_validated_linear_score(
     predictors: Sequence[str],
     seed: int,
 ) -> dict[str, float]:
-    target_rows = _target_level_rows(rows)
+    return _cross_validated_target_score(_target_level_rows(rows), predictors, seed)
+
+
+def _cross_validated_target_score(
+    target_rows: Sequence[dict[str, Any]],
+    predictors: Sequence[str],
+    seed: int,
+) -> dict[str, float]:
     if len(target_rows) < max(8, len(predictors) + 2):
         return {"r2": float("nan"), "mae": float("nan"), "n_targets": len(target_rows)}
     features = np.asarray(
@@ -1660,6 +1685,131 @@ def _cross_validated_linear_score(
         "r2": float(1.0 - residual / total) if total > 1e-12 else float("nan"),
         "mae": float(np.mean(np.abs(outcome - prediction))),
         "n_targets": int(outcome.size),
+    }
+
+
+def _predictive_increment_robustness(
+    rows: Sequence[dict[str, Any]],
+    base_predictors: Sequence[str],
+    augmented_predictors: Sequence[str],
+    *,
+    seed: int,
+    repetitions: int,
+    permutations: int,
+) -> dict[str, Any]:
+    """Repeated target-fold CV plus a target-level added-predictor null.
+
+    The split interval measures sensitivity to target-fold assignment; it is not
+    an iid-image confidence interval. The permutation test is conditional on the
+    first, preregistered target-fold assignment so its observed and null statistics
+    use the same folds. It jointly shuffles the residualized predictor block added
+    to ``base_predictors`` while leaving the base block and OOD outcome paired.
+    Residualization preserves the added block's linear relation with the base
+    block. This asks whether the remaining added-block variation carries
+    target-level signal beyond the frozen base block.
+    """
+    if repetitions < 1 or permutations < 1:
+        raise ValueError("predictive repetitions and permutations must be positive")
+    target_rows = _target_level_rows(rows)
+    added_predictors = [
+        predictor for predictor in augmented_predictors if predictor not in base_predictors
+    ]
+    if not added_predictors:
+        raise ValueError("augmented predictors must add at least one field")
+    required = (*augmented_predictors, "source_ood_balanced_accuracy")
+    target_rows = [
+        row
+        for row in target_rows
+        if all(math.isfinite(float(row[key])) for key in required)
+    ]
+
+    base_scores = []
+    augmented_scores = []
+    increments = []
+    base_mae = []
+    augmented_mae = []
+    for repetition in range(repetitions):
+        fold_seed = seed + repetition * 104729
+        base = _cross_validated_target_score(target_rows, base_predictors, fold_seed)
+        augmented = _cross_validated_target_score(
+            target_rows, augmented_predictors, fold_seed
+        )
+        if math.isfinite(base["r2"]) and math.isfinite(augmented["r2"]):
+            base_scores.append(base["r2"])
+            augmented_scores.append(augmented["r2"])
+            increments.append(augmented["r2"] - base["r2"])
+            base_mae.append(base["mae"])
+            augmented_mae.append(augmented["mae"])
+
+    observed_increment = _mean(increments)
+    permutation_observed_increment = (
+        increments[0] if increments else float("nan")
+    )
+    rng = np.random.default_rng(seed + 999983)
+    base_matrix = np.asarray(
+        [[float(row[key]) for key in base_predictors] for row in target_rows],
+        dtype=np.float64,
+    )
+    added_matrix = np.asarray(
+        [[float(row[key]) for key in added_predictors] for row in target_rows],
+        dtype=np.float64,
+    )
+    residual_design = np.column_stack(
+        (np.ones(len(target_rows), dtype=np.float64), base_matrix)
+    )
+    residual_coefficients = np.linalg.lstsq(
+        residual_design, added_matrix, rcond=None
+    )[0]
+    added_fitted = residual_design @ residual_coefficients
+    added_residual = added_matrix - added_fitted
+    null_increments = []
+    for _ in range(permutations):
+        order = rng.permutation(len(target_rows))
+        permuted_rows = []
+        for row_index, row in enumerate(target_rows):
+            permuted = dict(row)
+            for predictor_index, predictor in enumerate(added_predictors):
+                permuted[predictor] = float(
+                    added_fitted[row_index, predictor_index]
+                    + added_residual[int(order[row_index]), predictor_index]
+                )
+            permuted_rows.append(permuted)
+        fold_seed = seed
+        base = _cross_validated_target_score(
+            permuted_rows, base_predictors, fold_seed
+        )
+        augmented = _cross_validated_target_score(
+            permuted_rows, augmented_predictors, fold_seed
+        )
+        if math.isfinite(base["r2"]) and math.isfinite(augmented["r2"]):
+            null_increments.append(augmented["r2"] - base["r2"])
+    p_value = (
+        (
+            1
+            + sum(
+                value >= permutation_observed_increment
+                for value in null_increments
+            )
+        )
+        / (1 + len(null_increments))
+        if math.isfinite(permutation_observed_increment) and null_increments
+        else float("nan")
+    )
+    increment_interval = _percentile_interval(increments)
+    return {
+        "base_r2_mean": _mean(base_scores),
+        "augmented_r2_mean": _mean(augmented_scores),
+        "r2_increment_mean": observed_increment,
+        "r2_increment_split_low": increment_interval[0],
+        "r2_increment_split_high": increment_interval[1],
+        "base_mae_mean": _mean(base_mae),
+        "augmented_mae_mean": _mean(augmented_mae),
+        "permutation_p": p_value,
+        "permutation_observed_r2_increment": permutation_observed_increment,
+        "permutation_fold_seed": seed,
+        "null_permutations": len(null_increments),
+        "split_repetitions": len(increments),
+        "n_targets": len(target_rows),
     }
 
 
@@ -1703,11 +1853,268 @@ def _paired_target_difference(
     }
 
 
+MODEL_DISPLAY_NAMES = {
+    "ijepa_celeba_epoch1000": "I-JEPA / CelebA",
+    "supervised_imagenet1k_resnet50": "supervised / ImageNet",
+    "vicreg_celeba_epoch1000": "VICReg / CelebA",
+    "vicreg_imagenet1k_resnet50": "VICReg / ImageNet",
+}
+
+
+def _display_model(encoder_id: str) -> str:
+    return MODEL_DISPLAY_NAMES.get(encoder_id, encoder_id.replace("_", " "))
+
+
+def _bootstrap_scalar_values(
+    values: Sequence[float], seed: int, repetitions: int
+) -> tuple[float, list[float]]:
+    finite = np.asarray([value for value in values if math.isfinite(value)], dtype=np.float64)
+    if finite.size == 0:
+        return float("nan"), [float("nan"), float("nan")]
+    rng = np.random.default_rng(seed)
+    draws = [
+        float(np.mean(rng.choice(finite, size=finite.size, replace=True)))
+        for _ in range(repetitions)
+    ]
+    return float(finite.mean()), _percentile_interval(draws)
+
+
+def _model_selection_rows(
+    by_model: dict[str, list[dict[str, Any]]],
+    *,
+    seed: int,
+    repetitions: int,
+) -> list[dict[str, Any]]:
+    """Evaluate transparent train-geometry model-selection rules by target."""
+    if len(by_model) < 2:
+        return []
+    target_rows = {
+        model: {row["target"]: row for row in _target_level_rows(rows)}
+        for model, rows in by_model.items()
+    }
+    targets = sorted(set.intersection(*(set(rows) for rows in target_rows.values())))
+    models = sorted(target_rows)
+    if not targets:
+        return []
+    fixed_oracle_model = max(
+        models,
+        key=lambda model: _mean(
+            target_rows[model][target]["source_ood_balanced_accuracy"]
+            for target in targets
+        ),
+    )
+    rules = (
+        ("random_model_expectation", None, False),
+        ("maximum_train_capture", "target_capture_balanced", False),
+        ("maximum_axis_alignment", "conditional_axis_cosine", False),
+        ("maximum_transported_margin", "transported_margin", False),
+        ("oracle_best_single_model", None, True),
+        ("oracle_best_model_per_target", None, True),
+    )
+    oracle_by_target = {
+        target: max(
+            target_rows[model][target]["source_ood_balanced_accuracy"]
+            for model in models
+        )
+        for target in targets
+    }
+    output = []
+    for rule_index, (rule, selection_metric, uses_heldout) in enumerate(rules):
+        values = []
+        regrets = []
+        counts: Counter[str] = Counter()
+        for target in targets:
+            if rule == "random_model_expectation":
+                value = _mean(
+                    target_rows[model][target]["source_ood_balanced_accuracy"]
+                    for model in models
+                )
+                counts["expected_uniform_mixture"] += 1
+            elif rule == "oracle_best_single_model":
+                value = target_rows[fixed_oracle_model][target][
+                    "source_ood_balanced_accuracy"
+                ]
+                counts[fixed_oracle_model] += 1
+            elif rule == "oracle_best_model_per_target":
+                selected = max(
+                    models,
+                    key=lambda model: target_rows[model][target][
+                        "source_ood_balanced_accuracy"
+                    ],
+                )
+                value = target_rows[selected][target]["source_ood_balanced_accuracy"]
+                counts[selected] += 1
+            else:
+                selected = max(
+                    models,
+                    key=lambda model: target_rows[model][target][selection_metric],
+                )
+                value = target_rows[selected][target]["source_ood_balanced_accuracy"]
+                counts[selected] += 1
+            values.append(float(value))
+            regrets.append(float(oracle_by_target[target] - value))
+        value_mean, value_interval = _bootstrap_scalar_values(
+            values, seed + rule_index * 101, repetitions
+        )
+        regret_mean, regret_interval = _bootstrap_scalar_values(
+            regrets, seed + rule_index * 101 + 1, repetitions
+        )
+        output.append(
+            {
+                "dataset": by_model[models[0]][0]["dataset"],
+                "rule": rule,
+                "selection_metric": selection_metric or "",
+                "uses_heldout_outcome": uses_heldout,
+                "ood_balanced_accuracy": value_mean,
+                "ood_balanced_accuracy_ci_low": value_interval[0],
+                "ood_balanced_accuracy_ci_high": value_interval[1],
+                "regret_to_per_target_oracle": regret_mean,
+                "regret_ci_low": regret_interval[0],
+                "regret_ci_high": regret_interval[1],
+                "n_targets": len(targets),
+                "n_models": len(models),
+                "selected_model_counts": json.dumps(dict(sorted(counts.items()))),
+                "resampling_unit": "target_attribute",
+            }
+        )
+    return output
+
+
+DEPENDENCE_STRATA = (
+    ("low", 0.0, 0.1),
+    ("moderate", 0.1, 0.3),
+    ("high", 0.3, float("inf")),
+)
+
+
+def _dependence_stratum(value: float) -> str | None:
+    if not math.isfinite(value):
+        return None
+    for name, lower, upper in DEPENDENCE_STRATA:
+        if lower <= value < upper:
+            return name
+    return None
+
+
+def _dependence_summary_rows(
+    by_model: dict[str, list[dict[str, Any]]],
+    *,
+    seed: int,
+    repetitions: int,
+) -> list[dict[str, Any]]:
+    metrics = (
+        "conditional_axis_cosine",
+        "target_context_abs_cosine",
+        "interaction_defect_normalized",
+        "source_ood_balanced_accuracy",
+    )
+    output = []
+    for model_index, encoder_id in enumerate(sorted(by_model)):
+        rows = by_model[encoder_id]
+        for stratum_index, (stratum, lower, upper) in enumerate(DEPENDENCE_STRATA):
+            selected = [
+                row
+                for row in rows
+                if _dependence_stratum(float(row["abs_train_phi"])) == stratum
+            ]
+            for metric_index, metric in enumerate(metrics):
+                mean, interval = _cluster_bootstrap_mean(
+                    selected,
+                    metric,
+                    seed=(
+                        seed
+                        + model_index * 1009
+                        + stratum_index * 101
+                        + metric_index
+                    ),
+                    repetitions=repetitions,
+                )
+                output.append(
+                    {
+                        "dataset": rows[0]["dataset"],
+                        "encoder_id": encoder_id,
+                        "stratum": stratum,
+                        "stratum_order": stratum_index,
+                        "abs_train_phi_lower": lower,
+                        "abs_train_phi_upper": upper if math.isfinite(upper) else "",
+                        "metric": metric,
+                        "mean": mean,
+                        "ci_low": interval[0],
+                        "ci_high": interval[1],
+                        "n_pair_source_fold_rows": len(selected),
+                        "n_targets": len({row["target"] for row in selected}),
+                        "resampling_unit": "target_attribute",
+                    }
+                )
+    return output
+
+
+def _shot_sensitivity_rows(
+    evaluations: Sequence[Path],
+    *,
+    seed: int,
+    repetitions: int,
+) -> list[dict[str, Any]]:
+    output = []
+    for model_index, directory in enumerate(evaluations):
+        metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8"))
+        transfer_rows = _read_csv(directory / "transfer.csv")
+        available_shots = sorted({int(row["shot"]) for row in transfer_rows})
+        for shot_index, shot in enumerate(available_shots):
+            _, rows = _aggregate_evaluation(directory, shot)
+            if not rows:
+                continue
+            record: dict[str, Any] = {
+                "dataset": metadata["dataset"],
+                "encoder_id": metadata["encoder_id"],
+                "shot": shot,
+                "valid_transfer_replicates": sum(
+                    int(row["shot"]) == shot and row["valid"] == "True"
+                    for row in transfer_rows
+                ),
+                "total_transfer_replicates": sum(
+                    int(row["shot"]) == shot for row in transfer_rows
+                ),
+                "target_attribute_count": len({row["target"] for row in rows}),
+            }
+            for metric_index, metric in enumerate(
+                (
+                    "source_id_balanced_accuracy",
+                    "source_ood_balanced_accuracy",
+                    "source_transfer_gap",
+                    "oracle_ood_balanced_accuracy",
+                )
+            ):
+                mean, interval = _cluster_bootstrap_mean(
+                    rows,
+                    metric,
+                    seed=(
+                        seed
+                        + model_index * 1009
+                        + shot_index * 101
+                        + metric_index
+                    ),
+                    repetitions=repetitions,
+                )
+                record[metric] = mean
+                record[f"{metric}_ci_low"] = interval[0]
+                record[f"{metric}_ci_high"] = interval[1]
+            output.append(record)
+    return output
+
+
 def summarize_command(args: argparse.Namespace) -> None:
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    try:
+        from .plot_style import apply_style
+    except ImportError:
+        from plot_style import apply_style
+
+    apply_style()
 
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=False)
@@ -1720,6 +2127,12 @@ def summarize_command(args: argparse.Namespace) -> None:
         all_rows.extend(rows)
     if not all_rows:
         raise ValueError("no valid primary-shot rows were found")
+    datasets = {metadata["dataset"] for metadata in metadata_records}
+    encoder_ids = [metadata["encoder_id"] for metadata in metadata_records]
+    if len(datasets) != 1:
+        raise ValueError(f"summary inputs mix datasets: {sorted(datasets)}")
+    if len(set(encoder_ids)) != len(encoder_ids):
+        raise ValueError("summary inputs contain duplicate encoder identities")
 
     model_rows = []
     association_rows = []
@@ -1739,10 +2152,10 @@ def summarize_command(args: argparse.Namespace) -> None:
             "target_attribute_count": len({row["target"] for row in rows}),
             "pair_source_fold_rows": len(rows),
             "valid_transfer_replicates": metadata_by_model[encoder_id][
-                "valid_transfer_rows"
+                "primary_shot_valid_transfer_rows"
             ],
             "total_transfer_replicates": metadata_by_model[encoder_id][
-                "transfer_rows"
+                "primary_shot_transfer_rows"
             ],
             "valid_geometry_rows": metadata_by_model[encoder_id][
                 "valid_geometry_rows"
@@ -1756,6 +2169,7 @@ def summarize_command(args: argparse.Namespace) -> None:
             "source_ood_balanced_accuracy",
             "source_transfer_gap",
             "oracle_ood_balanced_accuracy",
+            "all_context_ood_gain",
             "conditional_axis_cosine",
             "interaction_defect_normalized",
             "transported_margin",
@@ -1771,22 +2185,31 @@ def summarize_command(args: argparse.Namespace) -> None:
             summary[f"{metric}_ci_high"] = interval[1]
         model_rows.append(summary)
 
-        capture_score = _cross_validated_linear_score(
-            rows,
-            ("target_capture_balanced",),
-            seed=args.bootstrap_seed + model_index * 101,
+        capture_predictors = ("target_capture_balanced",)
+        geometry_predictors = (
+            "target_capture_balanced",
+            "conditional_axis_cosine",
+            "interaction_defect_normalized",
+            "midpoint_drift_abs",
+            "transported_margin",
+            "target_context_abs_cosine",
         )
-        geometry_score = _cross_validated_linear_score(
+        full_predictors = (*geometry_predictors, "abs_train_phi")
+        geometry_increment = _predictive_increment_robustness(
             rows,
-            (
-                "target_capture_balanced",
-                "conditional_axis_cosine",
-                "interaction_defect_normalized",
-                "midpoint_drift_abs",
-                "transported_margin",
-                "abs_train_phi",
-            ),
+            capture_predictors,
+            geometry_predictors,
             seed=args.bootstrap_seed + model_index * 101,
+            repetitions=args.predictive_cv_repetitions,
+            permutations=args.predictive_null_permutations,
+        )
+        dependence_increment = _predictive_increment_robustness(
+            rows,
+            geometry_predictors,
+            full_predictors,
+            seed=args.bootstrap_seed + model_index * 101 + 17,
+            repetitions=args.predictive_cv_repetitions,
+            permutations=args.predictive_null_permutations,
         )
         predictive_increment_rows.append(
             {
@@ -1794,18 +2217,66 @@ def summarize_command(args: argparse.Namespace) -> None:
                 "encoder_id": encoder_id,
                 "unit": "target_attribute_after_within_target_averaging",
                 "folds": 5,
-                "capture_only_r2": capture_score["r2"],
-                "capture_plus_geometry_r2": geometry_score["r2"],
-                "r2_increment": geometry_score["r2"] - capture_score["r2"],
-                "capture_only_mae": capture_score["mae"],
-                "capture_plus_geometry_mae": geometry_score["mae"],
-                "n_targets": geometry_score["n_targets"],
+                "split_repetitions": geometry_increment["split_repetitions"],
+                "capture_only_r2": geometry_increment["base_r2_mean"],
+                "capture_plus_representation_geometry_r2": geometry_increment[
+                    "augmented_r2_mean"
+                ],
+                "representation_geometry_r2_increment": geometry_increment[
+                    "r2_increment_mean"
+                ],
+                "geometry_increment_split_low": geometry_increment[
+                    "r2_increment_split_low"
+                ],
+                "geometry_increment_split_high": geometry_increment[
+                    "r2_increment_split_high"
+                ],
+                "geometry_increment_permutation_p": geometry_increment[
+                    "permutation_p"
+                ],
+                "geometry_permutation_observed_increment": geometry_increment[
+                    "permutation_observed_r2_increment"
+                ],
+                "geometry_permutation_fold_seed": geometry_increment[
+                    "permutation_fold_seed"
+                ],
+                "capture_plus_geometry_and_dependence_r2": dependence_increment[
+                    "augmented_r2_mean"
+                ],
+                "dependence_r2_increment_beyond_geometry": dependence_increment[
+                    "r2_increment_mean"
+                ],
+                "dependence_increment_split_low": dependence_increment[
+                    "r2_increment_split_low"
+                ],
+                "dependence_increment_split_high": dependence_increment[
+                    "r2_increment_split_high"
+                ],
+                "dependence_increment_permutation_p": dependence_increment[
+                    "permutation_p"
+                ],
+                "dependence_permutation_observed_increment": dependence_increment[
+                    "permutation_observed_r2_increment"
+                ],
+                "dependence_permutation_fold_seed": dependence_increment[
+                    "permutation_fold_seed"
+                ],
+                "capture_only_mae": geometry_increment["base_mae_mean"],
+                "capture_plus_representation_geometry_mae": geometry_increment[
+                    "augmented_mae_mean"
+                ],
+                "capture_plus_geometry_and_dependence_mae": dependence_increment[
+                    "augmented_mae_mean"
+                ],
+                "null_permutations": geometry_increment["null_permutations"],
+                "n_targets": geometry_increment["n_targets"],
             }
         )
 
         associations = (
             ("conditional_axis_cosine", "source_ood_balanced_accuracy"),
             ("transported_margin", "source_ood_balanced_accuracy"),
+            ("target_context_abs_cosine", "source_ood_balanced_accuracy"),
             ("interaction_defect_normalized", "source_transfer_gap"),
             ("midpoint_drift_abs", "source_transfer_gap"),
             ("abs_train_phi", "source_transfer_gap"),
@@ -1836,12 +2307,19 @@ def summarize_command(args: argparse.Namespace) -> None:
         (
             "vicreg_imagenet1k_resnet50",
             "supervised_imagenet1k_resnet50",
-            "architecture_matched_imagenet1k_objective_comparison",
+            "architecture_and_pretraining_dataset_matched_objective_recipe_"
+            "comparison",
         ),
         (
             "vicreg_celeba_epoch1000",
             "ijepa_celeba_epoch1000",
             "descriptive_local_checkpoint_comparison",
+        ),
+        (
+            "vicreg_celeba_epoch1000",
+            "vicreg_imagenet1k_resnet50",
+            "architecture_and_objective_matched_pretraining_dataset_and_recipe_"
+            "comparison",
         ),
     )
     for comparison_index, (first_model, second_model, interpretation) in enumerate(
@@ -1877,6 +2355,22 @@ def summarize_command(args: argparse.Namespace) -> None:
                 }
             )
 
+    dependence_rows = _dependence_summary_rows(
+        by_model,
+        seed=args.bootstrap_seed + 20011,
+        repetitions=args.bootstrap_repetitions,
+    )
+    model_selection_rows = _model_selection_rows(
+        by_model,
+        seed=args.bootstrap_seed + 30011,
+        repetitions=args.bootstrap_repetitions,
+    )
+    shot_rows = _shot_sensitivity_rows(
+        evaluations,
+        seed=args.bootstrap_seed + 40011,
+        repetitions=args.bootstrap_repetitions,
+    )
+
     model_fields = list(model_rows[0])
     _write_csv(output / "model_summary.csv", model_fields, model_rows)
     _write_csv(
@@ -1886,18 +2380,7 @@ def summarize_command(args: argparse.Namespace) -> None:
     )
     _write_csv(
         output / "predictive_increment.csv",
-        (
-            "dataset",
-            "encoder_id",
-            "unit",
-            "folds",
-            "capture_only_r2",
-            "capture_plus_geometry_r2",
-            "r2_increment",
-            "capture_only_mae",
-            "capture_plus_geometry_mae",
-            "n_targets",
-        ),
+        tuple(predictive_increment_rows[0]),
         predictive_increment_rows,
     )
     _write_csv(
@@ -1917,71 +2400,321 @@ def summarize_command(args: argparse.Namespace) -> None:
         ),
         paired_comparison_rows,
     )
+    _write_csv(
+        output / "dependence_strata.csv",
+        tuple(dependence_rows[0]) if dependence_rows else (),
+        dependence_rows,
+    )
+    _write_csv(
+        output / "model_selection.csv",
+        tuple(model_selection_rows[0]) if model_selection_rows else (),
+        model_selection_rows,
+    )
+    _write_csv(
+        output / "shot_sensitivity.csv",
+        tuple(shot_rows[0]) if shot_rows else (),
+        shot_rows,
+    )
 
-    labels = [row["encoder_id"] for row in model_rows]
+    labels = [_display_model(row["encoder_id"]) for row in model_rows]
     positions = np.arange(len(labels))
-    width = 0.25
-    fig, axis = plt.subplots(figsize=(max(8.0, 1.6 * len(labels)), 5.2))
-    for offset, (metric, label, color) in enumerate(
+    fig, axes = plt.subplots(1, 2, figsize=(max(10.5, 2.25 * len(labels)), 4.9))
+    for offset, (metric, label, color, marker) in enumerate(
         (
-            ("source_id_balanced_accuracy", "source-context ID", "#4c78a8"),
-            ("source_ood_balanced_accuracy", "source-context OOD", "#f58518"),
-            ("oracle_ood_balanced_accuracy", "all-context oracle OOD", "#54a24b"),
+            (
+                "source_ood_balanced_accuracy",
+                "labels from one context",
+                "#0072B2",
+                "o",
+            ),
+            (
+                "oracle_ood_balanced_accuracy",
+                "same-budget labels from both contexts",
+                "#009E73",
+                "s",
+            ),
         )
     ):
-        values = np.asarray([row[metric] for row in model_rows])
-        lower = values - np.asarray([row[f"{metric}_ci_low"] for row in model_rows])
-        upper = np.asarray([row[f"{metric}_ci_high"] for row in model_rows]) - values
-        axis.bar(
-            positions + (offset - 1) * width,
-            values,
-            width,
-            label=label,
-            color=color,
-            yerr=np.vstack((lower, upper)),
-            capsize=3,
+        values = 100.0 * (np.asarray([row[metric] for row in model_rows]) - 0.5)
+        lower = 100.0 * (
+            np.asarray([row[metric] for row in model_rows])
+            - np.asarray([row[f"{metric}_ci_low"] for row in model_rows])
         )
-    axis.axhline(0.5, color="black", linewidth=1, linestyle="--", alpha=0.6)
-    axis.set_ylabel("Balanced accuracy")
-    axis.set_xticks(positions, labels, rotation=20, ha="right")
-    axis.set_ylim(0.0, 1.0)
-    axis.legend(frameon=False)
-    axis.set_title(f"Context-held-out transfer, m={args.primary_shot} per target class")
+        upper = 100.0 * (
+            np.asarray([row[f"{metric}_ci_high"] for row in model_rows])
+            - np.asarray([row[metric] for row in model_rows])
+        )
+        lower = np.maximum(lower, 0.0)
+        upper = np.maximum(upper, 0.0)
+        axes[0].errorbar(
+            positions + (offset - 0.5) * 0.16,
+            values,
+            yerr=np.vstack((lower, upper)),
+            fmt=marker,
+            color=color,
+            capsize=3,
+            linestyle="none",
+            label=label,
+        )
+    gap = 100.0 * np.asarray([row["source_transfer_gap"] for row in model_rows])
+    gap_lower = 100.0 * (
+        np.asarray([row["source_transfer_gap"] for row in model_rows])
+        - np.asarray([row["source_transfer_gap_ci_low"] for row in model_rows])
+    )
+    gap_upper = 100.0 * (
+        np.asarray([row["source_transfer_gap_ci_high"] for row in model_rows])
+        - np.asarray([row["source_transfer_gap"] for row in model_rows])
+    )
+    gap_lower = np.maximum(gap_lower, 0.0)
+    gap_upper = np.maximum(gap_upper, 0.0)
+    axes[1].errorbar(
+        positions,
+        gap,
+        yerr=np.vstack((gap_lower, gap_upper)),
+        fmt="o",
+        color="#D55E00",
+        capsize=3,
+        linestyle="none",
+    )
+    axes[0].axhline(0.0, color="0.25", linewidth=1, linestyle="--")
+    axes[1].axhline(0.0, color="0.25", linewidth=1, linestyle="--")
+    axes[0].set_ylabel("OOD gain over chance (percentage points)")
+    axes[1].set_ylabel("ID - OOD drop (percentage points)")
+    for axis in axes:
+        axis.set_xticks(positions, labels, rotation=24, ha="right")
+    axes[0].legend(frameon=False, fontsize=11)
     fig.tight_layout()
     fig.savefig(output / "context_heldout_accuracy.png", dpi=220)
     fig.savefig(output / "context_heldout_accuracy.pdf")
     plt.close(fig)
 
-    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.8))
-    colors = plt.get_cmap("tab10")
-    for model_index, encoder_id in enumerate(sorted(by_model)):
-        rows = by_model[encoder_id]
-        axes[0].scatter(
-            [row["transported_margin"] for row in rows],
-            [row["source_ood_balanced_accuracy"] for row in rows],
-            s=9,
-            alpha=0.18,
-            color=colors(model_index),
-            label=encoder_id,
-        )
-        axes[1].scatter(
-            [row["interaction_defect_normalized"] for row in rows],
-            [row["source_transfer_gap"] for row in rows],
-            s=9,
-            alpha=0.18,
-            color=colors(model_index),
-            label=encoder_id,
-        )
-    axes[0].set_xlabel("Transported training margin")
-    axes[0].set_ylabel("OOD balanced accuracy")
-    axes[1].set_xlabel("Normalized additive interaction defect")
-    axes[1].set_ylabel("ID - OOD balanced accuracy")
-    axes[0].legend(frameon=False, markerscale=2)
-    for axis in axes:
-        axis.grid(alpha=0.15)
+    primary_associations = (
+        ("target_capture_balanced", "capture"),
+        ("conditional_axis_cosine", "axis alignment"),
+        ("transported_margin", "transported margin"),
+    )
+    fig, axes = plt.subplots(1, 3, figsize=(12.3, 4.5), sharey=True)
+    model_order = sorted(by_model)
+    for axis, (x_key, label) in zip(axes, primary_associations, strict=True):
+        selected = {
+            row["encoder_id"]: row
+            for row in association_rows
+            if row["x"] == x_key and row["y"] == "source_ood_balanced_accuracy"
+        }
+        for position, encoder_id in enumerate(model_order):
+            row = selected[encoder_id]
+            axis.errorbar(
+                row["spearman"],
+                position,
+                xerr=np.asarray(
+                    [
+                        [max(0.0, row["spearman"] - row["ci_low"])],
+                        [max(0.0, row["ci_high"] - row["spearman"])],
+                    ]
+                ),
+                fmt="o",
+                color="#0072B2",
+                capsize=3,
+            )
+        axis.axvline(0.0, color="0.25", linewidth=1, linestyle="--")
+        axis.set_xlim(-1.0, 1.0)
+        axis.set_xlabel(f"Spearman with OOD accuracy\n{label}")
+    axes[0].set_yticks(
+        np.arange(len(model_order)), [_display_model(model) for model in model_order]
+    )
     fig.tight_layout()
-    fig.savefig(output / "geometry_transfer_association.png", dpi=220)
-    fig.savefig(output / "geometry_transfer_association.pdf")
+    fig.savefig(output / "geometry_transfer_forest.png", dpi=220)
+    fig.savefig(output / "geometry_transfer_forest.pdf")
+    plt.close(fig)
+
+    fig, axes = plt.subplots(1, 2, figsize=(10.8, 4.6), sharex=True)
+    palette = ("#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00", "#56B4E9")
+    stratum_names = [row[0] for row in DEPENDENCE_STRATA]
+    stratum_positions = np.arange(len(stratum_names))
+    for model_index, encoder_id in enumerate(model_order):
+        for axis, metric in zip(
+            axes,
+            ("conditional_axis_cosine", "source_ood_balanced_accuracy"),
+            strict=True,
+        ):
+            selected = [
+                row
+                for row in dependence_rows
+                if row["encoder_id"] == encoder_id and row["metric"] == metric
+            ]
+            selected.sort(key=lambda row: row["stratum_order"])
+            values = np.asarray([row["mean"] for row in selected])
+            if metric == "source_ood_balanced_accuracy":
+                values = 100.0 * (values - 0.5)
+                lower = 100.0 * (
+                    np.asarray([row["mean"] - row["ci_low"] for row in selected])
+                )
+                upper = 100.0 * (
+                    np.asarray([row["ci_high"] - row["mean"] for row in selected])
+                )
+            else:
+                lower = np.asarray([row["mean"] - row["ci_low"] for row in selected])
+                upper = np.asarray([row["ci_high"] - row["mean"] for row in selected])
+            lower = np.maximum(lower, 0.0)
+            upper = np.maximum(upper, 0.0)
+            axis.errorbar(
+                stratum_positions,
+                values,
+                yerr=np.vstack((lower, upper)),
+                marker="o",
+                capsize=2,
+                color=palette[model_index % len(palette)],
+                label=_display_model(encoder_id),
+            )
+    axes[0].set_ylabel("Conditional-axis alignment")
+    axes[1].set_ylabel("OOD gain over chance (percentage points)")
+    for axis in axes:
+        axis.set_xticks(stratum_positions, ("low", "moderate", "high"))
+        axis.set_xlabel(r"train-label dependence $|\phi|$")
+    axes[0].legend(frameon=False, fontsize=10)
+    fig.tight_layout()
+    fig.savefig(output / "dependence_strata.png", dpi=220)
+    fig.savefig(output / "dependence_strata.pdf")
+    plt.close(fig)
+
+    if model_selection_rows:
+        selection_labels = {
+            "random_model_expectation": "random model",
+            "maximum_train_capture": "max capture",
+            "maximum_axis_alignment": "max axis alignment",
+            "maximum_transported_margin": "max transported margin",
+            "oracle_best_single_model": "best fixed model*",
+            "oracle_best_model_per_target": "best per target*",
+        }
+        values = 100.0 * np.asarray(
+            [row["ood_balanced_accuracy"] - 0.5 for row in model_selection_rows]
+        )
+        lower = 100.0 * np.asarray(
+            [
+                row["ood_balanced_accuracy"] - row["ood_balanced_accuracy_ci_low"]
+                for row in model_selection_rows
+            ]
+        )
+        upper = 100.0 * np.asarray(
+            [
+                row["ood_balanced_accuracy_ci_high"] - row["ood_balanced_accuracy"]
+                for row in model_selection_rows
+            ]
+        )
+        lower = np.maximum(lower, 0.0)
+        upper = np.maximum(upper, 0.0)
+        colors = [
+            "0.68" if row["uses_heldout_outcome"] else "#0072B2"
+            for row in model_selection_rows
+        ]
+        fig, axis = plt.subplots(figsize=(8.6, 4.8))
+        axis.bar(
+            np.arange(len(values)),
+            values,
+            yerr=np.vstack((lower, upper)),
+            color=colors,
+            capsize=3,
+        )
+        axis.axhline(0.0, color="0.25", linewidth=1, linestyle="--")
+        axis.set_ylabel("OOD gain over chance (percentage points)")
+        axis.set_xticks(
+            np.arange(len(values)),
+            [selection_labels[row["rule"]] for row in model_selection_rows],
+            rotation=24,
+            ha="right",
+        )
+        axis.text(
+            0.99,
+            0.98,
+            "*held-out reference",
+            transform=axis.transAxes,
+            ha="right",
+            va="top",
+            fontsize=10,
+            color="0.35",
+        )
+        fig.tight_layout()
+        fig.savefig(output / "train_geometry_model_selection.png", dpi=220)
+        fig.savefig(output / "train_geometry_model_selection.pdf")
+        plt.close(fig)
+
+    if len({row["shot"] for row in shot_rows}) >= 2:
+        fig, axis = plt.subplots(figsize=(7.6, 4.8))
+        for model_index, encoder_id in enumerate(model_order):
+            selected = sorted(
+                (row for row in shot_rows if row["encoder_id"] == encoder_id),
+                key=lambda row: row["shot"],
+            )
+            shots = np.asarray([row["shot"] for row in selected])
+            values = 100.0 * np.asarray(
+                [row["source_ood_balanced_accuracy"] - 0.5 for row in selected]
+            )
+            lower = 100.0 * np.asarray(
+                [
+                    row["source_ood_balanced_accuracy"]
+                    - row["source_ood_balanced_accuracy_ci_low"]
+                    for row in selected
+                ]
+            )
+            upper = 100.0 * np.asarray(
+                [
+                    row["source_ood_balanced_accuracy_ci_high"]
+                    - row["source_ood_balanced_accuracy"]
+                    for row in selected
+                ]
+            )
+            lower = np.maximum(lower, 0.0)
+            upper = np.maximum(upper, 0.0)
+            axis.errorbar(
+                shots,
+                values,
+                yerr=np.vstack((lower, upper)),
+                marker="o",
+                capsize=2,
+                color=palette[model_index % len(palette)],
+                label=_display_model(encoder_id),
+            )
+        axis.axhline(0.0, color="0.25", linewidth=1, linestyle="--")
+        axis.set_xscale("log", base=2)
+        axis.set_xticks(
+            sorted({row["shot"] for row in shot_rows}),
+            [str(shot) for shot in sorted({row["shot"] for row in shot_rows})],
+        )
+        axis.set_xlabel("labeled examples per target class")
+        axis.set_ylabel("OOD gain over chance (percentage points)")
+        axis.legend(frameon=False, fontsize=10)
+        fig.tight_layout()
+        fig.savefig(output / "shot_sensitivity.png", dpi=220)
+        fig.savefig(output / "shot_sensitivity.pdf")
+        plt.close(fig)
+
+    increments = np.asarray(
+        [row["representation_geometry_r2_increment"] for row in predictive_increment_rows]
+    )
+    increment_lower = increments - np.asarray(
+        [row["geometry_increment_split_low"] for row in predictive_increment_rows]
+    )
+    increment_upper = np.asarray(
+        [row["geometry_increment_split_high"] for row in predictive_increment_rows]
+    ) - increments
+    increment_lower = np.maximum(increment_lower, 0.0)
+    increment_upper = np.maximum(increment_upper, 0.0)
+    fig, axis = plt.subplots(figsize=(7.4, max(3.4, 0.7 * len(labels) + 1.6)))
+    axis.errorbar(
+        increments,
+        positions,
+        xerr=np.vstack((increment_lower, increment_upper)),
+        fmt="o",
+        color="#0072B2",
+        capsize=3,
+        linestyle="none",
+    )
+    axis.axvline(0.0, color="0.25", linewidth=1, linestyle="--")
+    axis.set_xlabel(r"cross-validated $R^2$ gain beyond capture")
+    axis.set_yticks(positions, labels)
+    fig.tight_layout()
+    fig.savefig(output / "geometry_beyond_capture.png", dpi=220)
+    fig.savefig(output / "geometry_beyond_capture.pdf")
     plt.close(fig)
 
     summary = {
@@ -1996,11 +2729,33 @@ def summarize_command(args: argparse.Namespace) -> None:
                 "across_target_empirical_variability_not_iid_image_sampling_inference"
             ),
         },
+        "predictive_increment_protocol": {
+            "unit": "target_attribute_after_within_target_averaging",
+            "folds": 5,
+            "split_repetitions": args.predictive_cv_repetitions,
+            "null_permutations": args.predictive_null_permutations,
+            "geometry_block_excludes_label_dependence": True,
+            "dependence_added_only_in_final_tier": True,
+            "permutation_test_conditioning": (
+                "fixed_first_target_fold_assignment_for_both_observed_and_null"
+            ),
+            "permutation_null": (
+                "joint_row_permutation_of_added_predictor_residuals_after_linear_"
+                "projection_on_the_base_block"
+            ),
+            "split_interval_interpretation": (
+                "sensitivity_to_deterministic_target_fold_assignments_not_a_"
+                "sampling_confidence_interval"
+            ),
+        },
         "evaluations": metadata_records,
         "model_summary": model_rows,
         "geometry_associations": association_rows,
         "predictive_increment": predictive_increment_rows,
         "paired_model_comparisons": paired_comparison_rows,
+        "dependence_strata": dependence_rows,
+        "model_selection": model_selection_rows,
+        "shot_sensitivity": shot_rows,
     }
     _write_json(output / "summary.json", summary)
     files = sorted(path for path in output.rglob("*") if path.is_file())
@@ -2068,6 +2823,8 @@ def build_parser() -> argparse.ArgumentParser:
     summarize.add_argument("--primary-shot", type=int, default=32)
     summarize.add_argument("--bootstrap-repetitions", type=int, default=2000)
     summarize.add_argument("--bootstrap-seed", type=int, default=20260811)
+    summarize.add_argument("--predictive-cv-repetitions", type=int, default=200)
+    summarize.add_argument("--predictive-null-permutations", type=int, default=999)
     summarize.set_defaults(function=summarize_command)
     return parser
 

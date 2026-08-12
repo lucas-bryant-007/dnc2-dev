@@ -1,6 +1,6 @@
 # Experiment name and seed
 exp_name: resnet18_vicreg_dsprites
-seed: 6
+seed: ${oc.env:DSPRITES_SEED,6}
 
 # Data configuration
 data:
@@ -28,11 +28,14 @@ data:
     posY: [0, 1, 2, 3, 28, 29, 30, 31]
   pair_mode: exact          # positives share EXACT scale/posX/posY; shape+orientation resampled
                             # (well-posed match -> encoder must encode all 3 task factors -> full box + swarms)
+  pair_factors: ${oc.env:DSPRITES_PAIR_FACTORS,[scale, posX, posY]}
+                            # controlled ablation: omit a factor to make it vary across views
   max_samples: 200000       # subsample for a fast train (null = use all)
+  seed: 6                   # freeze the data subset across initialization seeds
 
 # Model configuration
 model:
-  resnet_name: "resnet18"
+  resnet_name: ${oc.env:DSPRITES_RESNET,resnet18}
   pretrained: false
   lr: 3.0e-4         # Base learning rate (will be scaled by world_size*bs/256)
   weight_decay: 1e-6
@@ -82,7 +85,7 @@ paths:
 
 # Checkpoint scheduling configuration
 ckpt_schedule:
-  dirpath: "checkpoints/vicreg_dsprites"  # overwritten to exp_dir/checkpoints in train.py if null
+  dirpath: ${oc.env:CKPT_DIR,checkpoints/vicreg_dsprites}
   early_every: 5      # save every 5 epochs...
   early_until: 40     # ...up to epoch 40
   late_every: 20      # then every 20 epochs

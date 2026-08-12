@@ -4,12 +4,27 @@ import types
 import pytest
 import torch
 
-from analysis.eval_utils import extract_features, load_model_from_checkpoint
+from analysis.eval_utils import extract_features, freeze_model, load_model_from_checkpoint
 
 
 class IdentityBackbone(torch.nn.Module):
     def forward(self, images):
         return images
+
+
+def test_freeze_model_enters_eval_mode_and_disables_gradients():
+    model = torch.nn.Sequential(
+        torch.nn.Linear(3, 4),
+        torch.nn.BatchNorm1d(4),
+    )
+    model.train()
+
+    returned = freeze_model(model)
+
+    assert returned is model
+    assert not model.training
+    assert not model[1].training
+    assert all(not parameter.requires_grad for parameter in model.parameters())
 
 
 def _batch(views):

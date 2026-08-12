@@ -42,6 +42,10 @@ Experiment drivers:
   controlled synthetic experiments.
 - `analysis/run_paper_rerun_s2.sh` - frozen four-GPU post-audit paper rerun;
   see `docs/s2_paper_rerun.md`.
+- `analysis/run_compositional_followups_s2.sh` - corrected real-data transfer
+  summaries, geometry diagnostics, model selection, and shot sensitivity.
+- `analysis/run_augmentation_survival_s2.sh` - replicated causal view-sharing,
+  training-dynamics, supervised-objective, and model-scale controls.
 - `analysis/run_pretrained_crossfit.sh` - historical full-support launcher.
 - `analysis/compare_pretrained_crossfit.py` - protocol-aware fresh/reference
   comparison; estimator changes are reported as non-reproductions rather than
@@ -70,6 +74,7 @@ Supporting packages:
 - `docs/celeba_experiment.md`
 - `docs/cub200_experiment.md`
 - `docs/s2_paper_rerun.md`
+- `docs/paper_experiment_matrix.md`
 - `analysis/pusht/README.md`
 
 ## Current state
