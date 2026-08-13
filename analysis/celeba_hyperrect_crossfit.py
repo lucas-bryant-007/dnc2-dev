@@ -75,6 +75,7 @@ def _fixed_train_constraints(args):
         "min_capture": args.min_capture,
         "cos_ceiling": args.cos_ceiling,
         "vit_pooling": getattr(args, "vit_pooling", "cls"),
+        "vit_encoder": getattr(args, "vit_encoder", "student"),
         "analysis_whiten_rel_eig_threshold": (
             args.analysis_whiten_rel_eig_threshold
         ),
@@ -715,6 +716,42 @@ def _select_balanced_train_triple(
     )
 
 
+def _select_encoder(model, which):
+    """Return the module features are read from.
+
+    I-JEPA convention evaluates the target (EMA teacher) encoder rather than the
+    student. Both are ``MaskedVisionTransformerTIMM`` instances, so either works
+    with the extraction helpers.
+
+    A legacy checkpoint that stored no EMA weights has its teacher rebuilt from
+    the student at load time, which would make a student/teacher comparison
+    vacuous while still appearing to run. That case is detected and reported
+    rather than silently producing two identical results.
+    """
+    if which == "student":
+        return model.backbone
+    teacher = getattr(model, "teacher", None)
+    if teacher is None:
+        raise ValueError(
+            "--vit_encoder teacher requires a model exposing a `teacher` module; "
+            f"{type(model).__name__} does not"
+        )
+    distinct = any(
+        not torch.equal(t.data, s.data)
+        for t, s in zip(teacher.parameters(), model.backbone.parameters())
+    )
+    print(f"Encoder: teacher (weights distinct from student: {distinct})")
+    if not distinct:
+        warnings.warn(
+            "Teacher parameters are identical to the student, so this checkpoint "
+            "carried no EMA weights and the teacher was reconstructed on load. "
+            "Student and teacher results will be identical.",
+            UserWarning,
+            stacklevel=2,
+        )
+    return teacher
+
+
 def _evaluate_balanced_test_seed(
     test_features,
     test_attrs,
@@ -847,7 +884,7 @@ def _extract_dataset_coordinates(
     loader = _loader(dataset, data_cfg, transforms, attr_names)
     features, attr_matrix = extract_features_and_attrs(
         loader,
-        model.backbone,
+        _select_encoder(model, args.vit_encoder),
         args.device,
         max_samples=args.max_samples,
         vit_pooling=args.vit_pooling,
@@ -977,7 +1014,7 @@ def main(args):
     paired_train_loader = data_module.paired_train_dataloader()
     z1, z2, _ = extract_features(
         paired_train_loader,
-        model.backbone,
+        _select_encoder(model, args.vit_encoder),
         device=args.device,
         both_views=True,
         vit_pooling=args.vit_pooling,
@@ -1530,6 +1567,14 @@ if __name__ == "__main__":
             "0 from both idx_keep and idx_mask, so the CLS token never receives a "
             "gradient. 'mean' averages the patch tokens, the protocol the I-JEPA "
             "paper uses. No effect on ResNet backbones."
+        ),
+    )
+    parser.add_argument(
+        "--vit_encoder", choices=("student", "teacher"), default="student",
+        help=(
+            "Which encoder to read features from. I-JEPA convention evaluates "
+            "the target (EMA teacher) encoder; the student is what training "
+            "optimises directly. Ignored by models without a teacher module."
         ),
     )
     parser.add_argument("--out_dir", default=".")

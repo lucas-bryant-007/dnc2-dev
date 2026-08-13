@@ -118,3 +118,64 @@ def test_epoch_zero_checkpoint_loads_state_dict_strictly(tmp_path, monkeypatch):
     load_model_from_checkpoint(checkpoint)
     assert calls and calls[0][1] is True
     assert calls[0][0]["backbone.weight"].item() == 7.0
+
+
+def _encoder_pair(distinct):
+    """Minimal stand-in for LightlyIJEPA's student/teacher pair."""
+    import copy
+
+    class Model(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.backbone = torch.nn.Linear(3, 3)
+            self.teacher = copy.deepcopy(self.backbone)
+            if distinct:
+                with torch.no_grad():
+                    self.teacher.weight.add_(1.0)
+
+    return Model()
+
+
+def test_select_encoder_returns_the_requested_module():
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "analysis"))
+    from celeba_hyperrect_crossfit import _select_encoder
+
+    model = _encoder_pair(distinct=True)
+    assert _select_encoder(model, "student") is model.backbone
+    assert _select_encoder(model, "teacher") is model.teacher
+
+
+def test_select_encoder_warns_when_teacher_is_a_copy_of_the_student():
+    """A legacy checkpoint rebuilds the teacher from the student.
+
+    Without this warning the comparison would run to completion and produce two
+    identical results that look like a finding.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "analysis"))
+    from celeba_hyperrect_crossfit import _select_encoder
+
+    model = _encoder_pair(distinct=False)
+    with pytest.warns(UserWarning, match="identical to the student"):
+        _select_encoder(model, "teacher")
+
+
+def test_select_encoder_rejects_a_model_without_a_teacher():
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "analysis"))
+    from celeba_hyperrect_crossfit import _select_encoder
+
+    class OnlyStudent(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.backbone = torch.nn.Linear(2, 2)
+
+    with pytest.raises(ValueError, match="teacher"):
+        _select_encoder(OnlyStudent(), "teacher")
