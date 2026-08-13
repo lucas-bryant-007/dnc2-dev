@@ -26,6 +26,7 @@ import os
 import sys
 
 import torch
+from torch.utils.data import DataLoader
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from training.config_loader import load_config, dict_to_namespace  # noqa: E402
@@ -76,20 +77,30 @@ def main(args):
     freeze_model(model)
 
     imgs, _latents, bits, group_of, groups = core.build_arrays(data_cfg)
-    paired = core.make_paired_loader(
+    # The cores hardcode drop_last=True and shuffle=True on their paired
+    # loaders, which are training defaults. Analysis needs every instance
+    # exactly once in a fixed order, so rebuild the loader over the core's own
+    # dataset and collate rather than reusing the training one.
+    base = core.make_paired_loader(
         data_cfg, imgs=imgs, bits=bits, group_of=group_of, groups=groups
+    )
+    paired = DataLoader(
+        base.dataset, batch_size=data_cfg.batch_size, shuffle=False,
+        num_workers=data_cfg.num_workers, pin_memory=True, drop_last=False,
+        collate_fn=core.collate_pairs,
     )
     # The factor cores build their loaders directly rather than through a
     # datamodule, so the provenance record the validator reads has to be
     # attached here. Declaring it does not exempt the loader from the coverage
     # checks inside paired_view_loader_provenance.
+    pair_factors = getattr(data_cfg, "pair_factors", None)  # dsprites only
     paired.dnc2_analysis_provenance = {
-        "loader": f"{type(core).__name__.split('.')[-1]}.make_paired_loader",
+        "loader": f"{core.__name__.rsplit('.', 1)[-1]}.make_paired_loader",
+        "rebuilt_for_analysis": "shuffle=False, drop_last=False",
         "dataset": str(cfg.data.name),
         "num_augmented_views_per_instance": int(data_cfg.num_views),
         "pair_mode": str(data_cfg.pair_mode),
-        "pair_factors": (None if data_cfg.pair_factors is None
-                         else list(data_cfg.pair_factors)),
+        "pair_factors": None if pair_factors is None else list(pair_factors),
         "max_samples": data_cfg.max_samples,
     }
     # Same extractor as CelebA, so both sides are L2-normalized backbone features.
