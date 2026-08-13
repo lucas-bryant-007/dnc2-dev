@@ -79,13 +79,39 @@ def main(args):
     paired = core.make_paired_loader(
         data_cfg, imgs=imgs, bits=bits, group_of=group_of, groups=groups
     )
+    # The factor cores build their loaders directly rather than through a
+    # datamodule, so the provenance record the validator reads has to be
+    # attached here. Declaring it does not exempt the loader from the coverage
+    # checks inside paired_view_loader_provenance.
+    paired.dnc2_analysis_provenance = {
+        "loader": f"{type(core).__name__.split('.')[-1]}.make_paired_loader",
+        "dataset": str(cfg.data.name),
+        "num_augmented_views_per_instance": int(data_cfg.num_views),
+        "pair_mode": str(data_cfg.pair_mode),
+        "pair_factors": (None if data_cfg.pair_factors is None
+                         else list(data_cfg.pair_factors)),
+        "max_samples": data_cfg.max_samples,
+    }
     # Same extractor as CelebA, so both sides are L2-normalized backbone features.
     view1, view2, paired_bits = extract_features(
         paired, model.backbone, device=args.device, both_views=True,
         max_batches=args.max_batches,
     )
     print(f"Extracted paired views: {tuple(view1.shape)}, {tuple(view2.shape)}")
-    paired_loader_record = paired_view_loader_provenance(paired, view1, view2)
+    if view1.shape[0] == len(paired.dataset):
+        paired_loader_record = paired_view_loader_provenance(paired, view1, view2)
+    else:
+        # Only reachable under --max_batches, which is a smoke-test affordance.
+        # Record the truncation instead of claiming full population coverage.
+        paired_loader_record = {
+            **paired.dnc2_analysis_provenance,
+            "covers_fit_population_exactly_once": False,
+            "reason": "extraction truncated by --max_batches",
+            "dataset_instances": int(len(paired.dataset)),
+            "extracted_instances": int(view1.shape[0]),
+        }
+        print("WARNING: --max_batches truncated extraction; this run is a smoke "
+              "test and its numbers are not protocol-valid.")
 
     dataset_name = str(cfg.data.name)
     method = str(cfg.method.name)
