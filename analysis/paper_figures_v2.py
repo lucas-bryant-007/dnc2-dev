@@ -648,16 +648,9 @@ BOUND_SERIES = (
 )
 
 
-#: Shapes3D generative factors, in the wording the factor drivers display.
-FACTOR_LABELS = {
-    "object_hue": "object colour",
-    "shape": "shape",
-    "scale": "size",
-}
-
-
 def fig7_bounds_shapes3d(metrics_json: Path, stem: Path,
-                         ranks: Sequence[int] = (8, 32, 64)) -> list[Path]:
+                         ranks: Sequence[int] = (8, 32, 64),
+                         m_max: int = 2000) -> list[Path]:
     """The same four series as figure 6, on a representation that captures.
 
     Companion to figure 6, produced by ``analysis/factor_fewshot.py``, which
@@ -666,6 +659,15 @@ def fig7_bounds_shapes3d(metrics_json: Path, stem: Path,
     the capture bound falls to 0.23, which is the regime the theorem is about.
     Styling is deliberately identical to figure 6 so the two can be read
     side by side.
+
+    ``m_max`` truncates the x axis. The run sweeps m out to 20,000 because the
+    eval fold holds 36,000 instances per class, but a curve labelled few-shot
+    has no business showing 20,000 labels per class. Past a few thousand the
+    empirical NCC error also stops falling and turns back up in several cells:
+    nearest-centroid assumes equal spherical class covariance, so where that
+    fails a noisy small-sample centroid outperforms the population one and the
+    curve converges upward. That is a property of NCC, not of the bound, which
+    is analytic in (B, r, m). The larger m stay in the JSON.
     """
     payload = json.loads(Path(metrics_json).read_text(encoding="utf-8"))
     tasks = payload["results"]["tasks"]
@@ -689,6 +691,8 @@ def fig7_bounds_shapes3d(metrics_json: Path, stem: Path,
             for key, _name, color, marker, ls in BOUND_SERIES:
                 xs, ys = [], []
                 for shot in shots:
+                    if int(shot) > m_max:
+                        continue
                     value = curves[shot].get(key)
                     if value is None or not math.isfinite(float(value)) or float(value) <= 0:
                         continue
