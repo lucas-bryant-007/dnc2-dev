@@ -355,6 +355,7 @@ def main(args):
             model.backbone,
             device=args.device,
             both_views=True,
+            vit_pooling=args.vit_pooling,
         )
         if len(extracted) == 3:
             features_view1, features_view2, paired_labels = extracted
@@ -393,6 +394,7 @@ def main(args):
             sv_train_loader_b,
             model.backbone,
             device=args.device,
+            vit_pooling=args.vit_pooling,
         )
         print(f"Extracted labeled train features: {sv_train_features_b.shape}")
 
@@ -953,6 +955,16 @@ if __name__ == "__main__":
         type=int,
         default=100,
         help="Support/query resamples per m for the directional few-shot comparison",
+    )
+
+    parser.add_argument(
+        "--vit_pooling", choices=("cls", "mean"), default="cls",
+        help=(
+            "How to reduce a ViT token sequence to one vector. 'cls' takes token "
+            "0, which is untrained for I-JEPA because index 0 is excluded from "
+            "both idx_keep and idx_mask. 'mean' averages the patch tokens. No "
+            "effect on ResNet backbones."
+        ),
     )
 
     main(parser.parse_args())
