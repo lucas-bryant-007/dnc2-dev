@@ -97,7 +97,20 @@ def load_shapes3d(h5_path: str, shapes: Sequence[int], max_samples: Optional[int
         if max_samples is not None and idx.size > max_samples:
             rng = np.random.default_rng(seed)
             idx = np.sort(rng.choice(idx, size=max_samples, replace=False))
-        imgs_sel = np.asarray(f["images"][idx])               # idx is sorted (h5py req.)
+        # h5py gathers a scattered index list row by row, decompressing a chunk
+        # per image, which costs minutes for a selection this size and cannot be
+        # interrupted. Reading the dataset once sequentially and indexing in
+        # numpy returns the identical rows in seconds, at the cost of holding
+        # the full uint8 array (~5.9 GB) briefly.
+        images = f["images"]
+        gather_is_sparse = idx.size < images.shape[0]
+        if gather_is_sparse:
+            try:
+                imgs_sel = np.asarray(images)[idx]
+            except MemoryError:
+                imgs_sel = np.asarray(images[idx])            # idx is sorted (h5py req.)
+        else:
+            imgs_sel = np.asarray(images[idx])
         latents_sel = np.ascontiguousarray(latents[idx])
     return imgs_sel, latents_sel
 
