@@ -1,5 +1,9 @@
 # Paper experiment matrix
 
+> Historical design specification. The frozen core experiments below have now
+> been executed and audited; use `paper_outputs/paper_release_20260825/` and
+> `docs/results_audit.md` for current status and paper-facing interpretation.
+
 This matrix keeps the empirical section tied to the draft's claim chain:
 
 1. positive-view stability determines which task information survives;

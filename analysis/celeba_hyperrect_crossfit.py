@@ -44,9 +44,7 @@ from prop41_check import prop41_identity
 from training.config_loader import dict_to_namespace, load_config, namespace_to_dict
 
 
-ANALYSIS_PROTOCOL_VERSION = (
-    "celeba_full_train_ssl_whitening_independent_third_fold_v1"
-)
+ANALYSIS_PROTOCOL_VERSION = "celeba_full_train_ssl_whitening_independent_third_fold_v1"
 
 
 def _loader(dataset, data_cfg, transforms, attr_names):
@@ -76,9 +74,7 @@ def _fixed_train_constraints(args):
         "cos_ceiling": args.cos_ceiling,
         "vit_pooling": getattr(args, "vit_pooling", "cls"),
         "vit_encoder": getattr(args, "vit_encoder", "student"),
-        "analysis_whiten_rel_eig_threshold": (
-            args.analysis_whiten_rel_eig_threshold
-        ),
+        "analysis_whiten_rel_eig_threshold": (args.analysis_whiten_rel_eig_threshold),
         "allow_constraint_fallback": bool(args.allow_constraint_fallback),
     }
 
@@ -95,9 +91,7 @@ def _failed_candidate_attempts(train_balance, train_result=None):
             "rank": None,
             "triple": train_result.get("triple_names"),
             "exact_max_abs_cos": train_result.get("triple_max_abs_cos"),
-            "exact_capture_B": [
-                row.get("capture_B") for row in train_result.get("metrics", [])
-            ],
+            "exact_capture_B": [row.get("capture_B") for row in train_result.get("metrics", [])],
             "passed": False,
         }
     ]
@@ -116,10 +110,7 @@ def _write_selection_failure_artifact(
 ):
     method = str(cfg.method.name)
     tag = (args.tag or "crossfit").strip()
-    stem = (
-        f"crossfit_{mio.slug(method)}_celeba_epoch_{args.epoch}_"
-        f"{mio.slug(tag)}"
-    )
+    stem = f"crossfit_{mio.slug(method)}_celeba_epoch_{args.epoch}_{mio.slug(tag)}"
     label_randomization = None
     protocol_name = "fixed_constraint_train_selection"
     if args.label_permutation_seed is not None:
@@ -164,11 +155,7 @@ def _write_selection_failure_artifact(
 
 
 def _serializable_result(result):
-    return {
-        key: value
-        for key, value in result.items()
-        if key not in {"coords", "granular_task"}
-    }
+    return {key: value for key, value in result.items() if key not in {"coords", "granular_task"}}
 
 
 def _training_capture_interpretation(estimator):
@@ -181,9 +168,7 @@ def _training_capture_interpretation(estimator):
             estimator == "symmetrized_split_half_cross_gram"
         ),
         "post_selection_unbiasedness_claimed": False,
-        "reported_role": (
-            "selection_conditioned_training_fit_for_task_and_box_construction"
-        ),
+        "reported_role": ("selection_conditioned_training_fit_for_task_and_box_construction"),
         "valid_inferential_evaluation": (
             "conditionally_unbiased_for_frozen_selected_task_and_train_fitted_"
             "representation_under_iid_heldout_sampling"
@@ -277,8 +262,7 @@ def _evaluate_headline(result, args):
             "target": args.max_normalized_centroid_rmse,
             "observed": diagnostics["normalized_centroid_rmse"],
             "passed": (
-                diagnostics["normalized_centroid_rmse"]
-                <= args.max_normalized_centroid_rmse
+                diagnostics["normalized_centroid_rmse"] <= args.max_normalized_centroid_rmse
             ),
         },
         "min_cell_count": {
@@ -307,12 +291,8 @@ def _compact_stability_record(seed, result, balance, diagnostics, criteria, pass
         "headline_criteria": criteria,
         "headline_criteria_passed": bool(passed),
         "crossfit_gram_matrix": crossfit_geometry.get("gram_matrix"),
-        "crossfit_positive_diagonal": crossfit_geometry.get(
-            "valid_positive_diagonal"
-        ),
-        "capture_statistical_interpretation": crossfit_geometry.get(
-            "statistical_interpretation"
-        ),
+        "crossfit_positive_diagonal": crossfit_geometry.get("valid_positive_diagonal"),
+        "capture_statistical_interpretation": crossfit_geometry.get("statistical_interpretation"),
         "whitening_diagnostics": result.get("whitening_diagnostics"),
     }
 
@@ -356,30 +336,21 @@ def _summarize_stability(records, triple_names):
         aggregate_cosine = None
         aggregate_max_abs_cos = None
         if positive:
-            denominator = np.sqrt(
-                aggregate_capture[:, None] * aggregate_capture[None, :]
-            )
+            denominator = np.sqrt(aggregate_capture[:, None] * aggregate_capture[None, :])
             aggregate_cosine = aggregate_gram / denominator
             np.fill_diagonal(aggregate_cosine, 1.0)
-            aggregate_max_abs_cos = float(
-                np.abs(aggregate_cosine[np.triu_indices(3, k=1)]).max()
-            )
+            aggregate_max_abs_cos = float(np.abs(aggregate_cosine[np.triu_indices(3, k=1)]).max())
         aggregate_geometry = {
             "estimator": "mean_signed_cross_gram_across_repeated_splits",
             "n_splits": len(records),
             "valid_positive_diagonal": positive,
             "gram_matrix": aggregate_gram.tolist(),
             "capture_B": {
-                name: float(aggregate_capture[index])
-                for index, name in enumerate(triple_names)
+                name: float(aggregate_capture[index]) for index, name in enumerate(triple_names)
             },
-            "cosine_matrix": (
-                aggregate_cosine.tolist() if aggregate_cosine is not None else None
-            ),
+            "cosine_matrix": (aggregate_cosine.tolist() if aggregate_cosine is not None else None),
             "max_abs_cos": aggregate_max_abs_cos,
-            "statistical_interpretation": records[0].get(
-                "capture_statistical_interpretation"
-            ),
+            "statistical_interpretation": records[0].get("capture_statistical_interpretation"),
             "note": (
                 "Signed Gram entries are averaged before normalization and "
                 "absolute-value/max operations."
@@ -396,17 +367,13 @@ def _summarize_stability(records, triple_names):
         "pass_count": sum(row["headline_criteria_passed"] for row in records),
         "pass_rate": float(np.mean([row["headline_criteria_passed"] for row in records])),
         "all_resamples_passed": all(row["headline_criteria_passed"] for row in records),
-        "statistics": {
-            key: _scalar_summary([row[key] for row in records]) for key in scalar_keys
-        },
+        "statistics": {key: _scalar_summary([row[key] for row in records]) for key in scalar_keys},
         "capture_B": {
             name: _scalar_summary([row["capture_B"][name] for row in records])
             for name in triple_names
         },
         "aggregate_crossfit_probe_geometry": aggregate_geometry,
-        "capture_statistical_interpretation": records[0].get(
-            "capture_statistical_interpretation"
-        ),
+        "capture_statistical_interpretation": records[0].get("capture_statistical_interpretation"),
         "records": records,
     }
 
@@ -431,12 +398,7 @@ def _write_stability_csv(path, records, triple_names):
         writer.writeheader()
         for record in records:
             row = {key: record[key] for key in fieldnames if key in record}
-            row.update(
-                {
-                    f"capture_B_{name}": record["capture_B"][name]
-                    for name in triple_names
-                }
-            )
+            row.update({f"capture_B_{name}": record["capture_B"][name] for name in triple_names})
             writer.writerow(row)
 
 
@@ -449,7 +411,7 @@ def _split_balanced_sample(selected, samples_per_cell):
     second = []
     for cell in range(8):
         start = cell * samples_per_cell
-        cell_indices = selected[start:start + samples_per_cell]
+        cell_indices = selected[start : start + samples_per_cell]
         first.append(cell_indices[:first_size])
         second.append(cell_indices[first_size:])
     return torch.cat(first), torch.cat(second)
@@ -510,7 +472,7 @@ def _rank_balanced_candidates(
             continue
         candidates.append((index, float(row["capture_B"])))
     candidates.sort(key=lambda item: item[1], reverse=True)
-    candidates = candidates[:args.balance_candidate_pool]
+    candidates = candidates[: args.balance_candidate_pool]
     print("Balanced candidate pool:", [attr_names[index] for index, _ in candidates])
 
     ranked = []
@@ -561,7 +523,7 @@ def _select_balanced_train_triple(
         candidate_groups=candidate_groups,
     )
     attempts = []
-    for rank, candidate in enumerate(ranked[:args.max_exact_candidates], start=1):
+    for rank, candidate in enumerate(ranked[: args.max_exact_candidates], start=1):
         indices = candidate["indices"]
         selected, counts, per_cell = H.balanced_joint_indices(
             attrs[:, indices],
@@ -605,9 +567,7 @@ def _select_balanced_train_triple(
             ).as_dict(),
             "probe_fold_a": H.whitening_diagnostics(first_features).as_dict(),
             "probe_fold_b": H.whitening_diagnostics(second_features).as_dict(),
-            "all_balanced_samples": H.whitening_diagnostics(
-                balanced_features
-            ).as_dict(),
+            "all_balanced_samples": H.whitening_diagnostics(balanced_features).as_dict(),
         }
         _inject_crossfit_probe_geometry(result, crossfit_geometry)
         passed = _constraints_satisfied(
@@ -627,9 +587,7 @@ def _select_balanced_train_triple(
             "crossfit_samples_per_cell_b": int(second.numel() // 8),
             "exact_max_abs_cos": result["triple_max_abs_cos"],
             "exact_capture_B": [row["capture_B"] for row in result["metrics"]],
-            "capture_statistical_interpretation": crossfit_geometry[
-                "statistical_interpretation"
-            ],
+            "capture_statistical_interpretation": crossfit_geometry["statistical_interpretation"],
             "passed": passed,
         }
         attempts.append(attempt)
@@ -645,8 +603,7 @@ def _select_balanced_train_triple(
             predicted_capture = None
             if crossfit_geometry["valid_positive_diagonal"]:
                 predicted_capture = [
-                    crossfit_geometry["capture_B"][name]
-                    for name in candidate["names"]
+                    crossfit_geometry["capture_B"][name] for name in candidate["names"]
                 ]
             box_reference = H.fit_box_reference(
                 balanced_features,
@@ -659,48 +616,48 @@ def _select_balanced_train_triple(
                 box_reference,
                 reference_split="train",
             )
-            return result, {
-                "selected_candidate": candidate,
-                "feasible_proxy_candidate_count": len(ranked),
-                "original_cell_counts": counts,
-                "samples_per_cell": per_cell,
-                "whitening_fit_samples_per_cell": int(
-                    whitening_fit.numel() // 8
-                ),
-                "crossfit_samples_per_cell_a": int(first.numel() // 8),
-                "crossfit_samples_per_cell_b": int(second.numel() // 8),
-                "exact_attempts": attempts,
-                "rewhitener": {
-                    **rewhitener.metadata(),
-                    "fit_split": "train",
-                    "fit_population": (
-                        "independent_third_fold_uniform_over_selected_eight_"
-                        "label_cells"
-                    ),
-                    "independent_of_split_half_probe_folds": True,
-                    "frozen_for_test": True,
-                },
-                "probe_estimator": crossfit_geometry["estimator"],
-                "training_capture_statistical_interpretation": (
-                    crossfit_geometry["statistical_interpretation"]
-                ),
-                "predicted_box_capture_estimator": (
-                    crossfit_geometry["estimator"]
-                    if predicted_capture is not None
-                    else "plug_in_same_sample"
-                ),
-                "predicted_box_capture_statistical_interpretation": (
-                    crossfit_geometry["statistical_interpretation"]
-                    if predicted_capture is not None
-                    else {
-                        "reported_role": (
-                            "selection_conditioned_same_sample_training_fit"
+            return (
+                result,
+                {
+                    "selected_candidate": candidate,
+                    "feasible_proxy_candidate_count": len(ranked),
+                    "original_cell_counts": counts,
+                    "samples_per_cell": per_cell,
+                    "whitening_fit_samples_per_cell": int(whitening_fit.numel() // 8),
+                    "crossfit_samples_per_cell_a": int(first.numel() // 8),
+                    "crossfit_samples_per_cell_b": int(second.numel() // 8),
+                    "exact_attempts": attempts,
+                    "rewhitener": {
+                        **rewhitener.metadata(),
+                        "fit_split": "train",
+                        "fit_population": (
+                            "independent_third_fold_uniform_over_selected_eight_label_cells"
                         ),
-                        "post_selection_unbiasedness_claimed": False,
-                    }
-                ),
-                "box_reference": box_reference.metadata(),
-            }, rewhitener, box_reference
+                        "independent_of_split_half_probe_folds": True,
+                        "frozen_for_test": True,
+                    },
+                    "probe_estimator": crossfit_geometry["estimator"],
+                    "training_capture_statistical_interpretation": (
+                        crossfit_geometry["statistical_interpretation"]
+                    ),
+                    "predicted_box_capture_estimator": (
+                        crossfit_geometry["estimator"]
+                        if predicted_capture is not None
+                        else "plug_in_same_sample"
+                    ),
+                    "predicted_box_capture_statistical_interpretation": (
+                        crossfit_geometry["statistical_interpretation"]
+                        if predicted_capture is not None
+                        else {
+                            "reported_role": ("selection_conditioned_same_sample_training_fit"),
+                            "post_selection_unbiasedness_claimed": False,
+                        }
+                    ),
+                    "box_reference": box_reference.metadata(),
+                },
+                rewhitener,
+                box_reference,
+            )
         del result, balanced_features, balanced_attrs, rewhitener
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -738,7 +695,7 @@ def _select_encoder(model, which):
         )
     distinct = any(
         not torch.equal(t.data, s.data)
-        for t, s in zip(teacher.parameters(), model.backbone.parameters())
+        for t, s in zip(teacher.parameters(), model.backbone.parameters(), strict=True)
     )
     print(f"Encoder: teacher (weights distinct from student: {distinct})")
     if not distinct:
@@ -798,9 +755,7 @@ def _evaluate_balanced_test_seed(
     result["whitening_diagnostics"] = {
         "scope": "out_of_sample_frozen_train_fitted_transform",
         "exact_whiteness_claimed": False,
-        "all_balanced_samples": H.whitening_diagnostics(
-            balanced_features
-        ).as_dict(),
+        "all_balanced_samples": H.whitening_diagnostics(balanced_features).as_dict(),
         "probe_fold_a": H.whitening_diagnostics(first_features).as_dict(),
         "probe_fold_b": H.whitening_diagnostics(second_features).as_dict(),
     }
@@ -852,7 +807,7 @@ def _transform_on_device(estimator, features, device, batch_size):
     eigenvectors = estimator.ssl_eigvecs_.to(device)
     chunks = []
     for start in range(0, features.shape[0], batch_size):
-        batch = features[start:start + batch_size].to(device, non_blocking=True)
+        batch = features[start : start + batch_size].to(device, non_blocking=True)
         chunks.append(((batch - mean) @ whiten) @ eigenvectors)
     return torch.cat(chunks, dim=0)
 
@@ -974,9 +929,7 @@ def main(args):
     if args.max_test_cell_samples is not None and args.max_test_cell_samples <= 0:
         raise ValueError("--max_test_cell_samples must be positive")
     if not 0.0 < args.analysis_whiten_rel_eig_threshold <= 1.0:
-        raise ValueError(
-            "--analysis_whiten_rel_eig_threshold must lie in (0, 1]"
-        )
+        raise ValueError("--analysis_whiten_rel_eig_threshold must lie in (0, 1]")
     if args.label_permutation_seed is not None and not args.joint_balance:
         raise ValueError("--label_permutation_seed requires --joint_balance")
     cfg = dict_to_namespace(load_config(args.config))
@@ -985,9 +938,7 @@ def main(args):
     if args.batch_size <= 0:
         raise ValueError(f"batch_size must be positive, got {args.batch_size}")
     if args.transform_batch_size <= 0:
-        raise ValueError(
-            f"transform_batch_size must be positive, got {args.transform_batch_size}"
-        )
+        raise ValueError(f"transform_batch_size must be positive, got {args.transform_batch_size}")
     data_cfg.batch_size = args.batch_size
     data_module = CelebADataModule(data_cfg)
     data_module.setup()
@@ -1032,9 +983,7 @@ def main(args):
     first_stage_ssl_whitener = estimator.first_stage_whitener_provenance(
         fit_split="train",
         fit_population="full_training_latent_instance_population",
-        view_marginal=(
-            "equal_weight_empirical_mixture_of_two_augmented_views_per_instance"
-        ),
+        view_marginal=("equal_weight_empirical_mixture_of_two_augmented_views_per_instance"),
         frozen_for_test=True,
     )
     first_stage_ssl_whitener["fit_loader"] = paired_loader_record
@@ -1062,23 +1011,19 @@ def main(args):
         natural_train_screen = {
             "metrics": natural_train_result["metrics"],
             "mean_abs_offdiag_cosine": natural_train_result["mean_abs_offdiag_cosine"],
-            "statistical_role": (
-                "adaptive_training_candidate_screen_not_unbiased_inference"
-            ),
+            "statistical_role": ("adaptive_training_candidate_screen_not_unbiased_inference"),
         }
         (
             train_result,
             train_balance_record,
             train_rewhitener,
             train_box_reference,
-        ) = (
-            _select_balanced_train_triple(
-                train_features,
-                train_attrs,
-                attr_names,
-                natural_train_result["metrics"],
-                args,
-            )
+        ) = _select_balanced_train_triple(
+            train_features,
+            train_attrs,
+            attr_names,
+            natural_train_result["metrics"],
+            args,
         )
         del natural_train_result, train_features, train_attrs
         if torch.cuda.is_available():
@@ -1149,13 +1094,9 @@ def main(args):
     frozen_triple = list(train_result["triple_names"])
     train_payload = _serializable_result(train_result)
     training_capture_interpretation = _training_capture_interpretation(
-        "symmetrized_split_half_cross_gram"
-        if args.joint_balance
-        else "same_sample_plug_in"
+        "symmetrized_split_half_cross_gram" if args.joint_balance else "same_sample_plug_in"
     )
-    train_payload["statistical_interpretation"] = (
-        training_capture_interpretation
-    )
+    train_payload["statistical_interpretation"] = training_capture_interpretation
     del train_result
     gc.collect()
 
@@ -1197,8 +1138,8 @@ def main(args):
                 train_rewhitener,
                 train_box_reference,
             )
-            seed_diagnostics, _seed_triple, seed_criteria, seed_passed = (
-                _evaluate_headline(seed_result, args)
+            seed_diagnostics, _seed_triple, seed_criteria, seed_passed = _evaluate_headline(
+                seed_result, args
             )
             test_stability_records.append(
                 _compact_stability_record(
@@ -1269,9 +1210,7 @@ def main(args):
             f"max|cos| mean={cos_stats['mean']:.4f} (max={cos_stats['max']:.4f}); "
             f"norm RMSE mean={rmse_stats['mean']:.4f} (max={rmse_stats['max']:.4f})"
         )
-        aggregate_geometry = test_stability.get(
-            "aggregate_crossfit_probe_geometry"
-        )
+        aggregate_geometry = test_stability.get("aggregate_crossfit_probe_geometry")
         if aggregate_geometry and aggregate_geometry["valid_positive_diagonal"]:
             aggregate_capture = aggregate_geometry["capture_B"]
             print(
@@ -1324,6 +1263,8 @@ def main(args):
         "ckpt_path": ckpt_path,
         "protocol": {
             "analysis_protocol_version": ANALYSIS_PROTOCOL_VERSION,
+            "vit_pooling": getattr(args, "vit_pooling", "cls"),
+            "vit_encoder": getattr(args, "vit_encoder", "student"),
             "population": (
                 "uniform_over_selected_eight_label_cells"
                 if args.joint_balance
@@ -1345,8 +1286,7 @@ def main(args):
                 "as out-of-sample, not exactly white"
                 if args.joint_balance
                 else (
-                    "Exact rank-truncated whitening fitted independently "
-                    "within each analysis split"
+                    "Exact rank-truncated whitening fitted independently within each analysis split"
                 )
             ),
             "analysis_whitening_option": {
@@ -1369,9 +1309,7 @@ def main(args):
                     "selection; no unbiasedness claim"
                 )
             ),
-            "training_capture_interpretation": (
-                training_capture_interpretation
-            ),
+            "training_capture_interpretation": (training_capture_interpretation),
             "headline_inference_source": (
                 "conditionally unbiased evaluation of the frozen selected task "
                 "and train-fitted representation under IID held-out sampling"
@@ -1560,7 +1498,9 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
-        "--vit_pooling", choices=("cls", "mean"), default="cls",
+        "--vit_pooling",
+        choices=("cls", "mean"),
+        default="cls",
         help=(
             "How to reduce a ViT token sequence to one vector. 'cls' takes token "
             "0, which for I-JEPA is untrained: this implementation excludes index "
@@ -1570,7 +1510,9 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
-        "--vit_encoder", choices=("student", "teacher"), default="student",
+        "--vit_encoder",
+        choices=("student", "teacher"),
+        default="student",
         help=(
             "Which encoder to read features from. I-JEPA convention evaluates "
             "the target (EMA teacher) encoder; the student is what training "
@@ -1598,10 +1540,6 @@ if __name__ == "__main__":
     parsed.analysis_whiten_cli_option = (
         "--analysis_whiten_ridge_rel (deprecated)"
         if used_legacy
-        else (
-            "--analysis_whiten_rel_eig_threshold"
-            if used_current
-            else "default"
-        )
+        else ("--analysis_whiten_rel_eig_threshold" if used_current else "default")
     )
     main(parsed)

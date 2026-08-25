@@ -1,19 +1,18 @@
-# Post-audit artifact regeneration status
+# Artifact regeneration status
 
-The code defects are repaired, but artifact status depends on whether the
-archived inputs are sufficient to recompute each estimand.
+Current as of `paper_outputs/paper_release_20260825/`.
 
-| Artifact family | Status | Reason / action |
+| Artifact family | Status | Evidence / location |
 |---|---|---|
-| Primary held-out boxes and corner RMSE | Regenerated | Primary projected coordinates and training cross-fit capture values are archived. |
-| Primary held-out label-permutation nulls | Regenerated | Recomputed with 5,000 permutations and seed 20260723. |
-| Main primary figures/tables/text | Regenerated | Generated only from repaired JSON and null files. |
-| 20-seed capture and cosine stability | Retained | These values do not depend on the predicted-corner serialization. |
-| 20-seed corner-fidelity stability | Invalidated; full rerun required | The archive lacks full held-out features/sample indices for 19 seeds. |
-| Few-shot empirical and bound curves | Full rerun required | Compact files lack raw features/pairwise moments needed for exact convention conversion and corrected bounds. |
-| Full-pipeline training-label controls | Retained | Selection feasibility does not use the defective predicted-box serialization. |
-| Compiled manuscript PDFs | Superseded; source required | Both local copies contain the same defects; no manuscript TeX/Bib source exists locally. Apply `docs/manuscript_repairs.md` and rebuild twice. |
+| Controlled augmentation survival and controls | Complete | Post-eval-fix d871 export; exact source hashes in the release manifest. |
+| Compositional transfer, dependence, and model selection | Complete | Current d871 primary and sensitivity summaries; Figure S5 no longer mixes older intervals. |
+| Natural-image primary boxes and 20-resample stability | Complete | Rebuilt from the corrected merged Aug-12 artifacts. |
+| Held-out label-permutation controls | Complete | 5,000 permutations per run; empirical p=1/5,001. |
+| CelebA few-shot bound curves | Complete | Rank-preserving extended-m JSONs; 228 plug-in values independently checked. |
+| 3DShapes high-capture bound curves | Complete | Extended factor-fewshot JSON; figure displays m <= 2,000 and retains the larger-m source values. |
+| Main and supplementary figure set | Complete | 7 main + 6 supplement, deterministic PDF/PNG, per-figure source map and global manifest. |
+| Manuscript source/PDF | External action required | No TeX/Bib manuscript source is present locally; use the released figures and disclosures when updating it. |
 
-The repaired package is
-`paper_outputs/pretrained_crossfit_postaudit_20260810/`. Historical artifacts
-remain in place for provenance, with explicit superseded status.
+The Aug-10 package remains a historical focused repair record. The authoritative
+current review package is `paper_outputs/paper_release_20260825/`. The August 24
+release is immutable history and predates the clarified Figure 1 renderer.

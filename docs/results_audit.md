@@ -1,47 +1,57 @@
 # Results and figure audit
 
-This audit distinguishes evidence already supported by saved artifacts from
-evaluation code that has been corrected but still needs the original data and
-checkpoints to regenerate.
+Current as of the audited `paper_release_20260825`. The release README is the
+paper-facing interpretation record; this file summarizes the verification work.
 
-## Strong current evidence
+## Audit result
 
-- The dSprites and 3DShapes task axes are close to orthogonal (maximum absolute
-  cosine roughly 0.004 and 0.012 in the saved runs). This is the substantive
-  hyper-rectangle result.
-- The Theorem 4.4 bounds hold on the saved runs. The bounds figures were
-  re-rendered with √B and mean absolute centroid coordinate correctly labeled as
-  hyper-rectangle **half-sides**.
-- CelebA directional-CDNV prediction errors are on the order of 5–9% in the
-  saved VICReg/I-JEPA summaries, useful evidence beyond the controlled synthetic
-  factors.
+- The figure inventory is complete: 7 main and 6 supplementary figures, each as
+  native PDF and 320 dpi PNG.
+- All 13 candidate PNGs were first reproduced byte-for-byte from their frozen
+  sources. The consolidated renderer was then built twice; all 36 release files
+  (figures, compact tables, metadata, and provenance) were byte-identical.
+- All 75 rows in the current SHA-256 manifest revalidate: 40 direct/code inputs,
+  7 generated-data records, and 28 figure/metadata outputs. The August 24
+  package remains immutable; its manifest records its original renderer, while
+  the August 25 release contains the clarified Figure 1 and current renderer.
+- All 96 controlled-study input hashes match their recorded raw files.
+- Natural-image compact CSVs rebuild byte-identically from the post-eval-fix
+  JSON artifacts. Compositional summary recomputation agrees to floating-point
+  precision (the largest difference is approximately 1e-15 in an unplotted
+  predictive-increment field).
+- All 228 displayed Theorem 4.5 plug-in points recompute from the serialized
+  moments with zero numerical discrepancy; validity/reporting flags agree.
+- All 13 PDFs parse, use embedded fonts, and contain no Type 3 fonts.
+- Repository verification passes: 149 tests, Ruff clean, and `git diff --check`
+  clean. The lone test warning is PyTorch noting that CPU-only execution cannot
+  use `pin_memory`.
 
-The near-exact √B-vs-observed-half-side match is largely algebraic and should not
-be presented as independent validation. The orthogonality and joint corner
-factorization are the stronger claims.
+## Defensible claims
 
-## Artifacts requiring regeneration
+- Controlled positive-pair content selectively removes the demoted factor from
+  the learned representation. The three-seed envelope is a min–max range, not a
+  confidence interval.
+- Train-measured axis alignment is strongly associated with target-clustered OOD
+  transfer in the current CelebA models. This is descriptive association, not a
+  causal or multiplicity-adjusted result.
+- Attribute dependence tracks less cube-like geometry and lower transfer in the
+  frozen descriptive strata. No formal between-stratum contrast is claimed.
+- Natural-image boxes are genuinely train-fit/held-out-test evaluations. The
+  I-JEPA mean-pooling result misses the fixed RMSE criterion (0.274 versus 0.25,
+  0/20 stability passes), and the released panel shows that failure explicitly.
+- Geometry-based model selection is operationally meaningful on CelebA. On CUB,
+  axis and margin select the supervised encoder for all 28 attributes, the same
+  model as the best fixed-model oracle; this is a boundary condition, not an
+  independent win.
+- The new capture-form expression is plotted as an empirical plug-in RHS, not a
+  population-certified finite-sample bound. CelebA does not fall below balanced
+  chance in the shown range; high-capture 3DShapes cells do.
 
-- The repaired primary pretrained results are now 0.143306 for
-  VICReg/CelebA, 0.255806 for I-JEPA/CelebA, and 0.295930 for
-  VICReg/CUB-200. Their 5,000-draw held-out permutation controls were
-  regenerated. The earlier 20-seed corner summaries and CUB “boundary case”
-  claim remain invalid until a full feature-level rerun; see
-  `docs/artifact_regeneration_status.md`.
+## Remaining boundary
 
-- Existing RO2 interference JSON/figures are marked `legacy_squared_pearson_r2`
-  and `legacy_all_rows`. The corrected drivers fit whitening on training rows,
-  compute genuine held-out R², aggregate five split seeds, and plot uncertainty.
-  Re-run `analysis/dsprites_interference.py` and `analysis/wide_interference.py`
-  with the original checkpoints before citing the corrected R² curves.
-- Existing RO3 observability files are explicitly marked `legacy_all_rows`.
-  New runs save train-only input statistics in each checkpoint and describe the
-  finite MLP observability value as a lower-bound estimate, not an unconstrained
-  optimum.
-- The saved RO3 regret models show a conditioned recovery/regret correlation of
-  about -0.66, but every learned model is still worse than the copy-expert
-  baseline. The revised plot shows this directly; it is preliminary evidence,
-  not a successful control result.
-
-Dataset/GPU-dependent regeneration is intentionally not fabricated on a machine
-without those inputs. The saved metric metadata makes that boundary explicit.
+The manuscript TeX/Bib source is not present in this repository, so figure
+generation and audit are complete but manuscript insertion, caption editing,
+cross-reference checking, and final PDF compilation must occur wherever that
+source lives. Several run JSONs also omit intrinsic commit/checkpoint hashes;
+the release pins their exact bytes and labels recovered provenance rather than
+inventing missing fields.

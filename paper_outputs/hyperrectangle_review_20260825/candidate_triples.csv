@@ -1,0 +1,15 @@
+model_dataset,candidate_rank,triple,selected_for_heldout_evaluation,train_constraints_passed,train_max_abs_cos,train_min_capture_B,train_mean_capture_B,balanced_train_examples_per_cell
+"VICReg, pretrained on CelebA / CelebA",1,Heavy_Makeup | High_Cheekbones | Black_Hair,False,False,0.14272412657737732,0.3398315906524658,0.41513149936993915,4707
+"VICReg, pretrained on CelebA / CelebA",2,Heavy_Makeup | Smiling | Black_Hair,False,False,0.12278895080089569,0.33675214648246765,0.44342262546221417,5000
+"VICReg, pretrained on CelebA / CelebA",3,Wearing_Lipstick | High_Cheekbones | Black_Hair,True,True,0.06907959282398224,0.35535475611686707,0.4426822364330292,5000
+"I-JEPA, pretrained on CelebA / CelebA",1,Male | Attractive | Black_Hair,False,False,0.19752620160579681,0.1859738677740097,0.3126918027798335,5000
+"I-JEPA, pretrained on CelebA / CelebA",2,Black_Hair | Big_Nose | Arched_Eyebrows,False,False,0.2791769504547119,0.15514442324638367,0.23516997694969177,3121
+"I-JEPA, pretrained on CelebA / CelebA",3,Wavy_Hair | Big_Nose | Young,False,False,0.25902748107910156,0.16050615906715393,0.21193761626879373,2872
+"I-JEPA, pretrained on CelebA / CelebA",4,Attractive | Black_Hair | Big_Nose,False,False,0.18422117829322815,0.14244171977043152,0.2395331859588623,3943
+"I-JEPA, pretrained on CelebA / CelebA",5,Wavy_Hair | Black_Hair | Big_Nose,False,False,0.2258605808019638,0.16205379366874695,0.2855729361375173,2355
+"I-JEPA, pretrained on CelebA / CelebA",6,Black_Hair | Smiling | Arched_Eyebrows,False,False,0.20500053465366364,0.15072304010391235,0.24848937491575876,4661
+"I-JEPA, pretrained on CelebA / CelebA",7,Brown_Hair | Big_Nose | Young,False,False,0.22527417540550232,0.13732002675533295,0.19996245702107748,1403
+"I-JEPA, pretrained on CelebA / CelebA",8,Black_Hair | High_Cheekbones | Arched_Eyebrows,False,False,0.14171350002288818,0.14945374429225922,0.2434251755475998,4331
+"I-JEPA, pretrained on CelebA / CelebA",9,Heavy_Makeup | Black_Hair | Smiling,True,True,0.11462226510047913,0.15690013766288757,0.3004674514134725,5000
+"VICReg, pretrained on ImageNet / CUB-200",1,underparts_color=white | primary_color=black | breast_pattern=solid,False,False,0.29252755641937256,0.4467396140098572,0.5889789859453837,300
+"VICReg, pretrained on ImageNet / CUB-200",2,breast_color=white | primary_color=black | breast_pattern=solid,True,True,0.18094854056835175,0.42887431383132935,0.5110702017943064,300

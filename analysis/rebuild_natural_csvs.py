@@ -42,7 +42,9 @@ def rebuild(run_root: Path, out_dir: Path) -> list[Path]:
 
     for slug, null_slug, label in PANELS:
         payload = json.loads(
-            _only(run_root / "full_support" / slug / "metrics", "*.json").read_text(encoding="utf-8")
+            _only(run_root / "full_support" / slug / "metrics", "*.json").read_text(
+                encoding="utf-8"
+            )
         )
         stability = payload["test_stability"]
         aggregate = stability["aggregate_crossfit_probe_geometry"]
@@ -52,32 +54,38 @@ def rebuild(run_root: Path, out_dir: Path) -> list[Path]:
         if isinstance(capture, dict):
             capture = [capture[name] for name in payload["test_evaluation"]["triple_names"]]
 
-        geometry_rows.append({
-            "label": label,
-            "capture_values": "|".join(f"{value:.4f}" for value in capture),
-            "max_abs_cos": f"{aggregate['max_abs_cos']:.4f}",
-            "primary_rmse": f"{payload['test_box_diagnostics']['normalized_centroid_rmse']:.4f}",
-            "stability_mean": f"{statistics['mean']:.4f}",
-            "stability_min": f"{statistics['min']:.4f}",
-            "stability_max": f"{statistics['max']:.4f}",
-            "passes": stability["pass_count"],
-            "n_resamples": stability["n_resamples"],
-        })
+        geometry_rows.append(
+            {
+                "label": label,
+                "capture_values": "|".join(f"{value:.4f}" for value in capture),
+                "max_abs_cos": f"{aggregate['max_abs_cos']:.4f}",
+                "primary_rmse": f"{payload['test_box_diagnostics']['normalized_centroid_rmse']:.4f}",
+                "stability_mean": f"{statistics['mean']:.4f}",
+                "stability_min": f"{statistics['min']:.4f}",
+                "stability_max": f"{statistics['max']:.4f}",
+                "passes": stability["pass_count"],
+                "n_resamples": stability["n_resamples"],
+            }
+        )
 
         null_dir = run_root / "controls" / "heldout" / "full_support" / null_slug
         null = json.loads(_only(null_dir, "*.json").read_text(encoding="utf-8"))
-        permutation_rows.append({
-            "label": label,
-            "observed": f"{null['observed_normalized_centroid_rmse']:.4f}",
-            "null_min": f"{null['null_quantiles']['q00']:.4f}",
-            "null_mean": f"{null['null_mean']:.4f}",
-            "p_value": null["empirical_lower_tail_p"],
-            "n_permutations": null.get("n_permutations", null.get("permutations")),
-        })
+        permutation_rows.append(
+            {
+                "label": label,
+                "observed": f"{null['observed_normalized_centroid_rmse']:.4f}",
+                "null_min": f"{null['null_quantiles']['q00']:.4f}",
+                "null_mean": f"{null['null_mean']:.4f}",
+                "p_value": null["empirical_lower_tail_p"],
+                "n_permutations": null.get("n_permutations", null.get("permutations")),
+            }
+        )
 
     written = []
-    for name, rows in (("natural_geometry_summary.csv", geometry_rows),
-                       ("permutation_summary.csv", permutation_rows)):
+    for name, rows in (
+        ("natural_geometry_summary.csv", geometry_rows),
+        ("permutation_summary.csv", permutation_rows),
+    ):
         path = out_dir / name
         with path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=list(rows[0]))

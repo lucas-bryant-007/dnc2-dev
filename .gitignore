@@ -135,3 +135,11 @@ paper_outputs/*
 !paper_outputs/pretrained_crossfit_20260723/
 paper_outputs/pretrained_crossfit_20260723/**
 !paper_outputs/pretrained_crossfit_20260723/STATUS.json
+!paper_outputs/paper_release_20260824/
+!paper_outputs/paper_release_20260824/**
+!paper_outputs/paper_release_20260825/
+!paper_outputs/paper_release_20260825/**
+!paper_outputs/hyperrectangle_review_20260825/
+!paper_outputs/hyperrectangle_review_20260825/**
+!paper_outputs/figure1_clarity_20260825/
+!paper_outputs/figure1_clarity_20260825/**

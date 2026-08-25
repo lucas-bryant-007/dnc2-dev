@@ -10,6 +10,9 @@ The public `DLFundamentals/dnc2` repository is the curated release surface.
 Paper-ready code and figures are promoted there from an immutable development
 commit; the full development archive is not merged wholesale.
 
+For the current paper review, start with `docs/paper_review_handoff.md` and
+`paper_outputs/paper_release_20260825/`.
+
 ## Setup
 
 ```bash
@@ -52,14 +55,14 @@ Experiment drivers:
   ranked as if they were the same estimand.
 - `analysis/pusht/` - future-factor recoverability and regret.
 
-Required figure generators:
+Paper figure builders:
 
-- Meeting 1: `analysis/dsprites_hyperrect.py`,
-  `analysis/meeting1_summary.py`, `analysis/dsprites_taskfamily_spectrum.py`,
-  `analysis/dsprites_interference.py`, `analysis/wide_interference.py`, and
-  `analysis/hyperrect_bounds.py`.
-- Meeting 2 / pretrained hypercubes: `analysis/plot_crossfit_hyperrect.py`
-  renders the current CelebA and CUB-200 cross-fit result JSONs.
+- `analysis/build_paper_release.py` - complete immutable paper release.
+- `analysis/paper_figures_v2.py` - main and supplementary panel renderers.
+- `analysis/build_hyperrectangle_review.py` - natural/controlled box split,
+  all-attribute orthogonality, and candidate-selection audit.
+- `analysis/build_figure1_clarity.py` - focused controlled-pairing figure.
+- `analysis/tg_style.py` - shared deterministic PDF/PNG style.
 
 Supporting packages:
 
@@ -79,37 +82,24 @@ Supporting packages:
 
 ## Current state
 
-The strict evaluation path freezes attribute selection, whitening, task axes,
-and box predictions on training data before held-out evaluation. Capture and
-task cosines use split-half estimates, and predicted corners use the unbiased
-capture scale. CUB-200 additionally enforces distinct semantic attribute
-families.
+The current audited review package is
+`paper_outputs/paper_release_20260825/`: seven main figures, six supplementary
+figures, compact derived data, direct-source mappings, and SHA-256 provenance.
+The strict natural-image path freezes attribute selection, whitening, axes, and
+box predictions on training data before held-out evaluation. Controlled and
+natural same-population/held-out claims remain explicitly separated.
 
-New experiment output belongs initially in ignored directories such as
-`results/`, `runs/`, and `logs/`. Curated snapshots may be force-added to the
-development branch only after their provenance and scientific status have been
-audited.
+`paper_outputs/hyperrectangle_review_20260825/` contains the proposed
+natural-only main panel, controlled supplement panel, all-attribute
+orthogonality ECDF, and train-only candidate audit. The open layout decision is
+whether this natural-only panel replaces the composite Figure 4.
 
-The historical `figures/`, `metrics/`, `paper_outputs/`, and `repro_exports/`
-restored on this branch are a research record, not automatically current paper
-evidence. In particular, quantitative artifacts created before commits
-`a3c85b1` and `7f97d2d` must be regenerated before citation because the
-theorem-facing estimands and provenance requirements changed.
+The manuscript source is not in this repository. Source-ready corrections are
+recorded in `docs/manuscript_repairs.md`; the compiled PDFs outside this
+directory remain superseded until those repairs are applied and the manuscript
+is rebuilt without unresolved references.
 
-The July 23 pretrained package is additionally invalidated by the historical
-nonorthogonal corner projection. It is retained as an audit record and is not a
-current curated result. The repaired primary-only package is
-`paper_outputs/pretrained_crossfit_postaudit_20260810/`. The checked-in point
-archives permit regeneration of the primary held-out samples and their
-conditional permutation nulls only;
-20-resample stability and few-shot curves require the original features or a
-fresh checkpoint/data run.
-
-The next paper run is frozen in `analysis/run_paper_rerun_s2.sh`. It keeps the
-full-support reproduction estimand separate from the 500-example-per-cell
-CelebA stability estimand, uses all four S2 GPUs, reruns both null families and
-few-shot curves, records the complete software/model provenance, and compares
-the fresh full-support results with the repaired primary-only package before
-declaring the run complete.
-
-The project is active research code; citation metadata has not been released.
+New experiment output belongs in ignored `results/`, `runs/`, or `logs/`
+directories. Promote only audited snapshots with frozen protocols and hashes.
+Older paper-output packages remain historical records and are not automatically
+current evidence.

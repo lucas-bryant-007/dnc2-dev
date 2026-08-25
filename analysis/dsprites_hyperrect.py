@@ -14,6 +14,7 @@ Then render the box:
         --ckpt_dir checkpoints/vicreg_dsprites \
         --device cuda:0 --epoch 80 --tag twoview --whiten
 """
+
 import argparse
 import hashlib
 import math
@@ -89,9 +90,11 @@ def main(args):
         if getattr(data_cfg, "pair_factors", None) is None
         else list(data_cfg.pair_factors)
     )
-    print(f"{cfg.data.name} cfg: src={src} shapes={list(data_cfg.shapes)} "
-          f"pair_mode={data_cfg.pair_mode} pair_factors={pair_factors} "
-          f"max_samples={data_cfg.max_samples}")
+    print(
+        f"{cfg.data.name} cfg: src={src} shapes={list(data_cfg.shapes)} "
+        f"pair_mode={data_cfg.pair_mode} pair_factors={pair_factors} "
+        f"max_samples={data_cfg.max_samples}"
+    )
 
     task_names = list(data_cfg.task_factors)
     print(f"Tasks: {task_names}")
@@ -128,8 +131,7 @@ def main(args):
     checkpoint_tasks = list(checkpoint_cfg.data.task_factors)
     if checkpoint_tasks != task_names:
         raise ValueError(
-            f"checkpoint tasks {checkpoint_tasks} do not match analysis tasks "
-            f"{task_names}"
+            f"checkpoint tasks {checkpoint_tasks} do not match analysis tasks {task_names}"
         )
     checkpoint_pair_factors = (
         checkpoint_tasks
@@ -149,26 +151,29 @@ def main(args):
     eval_loader = core.make_eval_loader(data_cfg, imgs=imgs, bits=bits, shuffle=False)
 
     features, bit_matrix = extract_features_and_bits(
-        eval_loader, model.backbone, args.device, max_samples=args.max_samples)
+        eval_loader, model.backbone, args.device, max_samples=args.max_samples
+    )
     print(f"Extracted features {tuple(features.shape)}, bits {tuple(bit_matrix.shape)}")
 
     first_stage_ssl_whitener = None
     if args.whiten:
         paired_loader = core.make_paired_loader(
-            data_cfg, imgs=imgs, bits=bits, group_of=group_of, groups=groups)
+            data_cfg, imgs=imgs, bits=bits, group_of=group_of, groups=groups
+        )
         z1, z2, _ = extract_features(
-            paired_loader, model.backbone, device=args.device, both_views=True,
-            max_batches=args.whiten_batches)
-        estimator = fit_ssl_subspace(
-            z1, z2, rel_eig_threshold=args.rel_eig_threshold)
+            paired_loader,
+            model.backbone,
+            device=args.device,
+            both_views=True,
+            max_batches=args.whiten_batches,
+        )
+        estimator = fit_ssl_subspace(z1, z2, rel_eig_threshold=args.rel_eig_threshold)
         first_stage_ssl_whitener = estimator.first_stage_whitener_provenance(
             fit_split="analysis_population",
             fit_population=(
-                "configured_dsprites_paired_instances_up_to_whiten_batch_limit"
+                f"configured_{str(cfg.data.name).lower()}_paired_instances_up_to_whiten_batch_limit"
             ),
-            view_marginal=(
-                "equal_weight_empirical_mixture_of_two_augmented_views_per_instance"
-            ),
+            view_marginal=("equal_weight_empirical_mixture_of_two_augmented_views_per_instance"),
             frozen_for_test=None,
         )
         features = estimator.transform(features)
@@ -190,15 +195,14 @@ def main(args):
         if args.whiten:
             print("Exactly re-whitened retained psi coordinates (Cov = I on fit data).")
         else:
-            print(
-                "Exactly rewhitened L2-normalized backbone coordinates "
-                "(Cov = I on fit data)."
-            )
+            print("Exactly rewhitened L2-normalized backbone coordinates (Cov = I on fit data).")
     bits_dev = bit_matrix.to(args.device)
 
     res = H.analyze(
-        feats_dev, bits_dev, task_names,
-        viz_triple=task_names,          # explicit: shape / scale / posX
+        feats_dev,
+        bits_dev,
+        task_names,
+        viz_triple=task_names,  # explicit: shape / scale / posX
         compute_capture=whitened_geometry,
     )
 
@@ -217,8 +221,11 @@ def main(args):
         mbyname = {m["name"]: m for m in res["metrics"]}
         axinfo = ", ".join(
             f"{n}(sqrtB={math.sqrt(max(mbyname[n].get('capture_B') or 0.0, 0.0)):.2f})"
-            for n in res["triple_names"])
-        print(f"Box triple: {res['triple_names']}  max pairwise |cos|={res['triple_max_abs_cos']:.3f}")
+            for n in res["triple_names"]
+        )
+        print(
+            f"Box triple: {res['triple_names']}  max pairwise |cos|={res['triple_max_abs_cos']:.3f}"
+        )
         print(f"  axes: {axinfo}")
     print("\nPer-task geometry:")
     for m in res["metrics"]:
@@ -226,33 +233,40 @@ def main(args):
             print(f"  {m['name']:>8s}  (unusable: {m.get('reason')})")
             continue
         capB = m.get("capture_B")
-        cap_str = (f"  B={capB:.3f} sqrtB={math.sqrt(max(capB,0.0)):.3f}"
-                   if capB is not None else "")
-        print(f"  {m['name']:>8s}  dirCDNV={m['directional_cdnv']:.4f}{cap_str}  "
-              f"gap={m['gap']:.4f}  pos_frac={m['pos_frac']:.3f}")
+        cap_str = (
+            f"  B={capB:.3f} sqrtB={math.sqrt(max(capB, 0.0)):.3f}" if capB is not None else ""
+        )
+        print(
+            f"  {m['name']:>8s}  dirCDNV={m['directional_cdnv']:.4f}{cap_str}  "
+            f"gap={m['gap']:.4f}  pos_frac={m['pos_frac']:.3f}"
+        )
 
     # --- metrics export ---
     coords = res.pop("coords")
     granular_task = res.pop("granular_task")
     payload = {
-        "method": method, "dataset": dataset, "tag": tag or None,
+        "method": method,
+        "dataset": dataset,
+        "tag": tag or None,
         "training_seed": int(checkpoint_cfg.seed),
         "architecture": checkpoint_architecture,
         "supervised_target": (
-            str(checkpoint_cfg.model.target_name)
-            if method == "supervised"
-            else None
+            str(checkpoint_cfg.model.target_name) if method == "supervised" else None
         ),
-        "epoch": args.epoch, "config": args.config, "ckpt_path": ckpt_path,
+        "epoch": args.epoch,
+        "config": args.config,
+        "ckpt_path": ckpt_path,
         "config_sha256": sha256_file(args.config),
         "ckpt_sha256": sha256_file(ckpt_path),
         "analysis_seed": int(args.seed),
         "analysis_max_samples": data_cfg.max_samples,
         "whiten_batches": int(args.whiten_batches) if args.whiten else None,
         "relative_eigenvalue_threshold": float(args.rel_eig_threshold),
-        "pair_mode": data_cfg.pair_mode, "pair_factors": pair_factors,
+        "pair_mode": data_cfg.pair_mode,
+        "pair_factors": pair_factors,
         "shapes": list(data_cfg.shapes),
-        "n_samples": res["n_samples"], "feature_dim": res["feature_dim"],
+        "n_samples": res["n_samples"],
+        "feature_dim": res["feature_dim"],
         "whitened": bool(whitened_geometry),
         "representation_space": (
             "ssl_selected_subspace_rewhitened"
@@ -263,9 +277,19 @@ def main(args):
         ),
         "first_stage_ssl_whitener": first_stage_ssl_whitener,
         "rewhitening": rewhitening_record,
-        **{k: res[k] for k in (
-            "attributes", "metrics", "cosine_matrix", "mean_abs_offdiag_cosine",
-            "triple_names", "triple_max_abs_cos", "box", "predicted_box")},
+        **{
+            k: res[k]
+            for k in (
+                "attributes",
+                "metrics",
+                "cosine_matrix",
+                "mean_abs_offdiag_cosine",
+                "triple_names",
+                "triple_max_abs_cos",
+                "box",
+                "predicted_box",
+            )
+        },
     }
     json_path = mio.write_json(os.path.join(metrics_dir, f"hyperrect_{stem}.json"), payload)
     print(f"\nSaved JSON: {json_path}")
@@ -289,16 +313,22 @@ def main(args):
             )
             tnames = res["triple_names"]
             axis_labels = [DISPLAY.get(n, (n, None))[0] for n in tnames]
-            level_labels = ([DISPLAY[n][1] for n in tnames]
-                            if all(n in DISPLAY for n in tnames) else None)
-            plot_box_3d(coords.cpu(), res["box"], granular_task.cpu(),
-                        tnames, [box_png, box_pdf],
-                        predicted_box=(res.get("predicted_box")
-                                       if args.show_predicted_box else None),
-                        per_task=args.per_task,
-                        axis_labels=axis_labels, level_labels=level_labels,
-                        title=f"DSprites {method.upper()} epoch {args.epoch} ({space}): "
-                              f"{' / '.join(res['triple_names'])}")
+            level_labels = (
+                [DISPLAY[n][1] for n in tnames] if all(n in DISPLAY for n in tnames) else None
+            )
+            plot_box_3d(
+                coords.cpu(),
+                res["box"],
+                granular_task.cpu(),
+                tnames,
+                [box_png, box_pdf],
+                predicted_box=(res.get("predicted_box") if args.show_predicted_box else None),
+                per_task=args.per_task,
+                axis_labels=axis_labels,
+                level_labels=level_labels,
+                title=f"DSprites {method.upper()} epoch {args.epoch} ({space}): "
+                f"{' / '.join(res['triple_names'])}",
+            )
             print(f"Saved 3D box: {box_png} (+ .pdf)")
     except Exception as e:  # noqa: BLE001 - never lose metrics over a plotting error
         print(f"WARNING: plotting failed ({type(e).__name__}: {e}); metrics were saved.")
@@ -312,30 +342,52 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt_dir", "-ckpt", type=str, required=True)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--seed", type=int, default=6)
-    parser.add_argument("--epoch", type=int, default=80,
-                        help="Single checkpoint epoch to analyze")
-    parser.add_argument("--npz_path", type=str, default=None,
-                        help="Override the DSprites npz path from the config")
-    parser.add_argument("--pair_mode", type=str, default=None,
-                        choices=["granular", "exact"],
-                        help="Override two-view pairing mode")
-    parser.add_argument("--max_samples", type=int, default=None,
-                        help="Cap on eval samples (also caps the array build)")
-    parser.add_argument("--per_task", type=int, default=700,
-                        help="Samples plotted per granular task in the swarm")
-    parser.add_argument("--show_predicted_box", action="store_true",
-                        help="Overlay the Thm 4.4 sqrt(B_t) predicted corners")
-    parser.add_argument("--metrics_only", action="store_true",
-                        help="Write metrics without rendering a 3D box")
+    parser.add_argument("--epoch", type=int, default=80, help="Single checkpoint epoch to analyze")
+    parser.add_argument(
+        "--npz_path", type=str, default=None, help="Override the DSprites npz path from the config"
+    )
+    parser.add_argument(
+        "--pair_mode",
+        type=str,
+        default=None,
+        choices=["granular", "exact"],
+        help="Override two-view pairing mode",
+    )
+    parser.add_argument(
+        "--max_samples",
+        type=int,
+        default=None,
+        help="Cap on eval samples (also caps the array build)",
+    )
+    parser.add_argument(
+        "--per_task", type=int, default=700, help="Samples plotted per granular task in the swarm"
+    )
+    parser.add_argument(
+        "--show_predicted_box",
+        action="store_true",
+        help="Overlay the Thm 4.4 sqrt(B_t) predicted corners",
+    )
+    parser.add_argument(
+        "--metrics_only", action="store_true", help="Write metrics without rendering a 3D box"
+    )
     parser.add_argument("--out_dir", type=str, default=".")
     parser.add_argument("--tag", type=str, default="")
-    parser.add_argument("--whiten", action="store_true",
-                        help="Map features into the whitened SSL subspace (two-view) "
-                             "for the paper-faithful sqrt(B_t) hyper-rectangle")
-    parser.add_argument("--rewhiten_only", action="store_true",
-                        help="Rewhiten L2-normalized backbone features without an "
-                             "SSL-subspace fit")
-    parser.add_argument("--whiten_batches", type=int, default=200,
-                        help="Max paired batches used to estimate the SSL subspace")
+    parser.add_argument(
+        "--whiten",
+        action="store_true",
+        help="Map features into the whitened SSL subspace (two-view) "
+        "for the paper-faithful sqrt(B_t) hyper-rectangle",
+    )
+    parser.add_argument(
+        "--rewhiten_only",
+        action="store_true",
+        help="Rewhiten L2-normalized backbone features without an SSL-subspace fit",
+    )
+    parser.add_argument(
+        "--whiten_batches",
+        type=int,
+        default=200,
+        help="Max paired batches used to estimate the SSL subspace",
+    )
     parser.add_argument("--rel_eig_threshold", type=float, default=1e-3)
     main(parser.parse_args())

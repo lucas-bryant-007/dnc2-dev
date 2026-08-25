@@ -1,10 +1,32 @@
 # Paper outputs
 
-Start with the post-audit package:
+Start with the current audited review release:
+
+- [Paper figure release, 2026-08-25](paper_release_20260825/README.md)
+
+It contains all 7 main and 6 supplementary figures, compact derived tables,
+per-figure source mappings, and SHA-256 manifests. The pinned build command is
+documented inside the release.
+
+Use these focused review packages when deciding the final main/supplement layout:
+
+- [Natural hyperrectangle review](hyperrectangle_review_20260825/)
+- [Clarified Figure 1](figure1_clarity_20260825/figure1_augmentation.pdf)
+
+The hyperrectangle review separates natural held-out evidence from controlled
+same-population checks, audits every train-screened candidate triple, and adds
+an all-attribute CelebA orthogonality distribution. The clarified Figure 1
+states that the ablation uses four pairing conditions and three seeds.
+
+The [2026-08-24 release](paper_release_20260824/README.md) is retained as an
+immutable historical snapshot. Its frozen inputs and outputs remain valid, but
+its renderer predates the clarified Figure 1. Do not edit or rehash it.
+
+The earlier post-audit geometry package remains as a focused audit record:
 
 - [Repaired pretrained primary geometry, 2026-08-10](pretrained_crossfit_postaudit_20260810/README.md)
 
-This package contains corrected primary-split boxes, diagnostics, figures, and
+That package contains corrected primary-split boxes, diagnostics, figures, and
 5,000-draw held-out permutation controls. It is intentionally marked
 `resampling_pending`: the compact archive does not contain the full held-out
 features needed to rebuild the other 19 balance seeds, and it cannot regenerate
