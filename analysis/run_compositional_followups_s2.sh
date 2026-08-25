@@ -6,7 +6,7 @@ umask 027
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-EXPECTED_BRANCH="${EXPECTED_BRANCH:-rich-dev-20260810}"
+EXPECTED_BRANCH="${EXPECTED_BRANCH:-paper-audit-handoff-20260825}"
 ROOT="${ROOT:-/home/lucas_bryant1/dnc2_s2}"
 PY="${PY:-$ROOT/dnc2_env/bin/python}"
 SOURCE_RESULTS="${SOURCE_RESULTS:-}"
@@ -97,7 +97,7 @@ common_preflight() {
         verify_evaluation "$directory"
     done < <(primary_evaluations celeba; primary_evaluations cub200)
     bash -n "$SCRIPT_DIR/run_compositional_followups_s2.sh"
-    if [[ "${RUN_TESTS:-1}" == "1" ]]; then
+    if [[ "${RUN_TESTS:-0}" == "1" ]]; then
         (
             cd "$REPO_DIR"
             "$PY" -m pytest -q

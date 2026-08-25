@@ -1,4 +1,0 @@
-label,capture_values,max_abs_cos,primary_rmse,stability_mean,stability_min,stability_max,passes,n_resamples
-VICReg · CelebA,0.7766|0.4709|0.3825,0.0755,0.1630,0.1587,0.1465,0.1726,20,20
-I-JEPA · CelebA,0.3365|0.4163|0.1615,0.1088,0.2741,0.2709,0.2562,0.2849,0,20
-VICReg · CUB-200,0.6600|0.4938|0.4148,0.1255,0.3343,0.3297,0.3131,0.3497,20,20

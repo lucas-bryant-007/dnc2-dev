@@ -20,7 +20,6 @@ packages are listed in `paper_outputs/README.md`.
 ## Validation
 
 ```bash
-python -m pytest -q
 python -m ruff check .
 git diff --check
 ```

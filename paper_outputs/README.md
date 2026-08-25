@@ -8,19 +8,15 @@ It contains all 7 main and 6 supplementary figures, compact derived tables,
 per-figure source mappings, and SHA-256 manifests. The pinned build command is
 documented inside the release.
 
-Use these focused review packages when deciding the final main/supplement layout:
+Use the focused hyperrectangle package when deciding the final
+main/supplement layout:
 
 - [Natural hyperrectangle review](hyperrectangle_review_20260825/)
-- [Clarified Figure 1](figure1_clarity_20260825/figure1_augmentation.pdf)
 
 The hyperrectangle review separates natural held-out evidence from controlled
 same-population checks, audits every train-screened candidate triple, and adds
-an all-attribute CelebA orthogonality distribution. The clarified Figure 1
-states that the ablation uses four pairing conditions and three seeds.
-
-The [2026-08-24 release](paper_release_20260824/README.md) is retained as an
-immutable historical snapshot. Its frozen inputs and outputs remain valid, but
-its renderer predates the clarified Figure 1. Do not edit or rehash it.
+an all-attribute CelebA orthogonality distribution. The clarified Figure 1 is
+already included in the current full release.
 
 The earlier post-audit geometry package remains as a focused audit record:
 

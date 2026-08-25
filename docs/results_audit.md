@@ -11,9 +11,9 @@ paper-facing interpretation record; this file summarizes the verification work.
   sources. The consolidated renderer was then built twice; all 36 release files
   (figures, compact tables, metadata, and provenance) were byte-identical.
 - All 75 rows in the current SHA-256 manifest revalidate: 40 direct/code inputs,
-  7 generated-data records, and 28 figure/metadata outputs. The August 24
-  package remains immutable; its manifest records its original renderer, while
-  the August 25 release contains the clarified Figure 1 and current renderer.
+  7 generated-data records, and 28 figure/metadata outputs. The August 25
+  release contains the clarified Figure 1 and current renderer; the superseded
+  full snapshot is omitted from the lean collaborator branch.
 - All 96 controlled-study input hashes match their recorded raw files.
 - Natural-image compact CSVs rebuild byte-identically from the post-eval-fix
   JSON artifacts. Compositional summary recomputation agrees to floating-point
@@ -22,9 +22,9 @@ paper-facing interpretation record; this file summarizes the verification work.
 - All 228 displayed Theorem 4.5 plug-in points recompute from the serialized
   moments with zero numerical discrepancy; validity/reporting flags agree.
 - All 13 PDFs parse, use embedded fonts, and contain no Type 3 fonts.
-- Repository verification passes: 149 tests, Ruff clean, and `git diff --check`
-  clean. The lone test warning is PyTorch noting that CPU-only execution cannot
-  use `pin_memory`.
+- Repository verification passed during the audit, with Ruff and
+  `git diff --check` clean. The collaborator handoff omits branch-specific test
+  additions and retains the artifact manifests as its validation surface.
 
 ## Defensible claims
 

@@ -93,8 +93,8 @@ real-data feature caches:
 
 ```bash
 cd /home/lucas_bryant1/dnc2_s2/dnc2_work/dnc2-dev
-git switch rich-dev-20260810
-git pull --ff-only origin rich-dev-20260810
+git switch paper-audit-handoff-20260825
+git pull --ff-only origin paper-audit-handoff-20260825
 
 export ROOT=/home/lucas_bryant1/dnc2_s2
 export PY="$ROOT/dnc2_env/bin/python"

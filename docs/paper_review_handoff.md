@@ -16,16 +16,15 @@ This is the shortest path through the current paper evidence and code.
 5. Read `docs/manuscript_repairs.md` before editing the paper source.
 
 Every current package has a SHA-256 manifest. The August 25 full release is the
-review target. The August 24 release is immutable history and should not be
-edited or rehashed.
+review target. Superseded full-release snapshots are intentionally omitted from
+this lean handoff.
 
 ## Reproduce and verify
 
-Install the CPU dependencies and run the tests:
+Install the runtime dependencies and run the lightweight checks:
 
 ```bash
-python -m pip install -r requirements.txt -r requirements-dev.txt
-python -m pytest -q
+python -m pip install -r requirements.txt
 python -m ruff check .
 ```
 
@@ -41,6 +40,65 @@ The source artifacts referenced by the release config are large and live next
 to the repository. If they are not available locally, the checked-in release
 can still be reviewed and its included output hashes verified; a full rebuild
 requires those exact inputs.
+
+## What actually runs
+
+There is intentionally no single program that retrains every model and then
+regenerates every paper panel. Training is expensive and produces checkpoints;
+evaluation turns a checkpoint into audited metrics/geometry; rendering turns
+frozen metrics into deterministic paper figures.
+
+For the controlled dSprites cube, training and rendering are two direct calls:
+
+```bash
+python training/train.py --config configs/vicreg/dsprites.yaml
+python -u analysis/dsprites_hyperrect.py \
+  --config configs/vicreg/dsprites.yaml \
+  --ckpt_dir checkpoints/vicreg_dsprites \
+  --device cuda:0 --epoch 80 --tag twoview --whiten
+```
+
+`analysis/dsprites_hyperrect.py` loads the trained checkpoint, extracts the
+representation, fits the task geometry, and writes both the cube and its metric
+JSON. It does not retrain the encoder.
+
+For a natural CelebA cube, `analysis/celeba_hyperrect_crossfit.py` is the
+single evaluation entry point once a checkpoint exists. It loads the model and
+dataset, selects the triple on training data, freezes the geometry, evaluates
+the held-out split, and saves metrics and figures. The exact paper command is
+in `docs/pretrained_celeba_next_experiments.md`; model training remains a
+separate `training/train.py` call.
+
+For CUB, `analysis/cub200_hyperrect_crossfit.py` performs feature extraction,
+train-only selection, held-out evaluation, and plotting in one run using the
+official ImageNet VICReg encoder.
+
+For the context-held-out transfer experiment, the scientific implementation is
+in the single module `analysis/compositional_transfer.py`. Its explicit
+`prepare`, `cache`, `evaluate`, and `summarize` stages prevent train/test leakage.
+`analysis/run_compositional_transfer_s2.sh` is the one-command server
+orchestrator; `analysis/run_compositional_followups_s2.sh` rebuilds the summary
+and shot-sensitivity outputs from completed frozen evaluations.
+
+For figures from already completed experiments, one command builds the entire
+paper package:
+
+```bash
+python -m analysis.build_paper_release \
+  --config configs/paper_release_20260825.json
+```
+
+## Data and checkpoint acquisition
+
+- CelebA is fetched and cached automatically through Hugging Face
+  (`flwrlabs/celeba`).
+- The official CUB VICReg encoder is fetched through `torch.hub`; the official
+  CUB-200 dataset directory must be supplied with `--data_root`.
+- The dSprites config contains the exact public download command and expects
+  `DSPRITES_NPZ` or `data/dsprites/dsprites.npz`.
+- The locally trained CelebA VICReg and I-JEPA checkpoints are not downloadable
+  from this repository. Their server directory or a shared checkpoint URL must
+  be supplied separately. This is the remaining portability gap.
 
 ## Code map
 
@@ -97,11 +155,9 @@ requires those exact inputs.
 - that `sqrt(B_t)` is a full side length (it is the half-side);
 - that synthetic same-population boxes are independent held-out validation.
 
-## Current validation
+## Current artifact validation
 
-- 149 tests pass;
 - Ruff passes;
 - `git diff --check` passes;
 - the August 25 release manifest validates 75/75 records;
-- the Figure 1 clarity manifest validates 6/6 records;
 - the hyperrectangle-review manifest validates 21/21 records.

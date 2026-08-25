@@ -14,5 +14,5 @@ Current as of `paper_outputs/paper_release_20260825/`.
 | Manuscript source/PDF | External action required | No TeX/Bib manuscript source is present locally; use the released figures and disclosures when updating it. |
 
 The Aug-10 package remains a historical focused repair record. The authoritative
-current review package is `paper_outputs/paper_release_20260825/`. The August 24
-release is immutable history and predates the clarified Figure 1 renderer.
+current review package is `paper_outputs/paper_release_20260825/`. Superseded
+full-release snapshots are omitted from the lean collaborator handoff.

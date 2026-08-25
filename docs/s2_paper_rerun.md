@@ -47,9 +47,9 @@ is nearly full.
 ```bash
 export ROOT=/home/lucas_bryant1/dnc2_s2
 cd "$ROOT/dnc2_work/dnc2-dev"
-git fetch origin rich-dev-20260810
-git switch rich-dev-20260810
-git pull --ff-only origin rich-dev-20260810
+git fetch origin paper-audit-handoff-20260825
+git switch paper-audit-handoff-20260825
+git pull --ff-only origin paper-audit-handoff-20260825
 
 export PY="$ROOT/dnc2_env/bin/python"
 export RUN_ID=paper_rerun_20260811_auditfix
@@ -60,7 +60,8 @@ bash analysis/run_paper_rerun_s2.sh --preflight
 
 Preflight refuses to proceed unless:
 
-- the worktree is clean and exactly matches `origin/rich-dev-20260810`;
+- the worktree is clean and exactly matches
+  `origin/paper-audit-handoff-20260825`;
 - all CelebA checkpoints, repaired I-JEPA checkpoint, CUB metadata/images, and
   cached official VICReg weights exist;
 - four distinct CUDA devices are available;

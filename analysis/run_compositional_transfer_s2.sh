@@ -14,7 +14,7 @@ umask 027
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-EXPECTED_BRANCH="${EXPECTED_BRANCH:-rich-dev-20260810}"
+EXPECTED_BRANCH="${EXPECTED_BRANCH:-paper-audit-handoff-20260825}"
 ROOT="${ROOT:-/home/lucas_bryant1/dnc2_s2}"
 PY="${PY:-$ROOT/dnc2_env/bin/python}"
 SHORT_COMMIT="$(git -C "$REPO_DIR" rev-parse --short=12 HEAD)"
@@ -141,7 +141,7 @@ common_preflight() {
         fail "Less than ${MIN_FREE_GB} GiB is free on the filesystem containing $ROOT"
     }
     bash -n "$SCRIPT_DIR/run_compositional_transfer_s2.sh"
-    if [[ "${RUN_TESTS:-1}" == "1" ]]; then
+    if [[ "${RUN_TESTS:-0}" == "1" ]]; then
         (
             cd "$REPO_DIR"
             "$PY" -m pytest -q

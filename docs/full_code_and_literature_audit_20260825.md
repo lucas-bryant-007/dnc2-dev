@@ -32,8 +32,8 @@ not yet submission-air-tight.
   cannot be applied here. Both local PDFs must be treated as superseded until
   the real source is repaired and rebuilt.
 - The clarified Figure 1 renderer is packaged in the new immutable
-  `paper_release_20260825`, whose complete manifest validates. The August 24
-  package remains unchanged as a historical snapshot of its original renderer.
+  `paper_release_20260825`, whose complete manifest validates. The superseded
+  full snapshot remains recoverable from Git history but is omitted here.
 - Automated quality is strong for analysis/math code but incomplete for
   end-to-end data and GPU training paths. All tests pass and lint is clean; total
   measured statement coverage is 43%, with the most important mathematical
@@ -67,7 +67,7 @@ all agree. The distinction is recorded below.
 | Tracked files | 508 | Moderate research repository; no tracked file exceeds 5 MB. Large frozen inputs live outside the Git tree and are content-hashed. |
 | Branch | `paper-audit-handoff-20260825` | Focused review branch, based on `72c931b`. |
 | Worktree | Dirty, intentionally | Audited-release, Figure 1 clarification, hyperrectangle-review, documentation, and tests are not yet committed. Do not mix unrelated work into the eventual commit. |
-| Test suite | 149 passed | One benign CPU-only PyTorch `pin_memory` warning. |
+| Audit-time test suite | 149 passed | One benign CPU-only PyTorch `pin_memory` warning. Two handoff-specific rendering test modules were subsequently omitted from the collaborator branch; the established repository suite remains. |
 | Ruff | Clean | No reported lint violations. |
 | Python compilation | Clean | `analysis`, `data_utils`, `models`, `training`, and `tests` compile. |
 | Diff hygiene | Clean | `git diff --check` passes; Git only warns that Windows may convert LF to CRLF. |
@@ -180,8 +180,9 @@ freezing the release would increase risk more than evidence.
 ## Figure-by-figure audit and paper role
 
 The authoritative current review package is
-`paper_outputs/paper_release_20260825/`. The August 24 package is immutable
-history. Current renderer entry points are in `analysis/paper_figures_v2.py`.
+`paper_outputs/paper_release_20260825/`. Superseded full snapshots are omitted
+from the lean branch. Current renderer entry points are in
+`analysis/paper_figures_v2.py`.
 
 | Figure | What it establishes | Code | Defensible boundary |
 |---|---|---|---|
@@ -355,17 +356,12 @@ The current `paper_release_20260825` passes the following checks:
 - all PDFs parsed, used embedded fonts, and contained no Type 3 fonts;
 - rebuilding the consolidated release twice produced byte-identical outputs.
 
-Focused review-package status:
+Review-package status:
 
-- `paper_outputs/figure1_clarity_20260825/MANIFEST.csv`: 6/6 valid;
 - `paper_outputs/hyperrectangle_review_20260825/MANIFEST.csv`: 21/21 valid;
-- current full release manifest: 75/75 valid;
-- old release manifest: its frozen data and outputs still match, while the
-  current renderer intentionally differs from the renderer recorded on August
-  24.
+- current full release manifest: 75/75 valid.
 
-That separation is intentional: neither dated package should be edited or
-rehashed.
+These output directories are immutable; a changed layout receives a new ID.
 
 ## Code risks and hygiene actions
 
