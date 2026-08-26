@@ -1,0 +1,15 @@
+{
+  "release_id": "paper_release_20260824",
+  "output_dir": "paper_outputs/paper_release_20260824",
+  "primary_shot": 32,
+  "controlled_dir": "../s2_pull_20260812/augmentation_survival_d871f4ed9809",
+  "followups_dir": "../s2_pull_20260812/compositional_followups_d871f4ed9809",
+  "natural_root": "../s2_merged_20260812",
+  "fewshot_root": "../s2_merged_20260812",
+  "shapes3d_bounds_json": "../s2_pull_factor_20260813/factor_fewshot_vicreg_shapes3d_epoch_80_extended_m.json",
+  "synthetic_box_jsons": [
+    "../s2_pull_20260812c/hyperrect_evalfix_743778d99cb1/metrics/hyperrect_vicreg_dsprites_epoch_80_twoview_evalfix.json",
+    "../s2_pull_20260812c/hyperrect_evalfix_743778d99cb1/metrics/hyperrect_vicreg_shapes3d_epoch_200_clean_evalfix.json",
+    "../s2_pull_20260812c/hyperrect_evalfix_743778d99cb1/metrics/hyperrect_vicreg_dsprites_epoch_200_r50_evalfix.json"
+  ]
+}

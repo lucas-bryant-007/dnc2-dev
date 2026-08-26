@@ -307,7 +307,16 @@ def estimate_B_r_corrected(psi: torch.Tensor,
     center_labels: bool = False,
     ridge=1e-4):
     y = _as_pm_one(y)
+    if center_labels:
+        y = y - y.mean()
+    if psi.ndim != 2:
+        raise ValueError(f"psi must be 2D, got shape {psi.shape}")
+    if psi.shape[0] != y.shape[0]:
+        raise ValueError("psi and y must have the same number of rows")
     N, k = psi.shape
+    r_values = list(r_values)
+    if r_values and (min(r_values) < 1 or max(r_values) > k):
+        raise ValueError(f"all r must satisfy 1 <= r <= {k}; got {r_values}")
     out = {}
     for r in r_values:
         Psi = psi[:, :r]

@@ -1,0 +1,3327 @@
+{
+  "method": "vicreg",
+  "dataset": "celeba",
+  "epoch": 1000,
+  "tag": "full_support_20x_v1",
+  "config": "configs/eval/vicreg_celeba_hf.yaml",
+  "ckpt_path": "/home/lucas_bryant1/dnc2_s1/hf_models/vicreg-resnet50-celeba/converted_checkpoints/epoch_1000.ckpt",
+  "protocol": {
+    "population": "uniform_over_selected_eight_label_cells",
+    "selection_split": "train",
+    "evaluation_split": "test",
+    "triple_frozen_before_test_label_analysis": true,
+    "selection_objective": "maximize minimum capture under fixed constraints",
+    "min_class_frac": 0.2,
+    "min_capture": 0.1,
+    "cos_ceiling": 0.12,
+    "constraints_satisfied": true,
+    "rewhitening": "ZCA fitted once on the selected jointly balanced training population and frozen for every held-out test resample",
+    "test_statistics_used_to_fit_rewhitening": false,
+    "capture_and_cosine_estimator": "symmetrized split-half cross-Gram within every balanced sample",
+    "box_axes_and_predicted_corners": "fit on selected balanced train population and frozen for test",
+    "primary_test_balance_seed": 7,
+    "test_balance_seeds": [
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26
+    ],
+    "max_test_cell_samples": null,
+    "criteria_status": "fixed_before_strict_rerun_but_not_formally_preregistered",
+    "label_randomization": null,
+    "fixed_test_criteria": {
+      "max_pairwise_abs_cos": 0.15,
+      "min_capture_B": 0.1,
+      "max_normalized_centroid_rmse": 0.25,
+      "min_cell_count": 100
+    }
+  },
+  "ssl_subspace_k_eff": 2048,
+  "selected_triple": [
+    "Smiling",
+    "Wavy_Hair",
+    "Black_Hair"
+  ],
+  "natural_train_screen": {
+    "metrics": [
+      {
+        "name": "5_o_Clock_Shadow",
+        "n_pos": 18177,
+        "n_neg": 144593,
+        "pos_frac": 0.11167291269890028,
+        "gap": 0.7322373390197754,
+        "directional_cdnv": 4.022716522216797,
+        "cdnv": 7587.19580078125,
+        "capture_B": 0.021105967462062836,
+        "usable": false
+      },
+      {
+        "name": "Arched_Eyebrows",
+        "n_pos": 43278,
+        "n_neg": 119492,
+        "pos_frac": 0.2658843767278983,
+        "gap": 0.6930928230285645,
+        "directional_cdnv": 3.639389753341675,
+        "cdnv": 8476.857421875,
+        "capture_B": 0.0732077956199646,
+        "usable": true
+      },
+      {
+        "name": "Attractive",
+        "n_pos": 83603,
+        "n_neg": 79167,
+        "pos_frac": 0.5136265896664004,
+        "gap": 0.704481303691864,
+        "directional_cdnv": 3.530865430831909,
+        "cdnv": 8232.810546875,
+        "capture_B": 0.12388923764228821,
+        "usable": true
+      },
+      {
+        "name": "Bags_Under_Eyes",
+        "n_pos": 33280,
+        "n_neg": 129490,
+        "pos_frac": 0.20446028137863242,
+        "gap": 0.7324720621109009,
+        "directional_cdnv": 3.7244694232940674,
+        "cdnv": 7580.87158203125,
+        "capture_B": 0.05677846819162369,
+        "usable": true
+      },
+      {
+        "name": "Bald",
+        "n_pos": 3713,
+        "n_neg": 159057,
+        "pos_frac": 0.022811328868956197,
+        "gap": 1.9732260704040527,
+        "directional_cdnv": 0.9391708374023438,
+        "cdnv": 1038.25830078125,
+        "capture_B": 0.0077387625351548195,
+        "usable": false
+      },
+      {
+        "name": "Bangs",
+        "n_pos": 24685,
+        "n_neg": 138085,
+        "pos_frac": 0.15165571051176507,
+        "gap": 1.6336638927459717,
+        "directional_cdnv": 0.721237063407898,
+        "cdnv": 1525.8095703125,
+        "capture_B": 0.17670433223247528,
+        "usable": false
+      },
+      {
+        "name": "Big_Lips",
+        "n_pos": 39213,
+        "n_neg": 123557,
+        "pos_frac": 0.24091048719051422,
+        "gap": 0.3779059946537018,
+        "directional_cdnv": 13.921625137329102,
+        "cdnv": 28579.220703125,
+        "capture_B": 0.01910402812063694,
+        "usable": true
+      },
+      {
+        "name": "Big_Nose",
+        "n_pos": 38341,
+        "n_neg": 124429,
+        "pos_frac": 0.23555323462554525,
+        "gap": 0.6110655665397644,
+        "directional_cdnv": 5.2351579666137695,
+        "cdnv": 10884.66796875,
+        "capture_B": 0.048429299145936966,
+        "usable": true
+      },
+      {
+        "name": "Black_Hair",
+        "n_pos": 38906,
+        "n_neg": 123864,
+        "pos_frac": 0.23902439024390243,
+        "gap": 0.7657328248023987,
+        "directional_cdnv": 2.854785442352295,
+        "cdnv": 6947.66064453125,
+        "capture_B": 0.07759620249271393,
+        "usable": true
+      },
+      {
+        "name": "Blond_Hair",
+        "n_pos": 24267,
+        "n_neg": 138503,
+        "pos_frac": 0.149087669718007,
+        "gap": 1.2548490762710571,
+        "directional_cdnv": 1.341827154159546,
+        "cdnv": 2593.164306640625,
+        "capture_B": 0.10136687010526657,
+        "usable": false
+      },
+      {
+        "name": "Blurry",
+        "n_pos": 8362,
+        "n_neg": 154408,
+        "pos_frac": 0.05137310315168643,
+        "gap": 0.7568731904029846,
+        "directional_cdnv": 3.846687078475952,
+        "cdnv": 7216.72119140625,
+        "capture_B": 0.005442127585411072,
+        "usable": false
+      },
+      {
+        "name": "Brown_Hair",
+        "n_pos": 33192,
+        "n_neg": 129578,
+        "pos_frac": 0.20391964121152548,
+        "gap": 0.6294920444488525,
+        "directional_cdnv": 4.550180912017822,
+        "cdnv": 10307.24609375,
+        "capture_B": 0.041770756244659424,
+        "usable": true
+      },
+      {
+        "name": "Bushy_Eyebrows",
+        "n_pos": 23386,
+        "n_neg": 139384,
+        "pos_frac": 0.1436751244086748,
+        "gap": 0.7125930190086365,
+        "directional_cdnv": 3.965453863143921,
+        "cdnv": 8008.6435546875,
+        "capture_B": 0.030745629221200943,
+        "usable": false
+      },
+      {
+        "name": "Chubby",
+        "n_pos": 9389,
+        "n_neg": 153381,
+        "pos_frac": 0.05768261964735517,
+        "gap": 1.0400875806808472,
+        "directional_cdnv": 2.3116614818573,
+        "cdnv": 3735.84423828125,
+        "capture_B": 0.012784509919583797,
+        "usable": false
+      },
+      {
+        "name": "Double_Chin",
+        "n_pos": 7571,
+        "n_neg": 155199,
+        "pos_frac": 0.04651348528598636,
+        "gap": 1.1734930276870728,
+        "directional_cdnv": 1.8649911880493164,
+        "cdnv": 2919.766845703125,
+        "capture_B": 0.010834473185241222,
+        "usable": false
+      },
+      {
+        "name": "Eyeglasses",
+        "n_pos": 10521,
+        "n_neg": 152249,
+        "pos_frac": 0.0646372181605947,
+        "gap": 2.1201674938201904,
+        "directional_cdnv": 1.4980298280715942,
+        "cdnv": 904.0928344726562,
+        "capture_B": 0.06572428345680237,
+        "usable": false
+      },
+      {
+        "name": "Goatee",
+        "n_pos": 10337,
+        "n_neg": 152433,
+        "pos_frac": 0.06350678872028015,
+        "gap": 0.8741637468338013,
+        "directional_cdnv": 3.369418144226074,
+        "cdnv": 5346.7783203125,
+        "capture_B": 0.010811727494001389,
+        "usable": false
+      },
+      {
+        "name": "Gray_Hair",
+        "n_pos": 6896,
+        "n_neg": 155874,
+        "pos_frac": 0.04236652945874547,
+        "gap": 1.5422000885009766,
+        "directional_cdnv": 1.4468873739242554,
+        "cdnv": 1705.8822021484375,
+        "capture_B": 0.01565978303551674,
+        "usable": false
+      },
+      {
+        "name": "Heavy_Makeup",
+        "n_pos": 62555,
+        "n_neg": 100215,
+        "pos_frac": 0.38431529151563554,
+        "gap": 0.818264901638031,
+        "directional_cdnv": 2.4906539916992188,
+        "cdnv": 6093.76220703125,
+        "capture_B": 0.14994773268699646,
+        "usable": true
+      },
+      {
+        "name": "High_Cheekbones",
+        "n_pos": 73645,
+        "n_neg": 89125,
+        "pos_frac": 0.45244823984763777,
+        "gap": 0.9835173487663269,
+        "directional_cdnv": 1.5861380100250244,
+        "cdnv": 4215.83935546875,
+        "capture_B": 0.23747186362743378,
+        "usable": true
+      },
+      {
+        "name": "Male",
+        "n_pos": 68261,
+        "n_neg": 94509,
+        "pos_frac": 0.4193708914419119,
+        "gap": 0.6970365643501282,
+        "directional_cdnv": 3.6156742572784424,
+        "cdnv": 8405.0927734375,
+        "capture_B": 0.11522992700338364,
+        "usable": true
+      },
+      {
+        "name": "Mouth_Slightly_Open",
+        "n_pos": 78486,
+        "n_neg": 84284,
+        "pos_frac": 0.4821895926767832,
+        "gap": 0.8387402892112732,
+        "directional_cdnv": 2.3422305583953857,
+        "cdnv": 5804.27490234375,
+        "capture_B": 0.17542527616024017,
+        "usable": true
+      },
+      {
+        "name": "Mustache",
+        "n_pos": 6642,
+        "n_neg": 156128,
+        "pos_frac": 0.040806045340050376,
+        "gap": 0.978105902671814,
+        "directional_cdnv": 2.7736082077026367,
+        "cdnv": 4273.40087890625,
+        "capture_B": 0.005862645339220762,
+        "usable": false
+      },
+      {
+        "name": "Narrow_Eyes",
+        "n_pos": 18869,
+        "n_neg": 143901,
+        "pos_frac": 0.11592431037660503,
+        "gap": 0.7051368355751038,
+        "directional_cdnv": 4.397222995758057,
+        "cdnv": 8204.822265625,
+        "capture_B": 0.02088981866836548,
+        "usable": false
+      },
+      {
+        "name": "No_Beard",
+        "n_pos": 135779,
+        "n_neg": 26991,
+        "pos_frac": 0.8341770596547275,
+        "gap": 0.6568740606307983,
+        "directional_cdnv": 4.836827754974365,
+        "cdnv": 9463.7666015625,
+        "capture_B": 0.03302401676774025,
+        "usable": false
+      },
+      {
+        "name": "Oval_Face",
+        "n_pos": 46101,
+        "n_neg": 116669,
+        "pos_frac": 0.28322786754315904,
+        "gap": 0.581538200378418,
+        "directional_cdnv": 5.507257461547852,
+        "cdnv": 12045.375,
+        "capture_B": 0.05575075373053551,
+        "usable": true
+      },
+      {
+        "name": "Pale_Skin",
+        "n_pos": 7005,
+        "n_neg": 155765,
+        "pos_frac": 0.04303618602936659,
+        "gap": 0.7161128520965576,
+        "directional_cdnv": 3.9942870140075684,
+        "cdnv": 8023.583984375,
+        "capture_B": 0.003479220438748598,
+        "usable": false
+      },
+      {
+        "name": "Pointy_Nose",
+        "n_pos": 44846,
+        "n_neg": 117924,
+        "pos_frac": 0.2755176015236223,
+        "gap": 0.5849703550338745,
+        "directional_cdnv": 5.440740585327148,
+        "cdnv": 11912.28515625,
+        "capture_B": 0.054535847157239914,
+        "usable": true
+      },
+      {
+        "name": "Receding_Hairline",
+        "n_pos": 13040,
+        "n_neg": 149730,
+        "pos_frac": 0.08011304294403146,
+        "gap": 1.2836209535598755,
+        "directional_cdnv": 1.3627667427062988,
+        "cdnv": 2456.791015625,
+        "capture_B": 0.035793889313936234,
+        "usable": false
+      },
+      {
+        "name": "Rosy_Cheeks",
+        "n_pos": 10525,
+        "n_neg": 152245,
+        "pos_frac": 0.06466179271364501,
+        "gap": 1.350079894065857,
+        "directional_cdnv": 1.2954487800598145,
+        "cdnv": 2191.2822265625,
+        "capture_B": 0.026669304817914963,
+        "usable": false
+      },
+      {
+        "name": "Sideburns",
+        "n_pos": 9156,
+        "n_neg": 153614,
+        "pos_frac": 0.05625115193217423,
+        "gap": 0.8244354724884033,
+        "directional_cdnv": 3.5003597736358643,
+        "cdnv": 5996.025390625,
+        "capture_B": 0.007662119343876839,
+        "usable": false
+      },
+      {
+        "name": "Smiling",
+        "n_pos": 78080,
+        "n_neg": 84690,
+        "pos_frac": 0.47969527554217606,
+        "gap": 1.1094536781311035,
+        "directional_cdnv": 1.1275169849395752,
+        "cdnv": 3315.913818359375,
+        "capture_B": 0.30670779943466187,
+        "usable": true
+      },
+      {
+        "name": "Straight_Hair",
+        "n_pos": 33947,
+        "n_neg": 128823,
+        "pos_frac": 0.2085580880997727,
+        "gap": 0.46212440729141235,
+        "directional_cdnv": 9.343945503234863,
+        "cdnv": 19092.08203125,
+        "capture_B": 0.023273944854736328,
+        "usable": true
+      },
+      {
+        "name": "Wavy_Hair",
+        "n_pos": 51982,
+        "n_neg": 110788,
+        "pos_frac": 0.31935860416538675,
+        "gap": 0.7169897556304932,
+        "directional_cdnv": 3.4416239261627197,
+        "cdnv": 7937.771484375,
+        "capture_B": 0.09715829789638519,
+        "usable": true
+      },
+      {
+        "name": "Wearing_Earrings",
+        "n_pos": 30362,
+        "n_neg": 132408,
+        "pos_frac": 0.18653314492842663,
+        "gap": 0.6763110160827637,
+        "directional_cdnv": 4.25341796875,
+        "cdnv": 8863.734375,
+        "capture_B": 0.042125456035137177,
+        "usable": false
+      },
+      {
+        "name": "Wearing_Hat",
+        "n_pos": 8039,
+        "n_neg": 154731,
+        "pos_frac": 0.04938870799287338,
+        "gap": 2.4184539318084717,
+        "directional_cdnv": 0.7871373891830444,
+        "cdnv": 705.785888671875,
+        "capture_B": 0.051569972187280655,
+        "usable": false
+      },
+      {
+        "name": "Wearing_Lipstick",
+        "n_pos": 76437,
+        "n_neg": 86333,
+        "pos_frac": 0.4696012778767586,
+        "gap": 0.7995089888572693,
+        "directional_cdnv": 2.615224599838257,
+        "cdnv": 6389.93212890625,
+        "capture_B": 0.15862445533275604,
+        "usable": true
+      },
+      {
+        "name": "Wearing_Necklace",
+        "n_pos": 19764,
+        "n_neg": 143006,
+        "pos_frac": 0.12142286662161332,
+        "gap": 0.6030288338661194,
+        "directional_cdnv": 5.5268425941467285,
+        "cdnv": 11178.029296875,
+        "capture_B": 0.016553768888115883,
+        "usable": false
+      },
+      {
+        "name": "Wearing_Necktie",
+        "n_pos": 11890,
+        "n_neg": 150880,
+        "pos_frac": 0.07304785894206549,
+        "gap": 0.8412874341011047,
+        "directional_cdnv": 2.9271998405456543,
+        "cdnv": 5707.75830078125,
+        "capture_B": 0.012980109080672264,
+        "usable": false
+      },
+      {
+        "name": "Young",
+        "n_pos": 126788,
+        "n_neg": 35982,
+        "pos_frac": 0.7789396080358788,
+        "gap": 0.6379967927932739,
+        "directional_cdnv": 5.069559097290039,
+        "cdnv": 10007.9970703125,
+        "capture_B": 0.048275455832481384,
+        "usable": true
+      }
+    ],
+    "mean_abs_offdiag_cosine": 0.33351007103919983
+  },
+  "train_balance": {
+    "selected_candidate": {
+      "indices": [
+        31,
+        33,
+        8
+      ],
+      "names": [
+        "Smiling",
+        "Wavy_Hair",
+        "Black_Hair"
+      ],
+      "proxy": {
+        "cell_counts": [
+          44739,
+          15761,
+          19688,
+          4502,
+          36797,
+          13491,
+          22640,
+          5152
+        ],
+        "min_cell_count": 4502,
+        "capture_proxy": [
+          0.4131683111190796,
+          0.15781322121620178,
+          0.16437271237373352
+        ],
+        "max_abs_cos": 0.18668913841247559
+      },
+      "min_capture_proxy": 0.15781322121620178,
+      "mean_capture_proxy": 0.24511808156967163
+    },
+    "original_cell_counts": [
+      44739,
+      15761,
+      19688,
+      4502,
+      36797,
+      13491,
+      22640,
+      5152
+    ],
+    "samples_per_cell": 4502,
+    "exact_attempts": [
+      {
+        "rank": 1,
+        "triple": [
+          "High_Cheekbones",
+          "Heavy_Makeup",
+          "Black_Hair"
+        ],
+        "proxy": {
+          "cell_counts": [
+            49357,
+            16153,
+            18908,
+            4707,
+            25363,
+            9342,
+            30236,
+            8704
+          ],
+          "min_cell_count": 4707,
+          "capture_proxy": [
+            0.3122689127922058,
+            0.16492491960525513,
+            0.16635897755622864
+          ],
+          "max_abs_cos": 0.22913791239261627
+        },
+        "original_cell_counts": [
+          49357,
+          16153,
+          18908,
+          4707,
+          25363,
+          9342,
+          30236,
+          8704
+        ],
+        "samples_per_cell": 4707,
+        "exact_max_abs_cos": 0.18835455179214478,
+        "exact_capture_B": [
+          0.21165744960308075,
+          0.14072579145431519,
+          0.13413816690444946
+        ],
+        "passed": false
+      },
+      {
+        "rank": 2,
+        "triple": [
+          "Wavy_Hair",
+          "Black_Hair",
+          "Bags_Under_Eyes"
+        ],
+        "proxy": {
+          "cell_counts": [
+            61782,
+            19754,
+            22563,
+            6689,
+            36748,
+            5580,
+            8397,
+            1257
+          ],
+          "min_cell_count": 1257,
+          "capture_proxy": [
+            0.1805889904499054,
+            0.19135987758636475,
+            0.16462582349777222
+          ],
+          "max_abs_cos": 0.16481521725654602
+        },
+        "original_cell_counts": [
+          61782,
+          19754,
+          22563,
+          6689,
+          36748,
+          5580,
+          8397,
+          1257
+        ],
+        "samples_per_cell": 1257,
+        "exact_max_abs_cos": 0.2609800398349762,
+        "exact_capture_B": [
+          0.09691637009382248,
+          0.11864510923624039,
+          0.06949248164892197
+        ],
+        "passed": false
+      },
+      {
+        "rank": 3,
+        "triple": [
+          "High_Cheekbones",
+          "Wearing_Lipstick",
+          "Black_Hair"
+        ],
+        "proxy": {
+          "cell_counts": [
+            43816,
+            14842,
+            24449,
+            6018,
+            19733,
+            7942,
+            35866,
+            10104
+          ],
+          "min_cell_count": 6018,
+          "capture_proxy": [
+            0.3099437355995178,
+            0.1690916121006012,
+            0.163720965385437
+          ],
+          "max_abs_cos": 0.19960767030715942
+        },
+        "original_cell_counts": [
+          43816,
+          14842,
+          24449,
+          6018,
+          19733,
+          7942,
+          35866,
+          10104
+        ],
+        "samples_per_cell": 5000,
+        "exact_max_abs_cos": 0.15227657556533813,
+        "exact_capture_B": [
+          0.21855124831199646,
+          0.14144811034202576,
+          0.13502241671085358
+        ],
+        "passed": false
+      },
+      {
+        "rank": 4,
+        "triple": [
+          "Mouth_Slightly_Open",
+          "Heavy_Makeup",
+          "Black_Hair"
+        ],
+        "proxy": {
+          "cell_counts": [
+            41392,
+            14567,
+            21965,
+            6360,
+            33328,
+            10928,
+            27179,
+            7051
+          ],
+          "min_cell_count": 6360,
+          "capture_proxy": [
+            0.2431442141532898,
+            0.17060436308383942,
+            0.16288205981254578
+          ],
+          "max_abs_cos": 0.21607792377471924
+        },
+        "original_cell_counts": [
+          41392,
+          14567,
+          21965,
+          6360,
+          33328,
+          10928,
+          27179,
+          7051
+        ],
+        "samples_per_cell": 5000,
+        "exact_max_abs_cos": 0.15943394601345062,
+        "exact_capture_B": [
+          0.1638982743024826,
+          0.14963020384311676,
+          0.13407276570796967
+        ],
+        "passed": false
+      },
+      {
+        "rank": 5,
+        "triple": [
+          "Smiling",
+          "Wearing_Lipstick",
+          "Black_Hair"
+        ],
+        "proxy": {
+          "cell_counts": [
+            38698,
+            13536,
+            25729,
+            6727,
+            24851,
+            9248,
+            34586,
+            9395
+          ],
+          "min_cell_count": 6727,
+          "capture_proxy": [
+            0.4001155495643616,
+            0.16165666282176971,
+            0.16142955422401428
+          ],
+          "max_abs_cos": 0.17439186573028564
+        },
+        "original_cell_counts": [
+          38698,
+          13536,
+          25729,
+          6727,
+          24851,
+          9248,
+          34586,
+          9395
+        ],
+        "samples_per_cell": 5000,
+        "exact_max_abs_cos": 0.17317599058151245,
+        "exact_capture_B": [
+          0.27776476740837097,
+          0.1362456977367401,
+          0.1341594159603119
+        ],
+        "passed": false
+      },
+      {
+        "rank": 6,
+        "triple": [
+          "Smiling",
+          "Heavy_Makeup",
+          "Black_Hair"
+        ],
+        "proxy": {
+          "cell_counts": [
+            44175,
+            14906,
+            20252,
+            5357,
+            30545,
+            10589,
+            28892,
+            8054
+          ],
+          "min_cell_count": 5357,
+          "capture_proxy": [
+            0.40178894996643066,
+            0.1612454205751419,
+            0.16422641277313232
+          ],
+          "max_abs_cos": 0.21428129076957703
+        },
+        "original_cell_counts": [
+          44175,
+          14906,
+          20252,
+          5357,
+          30545,
+          10589,
+          28892,
+          8054
+        ],
+        "samples_per_cell": 5000,
+        "exact_max_abs_cos": 0.16728337109088898,
+        "exact_capture_B": [
+          0.2783046066761017,
+          0.13874666392803192,
+          0.13413085043430328
+        ],
+        "passed": false
+      },
+      {
+        "rank": 7,
+        "triple": [
+          "Mouth_Slightly_Open",
+          "Wearing_Lipstick",
+          "Black_Hair"
+        ],
+        "proxy": {
+          "cell_counts": [
+            35767,
+            13147,
+            27590,
+            7780,
+            27782,
+            9637,
+            32725,
+            8342
+          ],
+          "min_cell_count": 7780,
+          "capture_proxy": [
+            0.23518478870391846,
+            0.16631346940994263,
+            0.16070716083049774
+          ],
+          "max_abs_cos": 0.18021608889102936
+        },
+        "original_cell_counts": [
+          35767,
+          13147,
+          27590,
+          7780,
+          27782,
+          9637,
+          32725,
+          8342
+        ],
+        "samples_per_cell": 5000,
+        "exact_max_abs_cos": 0.13648149371147156,
+        "exact_capture_B": [
+          0.16215109825134277,
+          0.1510213166475296,
+          0.14014984667301178
+        ],
+        "passed": false
+      },
+      {
+        "rank": 8,
+        "triple": [
+          "Mouth_Slightly_Open",
+          "Wavy_Hair",
+          "Black_Hair"
+        ],
+        "proxy": {
+          "cell_counts": [
+            42998,
+            15938,
+            20359,
+            4989,
+            38538,
+            13314,
+            21969,
+            4665
+          ],
+          "min_cell_count": 4665,
+          "capture_proxy": [
+            0.25414469838142395,
+            0.15927089750766754,
+            0.164372056722641
+          ],
+          "max_abs_cos": 0.18828341364860535
+        },
+        "original_cell_counts": [
+          42998,
+          15938,
+          20359,
+          4989,
+          38538,
+          13314,
+          21969,
+          4665
+        ],
+        "samples_per_cell": 4665,
+        "exact_max_abs_cos": 0.1427673101425171,
+        "exact_capture_B": [
+          0.16891640424728394,
+          0.11971472948789597,
+          0.13331666588783264
+        ],
+        "passed": false
+      },
+      {
+        "rank": 9,
+        "triple": [
+          "High_Cheekbones",
+          "Wavy_Hair",
+          "Black_Hair"
+        ],
+        "proxy": {
+          "cell_counts": [
+            48504,
+            16475,
+            19761,
+            4385,
+            33032,
+            12777,
+            22567,
+            5269
+          ],
+          "min_cell_count": 4385,
+          "capture_proxy": [
+            0.3175508379936218,
+            0.15812578797340393,
+            0.16483460366725922
+          ],
+          "max_abs_cos": 0.19305385649204254
+        },
+        "original_cell_counts": [
+          48504,
+          16475,
+          19761,
+          4385,
+          33032,
+          12777,
+          22567,
+          5269
+        ],
+        "samples_per_cell": 4385,
+        "exact_max_abs_cos": 0.14235639572143555,
+        "exact_capture_B": [
+          0.21802939474582672,
+          0.11236786842346191,
+          0.13118860125541687
+        ],
+        "passed": false
+      },
+      {
+        "rank": 10,
+        "triple": [
+          "Smiling",
+          "Wavy_Hair",
+          "Black_Hair"
+        ],
+        "proxy": {
+          "cell_counts": [
+            44739,
+            15761,
+            19688,
+            4502,
+            36797,
+            13491,
+            22640,
+            5152
+          ],
+          "min_cell_count": 4502,
+          "capture_proxy": [
+            0.4131683111190796,
+            0.15781322121620178,
+            0.16437271237373352
+          ],
+          "max_abs_cos": 0.18668913841247559
+        },
+        "original_cell_counts": [
+          44739,
+          15761,
+          19688,
+          4502,
+          36797,
+          13491,
+          22640,
+          5152
+        ],
+        "samples_per_cell": 4502,
+        "exact_max_abs_cos": 0.10952487587928772,
+        "exact_capture_B": [
+          0.2883266806602478,
+          0.1148676648736,
+          0.1376132220029831
+        ],
+        "passed": true
+      }
+    ],
+    "rewhitener": {
+      "kind": "zca",
+      "n_fit": 36016,
+      "feature_dim": 2048,
+      "ridge_rel": 0.001,
+      "ridge": 0.002390146493911743,
+      "lambda_max": 2.390146493911743,
+      "fit_split": "train",
+      "fit_population": "uniform_over_selected_eight_label_cells",
+      "frozen_for_test": true
+    },
+    "probe_estimator": "symmetrized_split_half_cross_gram",
+    "box_reference": {
+      "fit_split": "train",
+      "n_fit": 36016,
+      "triple_names": [
+        "Smiling",
+        "Wavy_Hair",
+        "Black_Hair"
+      ],
+      "probe_gram": [
+        [
+          0.3416177034378052,
+          -0.00492797652259469,
+          -0.0027587555814534426
+        ],
+        [
+          -0.00492797652259469,
+          0.16978618502616882,
+          0.013622572645545006
+        ],
+        [
+          -0.0027587555814534426,
+          0.013622572645545006,
+          0.19156350195407867
+        ]
+      ],
+      "predicted_box": [
+        {
+          "combo": [
+            0,
+            0,
+            0
+          ],
+          "center": [
+            -0.5369605950721597,
+            -0.33892132549251014,
+            -0.3709625614573297
+          ]
+        },
+        {
+          "combo": [
+            0,
+            0,
+            1
+          ],
+          "center": [
+            -0.5369605950721597,
+            -0.33892132549251014,
+            0.3709625614573297
+          ]
+        },
+        {
+          "combo": [
+            0,
+            1,
+            0
+          ],
+          "center": [
+            -0.5369605950721597,
+            0.33892132549251014,
+            -0.3709625614573297
+          ]
+        },
+        {
+          "combo": [
+            0,
+            1,
+            1
+          ],
+          "center": [
+            -0.5369605950721597,
+            0.33892132549251014,
+            0.3709625614573297
+          ]
+        },
+        {
+          "combo": [
+            1,
+            0,
+            0
+          ],
+          "center": [
+            0.5369605950721597,
+            -0.33892132549251014,
+            -0.3709625614573297
+          ]
+        },
+        {
+          "combo": [
+            1,
+            0,
+            1
+          ],
+          "center": [
+            0.5369605950721597,
+            -0.33892132549251014,
+            0.3709625614573297
+          ]
+        },
+        {
+          "combo": [
+            1,
+            1,
+            0
+          ],
+          "center": [
+            0.5369605950721597,
+            0.33892132549251014,
+            -0.3709625614573297
+          ]
+        },
+        {
+          "combo": [
+            1,
+            1,
+            1
+          ],
+          "center": [
+            0.5369605950721597,
+            0.33892132549251014,
+            0.3709625614573297
+          ]
+        }
+      ],
+      "capture_B_used": {
+        "Smiling": 0.2883266806602478,
+        "Wavy_Hair": 0.1148676648736,
+        "Black_Hair": 0.1376132220029831
+      },
+      "predicted_box_construction": {
+        "formula": "coordinate_t = (2*y_t-1)*sqrt(B_t)",
+        "capture_source": "train_selection.crossfit_probe_geometry.capture_B",
+        "cross_task_gram_terms_used": false
+      }
+    }
+  },
+  "train_selection": {
+    "n_samples": 36016,
+    "feature_dim": 2048,
+    "attributes": [
+      "Smiling",
+      "Wavy_Hair",
+      "Black_Hair"
+    ],
+    "metrics": [
+      {
+        "name": "Smiling",
+        "n_pos": 18008,
+        "n_neg": 18008,
+        "pos_frac": 0.5,
+        "gap": 1.168961524963379,
+        "directional_cdnv": 0.9602438807487488,
+        "cdnv": 2988.558837890625,
+        "capture_B": 0.2883266806602478,
+        "usable": true,
+        "capture_B_estimator": "symmetrized_split_half_cross_gram"
+      },
+      {
+        "name": "Wavy_Hair",
+        "n_pos": 18008,
+        "n_neg": 18008,
+        "pos_frac": 0.5,
+        "gap": 0.8241022229194641,
+        "directional_cdnv": 2.437164545059204,
+        "cdnv": 6013.62890625,
+        "capture_B": 0.1148676648736,
+        "usable": true,
+        "capture_B_estimator": "symmetrized_split_half_cross_gram"
+      },
+      {
+        "name": "Black_Hair",
+        "n_pos": 18008,
+        "n_neg": 18008,
+        "pos_frac": 0.5,
+        "gap": 0.8753592371940613,
+        "directional_cdnv": 2.102801561355591,
+        "cdnv": 5329.9296875,
+        "capture_B": 0.1376132220029831,
+        "usable": true,
+        "capture_B_estimator": "symmetrized_split_half_cross_gram"
+      }
+    ],
+    "cosine_matrix": [
+      [
+        1.0,
+        -0.016552016139030457,
+        -0.012231550179421902
+      ],
+      [
+        -0.016552016139030457,
+        1.0,
+        0.10952487587928772
+      ],
+      [
+        -0.012231550179421902,
+        0.10952487587928772,
+        1.0
+      ]
+    ],
+    "mean_abs_offdiag_cosine": 0.0355939082801342,
+    "triple_names": [
+      "Smiling",
+      "Wavy_Hair",
+      "Black_Hair"
+    ],
+    "triple_max_abs_cos": 0.10952487587928772,
+    "box": [
+      {
+        "combo": [
+          0,
+          0,
+          0
+        ],
+        "count": 4502,
+        "center": [
+          -0.5337563157081604,
+          -0.405932754278183,
+          -0.4642709791660309
+        ],
+        "center_se": [
+          0.011555328033864498,
+          0.013859882950782776,
+          0.01447724737226963
+        ]
+      },
+      {
+        "combo": [
+          0,
+          0,
+          1
+        ],
+        "count": 4502,
+        "center": [
+          -0.5787014365196228,
+          -0.3651161193847656,
+          0.4111321270465851
+        ],
+        "center_se": [
+          0.011534882709383965,
+          0.013920510187745094,
+          0.012152189388871193
+        ]
+      },
+      {
+        "combo": [
+          0,
+          1,
+          0
+        ],
+        "count": 4502,
+        "center": [
+          -0.6256787180900574,
+          0.36896032094955444,
+          -0.3821290135383606
+        ],
+        "center_se": [
+          0.011415374465286732,
+          0.013027899898588657,
+          0.014852110296487808
+        ]
+      },
+      {
+        "combo": [
+          0,
+          1,
+          1
+        ],
+        "count": 4502,
+        "center": [
+          -0.5997865796089172,
+          0.44992706179618835,
+          0.46048036217689514
+        ],
+        "center_se": [
+          0.011622264049947262,
+          0.012827032245695591,
+          0.011429176665842533
+        ]
+      },
+      {
+        "combo": [
+          1,
+          0,
+          0
+        ],
+        "count": 4502,
+        "center": [
+          0.5731379389762878,
+          -0.443277508020401,
+          -0.48539119958877563
+        ],
+        "center_se": [
+          0.012478168122470379,
+          0.013879801146686077,
+          0.0148402638733387
+        ]
+      },
+      {
+        "combo": [
+          1,
+          0,
+          1
+        ],
+        "count": 4502,
+        "center": [
+          0.5730452537536621,
+          -0.4338782727718353,
+          0.4140320420265198
+        ],
+        "center_se": [
+          0.012541118077933788,
+          0.014569390565156937,
+          0.012145081534981728
+        ]
+      },
+      {
+        "combo": [
+          1,
+          1,
+          0
+        ],
+        "count": 4502,
+        "center": [
+          0.605177104473114,
+          0.3480083644390106,
+          -0.4189274311065674
+        ],
+        "center_se": [
+          0.01260780356824398,
+          0.013004601001739502,
+          0.014921567402780056
+        ]
+      },
+      {
+        "combo": [
+          1,
+          1,
+          1
+        ],
+        "count": 4502,
+        "center": [
+          0.5865626931190491,
+          0.4813087582588196,
+          0.46507400274276733
+        ],
+        "center_se": [
+          0.012689455412328243,
+          0.013162451796233654,
+          0.011448753997683525
+        ]
+      }
+    ],
+    "predicted_box": [
+      {
+        "combo": [
+          0,
+          0,
+          0
+        ],
+        "center": [
+          -0.5369605950721597,
+          -0.33892132549251014,
+          -0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          0,
+          0,
+          1
+        ],
+        "center": [
+          -0.5369605950721597,
+          -0.33892132549251014,
+          0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          0,
+          1,
+          0
+        ],
+        "center": [
+          -0.5369605950721597,
+          0.33892132549251014,
+          -0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          0,
+          1,
+          1
+        ],
+        "center": [
+          -0.5369605950721597,
+          0.33892132549251014,
+          0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          1,
+          0,
+          0
+        ],
+        "center": [
+          0.5369605950721597,
+          -0.33892132549251014,
+          -0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          1,
+          0,
+          1
+        ],
+        "center": [
+          0.5369605950721597,
+          -0.33892132549251014,
+          0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          1,
+          1,
+          0
+        ],
+        "center": [
+          0.5369605950721597,
+          0.33892132549251014,
+          -0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          1,
+          1,
+          1
+        ],
+        "center": [
+          0.5369605950721597,
+          0.33892132549251014,
+          0.3709625614573297
+        ]
+      }
+    ],
+    "crossfit_probe_geometry": {
+      "estimator": "symmetrized_split_half_cross_gram",
+      "n_a": 18008,
+      "n_b": 18008,
+      "valid_positive_diagonal": true,
+      "capture_B": {
+        "Smiling": 0.2883266806602478,
+        "Wavy_Hair": 0.1148676648736,
+        "Black_Hair": 0.1376132220029831
+      },
+      "gram_matrix": [
+        [
+          0.2883266806602478,
+          -0.0030122585594654083,
+          -0.002436430426314473
+        ],
+        [
+          -0.0030122585594654083,
+          0.1148676648736,
+          0.013770248740911484
+        ],
+        [
+          -0.002436430426314473,
+          0.013770248740911484,
+          0.1376132220029831
+        ]
+      ],
+      "cosine_matrix": [
+        [
+          1.0,
+          -0.016552016139030457,
+          -0.012231550179421902
+        ],
+        [
+          -0.016552016139030457,
+          1.0,
+          0.10952487587928772
+        ],
+        [
+          -0.012231550179421902,
+          0.10952487587928772,
+          1.0
+        ]
+      ],
+      "max_abs_cos": 0.10952487587928772
+    }
+  },
+  "test_balance": {
+    "seed": 7,
+    "original_cell_counts": [
+      4722,
+      1941,
+      2524,
+      788,
+      4236,
+      1796,
+      3058,
+      897
+    ],
+    "samples_per_cell": 788,
+    "total_balanced_samples": 6304,
+    "crossfit_samples_per_cell_a": 394,
+    "crossfit_samples_per_cell_b": 394
+  },
+  "test_evaluation": {
+    "n_samples": 6304,
+    "feature_dim": 2048,
+    "attributes": [
+      "Smiling",
+      "Wavy_Hair",
+      "Black_Hair"
+    ],
+    "metrics": [
+      {
+        "name": "Smiling",
+        "n_pos": 3152,
+        "n_neg": 3152,
+        "pos_frac": 0.5,
+        "gap": 1.6509767770767212,
+        "directional_cdnv": 0.7360329031944275,
+        "cdnv": 1598.682861328125,
+        "capture_B": 0.33057066798210144,
+        "usable": true,
+        "capture_B_estimator": "symmetrized_split_half_cross_gram"
+      },
+      {
+        "name": "Wavy_Hair",
+        "n_pos": 3152,
+        "n_neg": 3152,
+        "pos_frac": 0.5,
+        "gap": 1.406075358390808,
+        "directional_cdnv": 1.1084954738616943,
+        "cdnv": 2204.267822265625,
+        "capture_B": 0.1493811309337616,
+        "usable": true,
+        "capture_B_estimator": "symmetrized_split_half_cross_gram"
+      },
+      {
+        "name": "Black_Hair",
+        "n_pos": 3152,
+        "n_neg": 3152,
+        "pos_frac": 0.5,
+        "gap": 1.4254037141799927,
+        "directional_cdnv": 1.1009750366210938,
+        "cdnv": 2144.88037109375,
+        "capture_B": 0.1542840152978897,
+        "usable": true,
+        "capture_B_estimator": "symmetrized_split_half_cross_gram"
+      }
+    ],
+    "cosine_matrix": [
+      [
+        1.0,
+        0.027562148869037628,
+        -0.020582718774676323
+      ],
+      [
+        0.027562148869037628,
+        1.0,
+        0.10125567764043808
+      ],
+      [
+        -0.020582718774676323,
+        0.10125567764043808,
+        1.0
+      ]
+    ],
+    "mean_abs_offdiag_cosine": 0.025958657264709473,
+    "triple_names": [
+      "Smiling",
+      "Wavy_Hair",
+      "Black_Hair"
+    ],
+    "triple_max_abs_cos": 0.10125567764043808,
+    "box": [
+      {
+        "combo": [
+          0,
+          0,
+          0
+        ],
+        "count": 788,
+        "center": [
+          -0.45858293771743774,
+          -0.32931867241859436,
+          -0.3993818461894989
+        ],
+        "center_se": [
+          0.030625632032752037,
+          0.03529071435332298,
+          0.03706435114145279
+        ]
+      },
+      {
+        "combo": [
+          0,
+          0,
+          1
+        ],
+        "count": 788,
+        "center": [
+          -0.6636154651641846,
+          -0.40942978858947754,
+          0.2803425192832947
+        ],
+        "center_se": [
+          0.026362011209130287,
+          0.032511599361896515,
+          0.03148586302995682
+        ]
+      },
+      {
+        "combo": [
+          0,
+          1,
+          0
+        ],
+        "count": 788,
+        "center": [
+          -0.48507237434387207,
+          0.24789784848690033,
+          -0.2826489508152008
+        ],
+        "center_se": [
+          0.028770465403795242,
+          0.03285195305943489,
+          0.03820757195353508
+        ]
+      },
+      {
+        "combo": [
+          0,
+          1,
+          1
+        ],
+        "count": 788,
+        "center": [
+          -0.5454214811325073,
+          0.3263828158378601,
+          0.3700454533100128
+        ],
+        "center_se": [
+          0.029804423451423645,
+          0.03349060192704201,
+          0.027782440185546875
+        ]
+      },
+      {
+        "combo": [
+          1,
+          0,
+          0
+        ],
+        "count": 788,
+        "center": [
+          0.529377818107605,
+          -0.35333967208862305,
+          -0.3909359276294708
+        ],
+        "center_se": [
+          0.03317032754421234,
+          0.036159712821245193,
+          0.03866809234023094
+        ]
+      },
+      {
+        "combo": [
+          1,
+          0,
+          1
+        ],
+        "count": 788,
+        "center": [
+          0.4841978847980499,
+          -0.34271565079689026,
+          0.25363707542419434
+        ],
+        "center_se": [
+          0.031209850683808327,
+          0.038249146193265915,
+          0.031084200367331505
+        ]
+      },
+      {
+        "combo": [
+          1,
+          1,
+          0
+        ],
+        "count": 788,
+        "center": [
+          0.5391422510147095,
+          0.26492610573768616,
+          -0.3020075559616089
+        ],
+        "center_se": [
+          0.031917985528707504,
+          0.03337815776467323,
+          0.037116844207048416
+        ]
+      },
+      {
+        "combo": [
+          1,
+          1,
+          1
+        ],
+        "count": 788,
+        "center": [
+          0.48958900570869446,
+          0.3961009681224823,
+          0.34646573662757874
+        ],
+        "center_se": [
+          0.03265174850821495,
+          0.033897195011377335,
+          0.02897336520254612
+        ]
+      }
+    ],
+    "predicted_box": [
+      {
+        "combo": [
+          0,
+          0,
+          0
+        ],
+        "center": [
+          -0.5369605950721597,
+          -0.33892132549251014,
+          -0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          0,
+          0,
+          1
+        ],
+        "center": [
+          -0.5369605950721597,
+          -0.33892132549251014,
+          0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          0,
+          1,
+          0
+        ],
+        "center": [
+          -0.5369605950721597,
+          0.33892132549251014,
+          -0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          0,
+          1,
+          1
+        ],
+        "center": [
+          -0.5369605950721597,
+          0.33892132549251014,
+          0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          1,
+          0,
+          0
+        ],
+        "center": [
+          0.5369605950721597,
+          -0.33892132549251014,
+          -0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          1,
+          0,
+          1
+        ],
+        "center": [
+          0.5369605950721597,
+          -0.33892132549251014,
+          0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          1,
+          1,
+          0
+        ],
+        "center": [
+          0.5369605950721597,
+          0.33892132549251014,
+          -0.3709625614573297
+        ]
+      },
+      {
+        "combo": [
+          1,
+          1,
+          1
+        ],
+        "center": [
+          0.5369605950721597,
+          0.33892132549251014,
+          0.3709625614573297
+        ]
+      }
+    ],
+    "crossfit_probe_geometry": {
+      "estimator": "symmetrized_split_half_cross_gram",
+      "n_a": 3152,
+      "n_b": 3152,
+      "valid_positive_diagonal": true,
+      "capture_B": {
+        "Smiling": 0.33057066798210144,
+        "Wavy_Hair": 0.1493811309337616,
+        "Black_Hair": 0.1542840152978897
+      },
+      "gram_matrix": [
+        [
+          0.33057066798210144,
+          0.006124816834926605,
+          -0.004648312926292419
+        ],
+        [
+          0.006124816834926605,
+          0.1493811309337616,
+          0.015371905639767647
+        ],
+        [
+          -0.004648312926292419,
+          0.015371905639767647,
+          0.1542840152978897
+        ]
+      ],
+      "cosine_matrix": [
+        [
+          1.0,
+          0.027562148869037628,
+          -0.020582718774676323
+        ],
+        [
+          0.027562148869037628,
+          1.0,
+          0.10125567764043808
+        ],
+        [
+          -0.020582718774676323,
+          0.10125567764043808,
+          1.0
+        ]
+      ],
+      "max_abs_cos": 0.10125567764043808
+    },
+    "box_reference_split": "train"
+  },
+  "test_stability": {
+    "n_resamples": 20,
+    "test_balance_seeds": [
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26
+    ],
+    "pass_count": null,
+    "pass_rate": null,
+    "all_resamples_passed": null,
+    "statistics": {
+      "triple_max_abs_cos": {
+        "mean": 0.11672135777771472,
+        "std": 0.0431901387318864,
+        "median": 0.11205904930830002,
+        "min": 0.04006010666489601,
+        "max": 0.20646385848522186,
+        "p05": 0.04030177257955074,
+        "p95": 0.19124599099159242
+      },
+      "min_capture_B": {
+        "mean": 0.1449300717562437,
+        "std": 0.012010872861687913,
+        "median": 0.14373596757650375,
+        "min": 0.11958643049001694,
+        "max": 0.1665121167898178,
+        "p05": 0.12886645682156087,
+        "p95": 0.16364111751317978
+      },
+      "min_cell_count": {
+        "mean": 788.0,
+        "std": 0.0,
+        "median": 788.0,
+        "min": 788.0,
+        "max": 788.0,
+        "p05": 788.0,
+        "p95": 788.0
+      }
+    },
+    "capture_B": {
+      "Smiling": {
+        "mean": 0.3278651624917984,
+        "std": 0.01890374690499656,
+        "median": 0.3259936273097992,
+        "min": 0.28883057832717896,
+        "max": 0.3569345474243164,
+        "p05": 0.29324682950973513,
+        "p95": 0.3525776669383049
+      },
+      "Wavy_Hair": {
+        "mean": 0.15304717682302,
+        "std": 0.014050466934669846,
+        "median": 0.15629103034734726,
+        "min": 0.11958643049001694,
+        "max": 0.17249266803264618,
+        "p05": 0.1290911141782999,
+        "p95": 0.169619120657444
+      },
+      "Black_Hair": {
+        "mean": 0.15398330464959145,
+        "std": 0.015583044396410351,
+        "median": 0.14963488280773163,
+        "min": 0.12935487926006317,
+        "max": 0.18205316364765167,
+        "p05": 0.13686449378728865,
+        "p95": 0.18204308450222015
+      }
+    },
+    "aggregate_crossfit_probe_geometry": {
+      "estimator": "mean_signed_cross_gram_across_repeated_splits",
+      "n_splits": 20,
+      "valid_positive_diagonal": true,
+      "gram_matrix": [
+        [
+          0.3278651624917984,
+          0.0020526147913187743,
+          -0.01761416965164244
+        ],
+        [
+          0.0020526147913187743,
+          0.15304717682302,
+          0.012329060933552682
+        ],
+        [
+          -0.01761416965164244,
+          0.012329060933552682,
+          0.15398330464959145
+        ]
+      ],
+      "capture_B": {
+        "Smiling": 0.3278651624917984,
+        "Wavy_Hair": 0.15304717682302,
+        "Black_Hair": 0.15398330464959145
+      },
+      "cosine_matrix": [
+        [
+          1.0,
+          0.009163199799878138,
+          -0.07839307868815397
+        ],
+        [
+          0.009163199799878138,
+          1.0,
+          0.08031201450600031
+        ],
+        [
+          -0.07839307868815397,
+          0.08031201450600031,
+          1.0
+        ]
+      ],
+      "max_abs_cos": 0.08031201450600031,
+      "note": "Signed Gram entries are averaged before normalization and absolute-value/max operations."
+    },
+    "records": [
+      {
+        "test_balance_seed": 7,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.10125567764043808,
+        "capture_B": {
+          "Smiling": 0.33057066798210144,
+          "Wavy_Hair": 0.1493811309337616,
+          "Black_Hair": 0.1542840152978897
+        },
+        "min_capture_B": 0.1493811309337616,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.10125567764043808,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.1493811309337616,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.33057066798210144,
+            0.006124816834926605,
+            -0.004648312926292419
+          ],
+          [
+            0.006124816834926605,
+            0.1493811309337616,
+            0.015371905639767647
+          ],
+          [
+            -0.004648312926292419,
+            0.015371905639767647,
+            0.1542840152978897
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 8,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.15829232335090637,
+        "capture_B": {
+          "Smiling": 0.34981217980384827,
+          "Wavy_Hair": 0.11958643049001694,
+          "Black_Hair": 0.17747390270233154
+        },
+        "min_capture_B": 0.11958643049001694,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.15829232335090637,
+            "passed": false
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.11958643049001694,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.34981217980384827,
+            0.0009012124501168728,
+            0.007981072179973125
+          ],
+          [
+            0.0009012124501168728,
+            0.11958643049001694,
+            0.02306046336889267
+          ],
+          [
+            0.007981072179973125,
+            0.02306046336889267,
+            0.17747390270233154
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 9,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.10765151679515839,
+        "capture_B": {
+          "Smiling": 0.34419551491737366,
+          "Wavy_Hair": 0.14826318621635437,
+          "Black_Hair": 0.18205316364765167
+        },
+        "min_capture_B": 0.14826318621635437,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.10765151679515839,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.14826318621635437,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.34419551491737366,
+            0.015170595608651638,
+            -0.026947708800435066
+          ],
+          [
+            0.015170595608651638,
+            0.14826318621635437,
+            0.008286074735224247
+          ],
+          [
+            -0.026947708800435066,
+            0.008286074735224247,
+            0.18205316364765167
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 10,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.08064853399991989,
+        "capture_B": {
+          "Smiling": 0.31816381216049194,
+          "Wavy_Hair": 0.16798722743988037,
+          "Black_Hair": 0.14361992478370667
+        },
+        "min_capture_B": 0.14361992478370667,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.08064853399991989,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.14361992478370667,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.31816381216049194,
+            0.018644897267222404,
+            0.00272980984300375
+          ],
+          [
+            0.018644897267222404,
+            0.16798722743988037,
+            0.011504700407385826
+          ],
+          [
+            0.00272980984300375,
+            0.011504700407385826,
+            0.14361992478370667
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 11,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.19044505059719086,
+        "capture_B": {
+          "Smiling": 0.35234835743904114,
+          "Wavy_Hair": 0.13922765851020813,
+          "Black_Hair": 0.1458929032087326
+        },
+        "min_capture_B": 0.13922765851020813,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.19044505059719086,
+            "passed": false
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.13922765851020813,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.35234835743904114,
+            0.006954307667911053,
+            -0.036328576505184174
+          ],
+          [
+            0.006954307667911053,
+            0.13922765851020813,
+            0.0271424800157547
+          ],
+          [
+            -0.036328576505184174,
+            0.0271424800157547,
+            0.1458929032087326
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 12,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.04006010666489601,
+        "capture_B": {
+          "Smiling": 0.3073110282421112,
+          "Wavy_Hair": 0.16062013804912567,
+          "Black_Hair": 0.16411374509334564
+        },
+        "min_capture_B": 0.16062013804912567,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.04006010666489601,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.16062013804912567,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.3073110282421112,
+            0.0028350381180644035,
+            -0.005642091855406761
+          ],
+          [
+            0.0028350381180644035,
+            0.16062013804912567,
+            0.006504060234874487
+          ],
+          [
+            -0.005642091855406761,
+            0.006504060234874487,
+            0.16411374509334564
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 13,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.20646385848522186,
+        "capture_B": {
+          "Smiling": 0.3569345474243164,
+          "Wavy_Hair": 0.12959136068820953,
+          "Black_Hair": 0.15525321662425995
+        },
+        "min_capture_B": 0.12959136068820953,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.20646385848522186,
+            "passed": false
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.12959136068820953,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.3569345474243164,
+            -0.010788104496896267,
+            -0.025596197694540024
+          ],
+          [
+            -0.010788104496896267,
+            0.12959136068820953,
+            0.029285483062267303
+          ],
+          [
+            -0.025596197694540024,
+            0.029285483062267303,
+            0.15525321662425995
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 14,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.10696697980165482,
+        "capture_B": {
+          "Smiling": 0.3263460397720337,
+          "Wavy_Hair": 0.1665121167898178,
+          "Black_Hair": 0.18204255402088165
+        },
+        "min_capture_B": 0.1665121167898178,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.10696697980165482,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.1665121167898178,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.3263460397720337,
+            -0.02493514120578766,
+            -0.023471346125006676
+          ],
+          [
+            -0.02493514120578766,
+            0.1665121167898178,
+            0.015158135443925858
+          ],
+          [
+            -0.023471346125006676,
+            0.015158135443925858,
+            0.18204255402088165
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 15,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.11646658182144165,
+        "capture_B": {
+          "Smiling": 0.3333863615989685,
+          "Wavy_Hair": 0.1375247687101364,
+          "Black_Hair": 0.14262811839580536
+        },
+        "min_capture_B": 0.1375247687101364,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.11646658182144165,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.1375247687101364,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.3333863615989685,
+            0.012542584910988808,
+            -0.02539673075079918
+          ],
+          [
+            0.012542584910988808,
+            0.1375247687101364,
+            0.009929030202329159
+          ],
+          [
+            -0.02539673075079918,
+            0.009929030202329159,
+            0.14262811839580536
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 16,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.10302981734275818,
+        "capture_B": {
+          "Smiling": 0.31557685136795044,
+          "Wavy_Hair": 0.16122077405452728,
+          "Black_Hair": 0.16552415490150452
+        },
+        "min_capture_B": 0.16122077405452728,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.10302981734275818,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.16122077405452728,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.31557685136795044,
+            -0.00897189136594534,
+            -0.023547574877738953
+          ],
+          [
+            -0.00897189136594534,
+            0.16122077405452728,
+            0.012803720310330391
+          ],
+          [
+            -0.023547574877738953,
+            0.012803720310330391,
+            0.16552415490150452
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 17,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.07846993952989578,
+        "capture_B": {
+          "Smiling": 0.28883057832717896,
+          "Wavy_Hair": 0.15921664237976074,
+          "Black_Hair": 0.1512908935546875
+        },
+        "min_capture_B": 0.1512908935546875,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.07846993952989578,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.1512908935546875,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.28883057832717896,
+            0.0030676538590341806,
+            -0.016403302550315857
+          ],
+          [
+            0.0030676538590341806,
+            0.15921664237976074,
+            -0.0014735241420567036
+          ],
+          [
+            -0.016403302550315857,
+            -0.0014735241420567036,
+            0.1512908935546875
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 18,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.07278825342655182,
+        "capture_B": {
+          "Smiling": 0.31591475009918213,
+          "Wavy_Hair": 0.16349001228809357,
+          "Black_Hair": 0.17488431930541992
+        },
+        "min_capture_B": 0.16349001228809357,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.07278825342655182,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.16349001228809357,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.31591475009918213,
+            -0.0049364143051207066,
+            -0.01710888370871544
+          ],
+          [
+            -0.0049364143051207066,
+            0.16349001228809357,
+            -0.00633044820278883
+          ],
+          [
+            -0.01710888370871544,
+            -0.00633044820278883,
+            0.17488431930541992
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 19,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.12653087079524994,
+        "capture_B": {
+          "Smiling": 0.3256412148475647,
+          "Wavy_Hair": 0.1623547375202179,
+          "Black_Hair": 0.1467989683151245
+        },
+        "min_capture_B": 0.1467989683151245,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.12653087079524994,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.1467989683151245,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.3256412148475647,
+            0.018886279314756393,
+            -0.027664808556437492
+          ],
+          [
+            0.018886279314756393,
+            0.1623547375202179,
+            0.007000828627496958
+          ],
+          [
+            -0.027664808556437492,
+            0.007000828627496958,
+            0.1467989683151245
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 20,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.1323515772819519,
+        "capture_B": {
+          "Smiling": 0.34254300594329834,
+          "Wavy_Hair": 0.14385201036930084,
+          "Black_Hair": 0.1561841517686844
+        },
+        "min_capture_B": 0.14385201036930084,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.1323515772819519,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.14385201036930084,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.34254300594329834,
+            -0.0016025947406888008,
+            -0.030612945556640625
+          ],
+          [
+            -0.0016025947406888008,
+            0.14385201036930084,
+            0.013240831904113293
+          ],
+          [
+            -0.030612945556640625,
+            0.013240831904113293,
+            0.1561841517686844
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 21,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.10714872926473618,
+        "capture_B": {
+          "Smiling": 0.31644877791404724,
+          "Wavy_Hair": 0.15391695499420166,
+          "Black_Hair": 0.14797887206077576
+        },
+        "min_capture_B": 0.14797887206077576,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.10714872926473618,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.14797887206077576,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.31644877791404724,
+            0.000636052805930376,
+            -0.004133341833949089
+          ],
+          [
+            0.000636052805930376,
+            0.15391695499420166,
+            0.016170747578144073
+          ],
+          [
+            -0.004133341833949089,
+            0.016170747578144073,
+            0.14797887206077576
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 22,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.13100896775722504,
+        "capture_B": {
+          "Smiling": 0.3404019773006439,
+          "Wavy_Hair": 0.17249266803264618,
+          "Black_Hair": 0.1374363899230957
+        },
+        "min_capture_B": 0.1374363899230957,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.13100896775722504,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.1374363899230957,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.3404019773006439,
+            -0.0030076235998421907,
+            -0.0200989730656147
+          ],
+          [
+            -0.0030076235998421907,
+            0.17249266803264618,
+            0.020171454176306725
+          ],
+          [
+            -0.0200989730656147,
+            0.020171454176306725,
+            0.1374363899230957
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 23,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.1370607167482376,
+        "capture_B": {
+          "Smiling": 0.3252905309200287,
+          "Wavy_Hair": 0.15866510570049286,
+          "Black_Hair": 0.14230883121490479
+        },
+        "min_capture_B": 0.14230883121490479,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.1370607167482376,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.14230883121490479,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.3252905309200287,
+            0.011509571224451065,
+            -0.020148970186710358
+          ],
+          [
+            0.011509571224451065,
+            0.15866510570049286,
+            0.02059537172317505
+          ],
+          [
+            -0.020148970186710358,
+            0.02059537172317505,
+            0.14230883121490479
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 24,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.15621237456798553,
+        "capture_B": {
+          "Smiling": 0.35041213035583496,
+          "Wavy_Hair": 0.16946788132190704,
+          "Black_Hair": 0.13725973665714264
+        },
+        "min_capture_B": 0.13725973665714264,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.15621237456798553,
+            "passed": false
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.13725973665714264,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.35041213035583496,
+            0.001938389614224434,
+            -0.03425915166735649
+          ],
+          [
+            0.001938389614224434,
+            0.16946788132190704,
+            -0.0021529467776417732
+          ],
+          [
+            -0.03425915166735649,
+            -0.0021529467776417732,
+            0.13725973665714264
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 25,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.1412607878446579,
+        "capture_B": {
+          "Smiling": 0.2934792637825012,
+          "Wavy_Hair": 0.14381183683872223,
+          "Black_Hair": 0.12935487926006317
+        },
+        "min_capture_B": 0.12935487926006317,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.1412607878446579,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.12935487926006317,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.2934792637825012,
+            0.004218894522637129,
+            -0.012303204275667667
+          ],
+          [
+            0.004218894522637129,
+            0.14381183683872223,
+            0.019266832619905472
+          ],
+          [
+            -0.012303204275667667,
+            0.019266832619905472,
+            0.12935487926006317
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      },
+      {
+        "test_balance_seed": 26,
+        "samples_per_cell": 788,
+        "total_balanced_samples": 6304,
+        "triple_max_abs_cos": 0.04031449183821678,
+        "capture_B": {
+          "Smiling": 0.32369565963745117,
+          "Wavy_Hair": 0.1537608951330185,
+          "Black_Hair": 0.14328335225582123
+        },
+        "min_capture_B": 0.14328335225582123,
+        "min_cell_count": 788,
+        "headline_criteria": {
+          "max_pairwise_abs_cos": {
+            "target": 0.15,
+            "observed": 0.04031449183821678,
+            "passed": true
+          },
+          "min_capture_B": {
+            "target": 0.1,
+            "observed": 0.14328335225582123,
+            "passed": true
+          },
+          "min_cell_count": {
+            "target": 100,
+            "observed": 788,
+            "passed": true
+          }
+        },
+        "headline_criteria_passed": null,
+        "crossfit_gram_matrix": [
+          [
+            0.32369565963745117,
+            -0.008136228658258915,
+            -0.00868215411901474
+          ],
+          [
+            -0.008136228658258915,
+            0.1537608951330185,
+            0.0010460177436470985
+          ],
+          [
+            -0.00868215411901474,
+            0.0010460177436470985,
+            0.14328335225582123
+          ]
+        ],
+        "crossfit_positive_diagonal": true,
+        "corner_fidelity_status": "invalidated_obsolete_geometry"
+      }
+    ],
+    "historical_superseded_corner_fidelity": {
+      "status": "invalid_do_not_report",
+      "reason": "These values used predicted corners containing cross-task Gram terms rather than coordinate_t=(2*y_t-1)*sqrt(B_t).",
+      "statistics": {
+        "centroid_rmse": {
+          "mean": 0.18003911962609342,
+          "std": 0.011232597114839234,
+          "median": 0.17766360547122012,
+          "min": 0.15719840550590194,
+          "max": 0.20492122024048667,
+          "p05": 0.16742248646389532,
+          "p95": 0.19996426039345644
+        },
+        "normalized_centroid_rmse": {
+          "mean": 0.21437706836074583,
+          "std": 0.013374933428676955,
+          "median": 0.2115484844317152,
+          "min": 0.18718006060753264,
+          "max": 0.24400480590716764,
+          "p05": 0.19935412870456348,
+          "p95": 0.23810243023350733
+        },
+        "max_centroid_error": {
+          "mean": 0.22430094301755524,
+          "std": 0.016488455114255535,
+          "median": 0.22173173239287386,
+          "min": 0.1957915298892398,
+          "max": 0.2653863863439989,
+          "p05": 0.2050787014467631,
+          "p95": 0.24308947590505603
+        }
+      },
+      "records": [
+        {
+          "test_balance_seed": 7,
+          "centroid_rmse": 0.17050507828048295,
+          "normalized_centroid_rmse": 0.20302464763381237,
+          "max_centroid_error": 0.21196269366678888,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 8,
+          "centroid_rmse": 0.17212329580436445,
+          "normalized_centroid_rmse": 0.20495149958387837,
+          "max_centroid_error": 0.21934811352759126,
+          "headline_criteria_passed": false
+        },
+        {
+          "test_balance_seed": 9,
+          "centroid_rmse": 0.17293647207842097,
+          "normalized_centroid_rmse": 0.20591976884699625,
+          "max_centroid_error": 0.1957915298892398,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 10,
+          "centroid_rmse": 0.1854372631014073,
+          "normalized_centroid_rmse": 0.22080477237991586,
+          "max_centroid_error": 0.23461183199517296,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 11,
+          "centroid_rmse": 0.18262524505898603,
+          "normalized_centroid_rmse": 0.2174564323893418,
+          "max_centroid_error": 0.23570139824262154,
+          "headline_criteria_passed": false
+        },
+        {
+          "test_balance_seed": 12,
+          "centroid_rmse": 0.1724788070463791,
+          "normalized_centroid_rmse": 0.20537481568312763,
+          "max_centroid_error": 0.2129585706481037,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 13,
+          "centroid_rmse": 0.19569873181503825,
+          "normalized_centroid_rmse": 0.23302335900971236,
+          "max_centroid_error": 0.24128617564896598,
+          "headline_criteria_passed": false
+        },
+        {
+          "test_balance_seed": 14,
+          "centroid_rmse": 0.15719840550590194,
+          "normalized_centroid_rmse": 0.18718006060753264,
+          "max_centroid_error": 0.20798239416739786,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 15,
+          "centroid_rmse": 0.17874071528056593,
+          "normalized_centroid_rmse": 0.21283102593552672,
+          "max_centroid_error": 0.22871716645590767,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 16,
+          "centroid_rmse": 0.17658649566187434,
+          "normalized_centroid_rmse": 0.21026594292790368,
+          "max_centroid_error": 0.2419159543030064,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 17,
+          "centroid_rmse": 0.1872319584370969,
+          "normalized_centroid_rmse": 0.22294176086033543,
+          "max_centroid_error": 0.22619882890720885,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 18,
+          "centroid_rmse": 0.18363961133470086,
+          "normalized_centroid_rmse": 0.21866426360337668,
+          "max_centroid_error": 0.207591916553182,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 19,
+          "centroid_rmse": 0.17595850866365498,
+          "normalized_centroid_rmse": 0.2095181831525475,
+          "max_centroid_error": 0.21350815593214625,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 20,
+          "centroid_rmse": 0.1734916193829963,
+          "normalized_centroid_rmse": 0.2065807965831371,
+          "max_centroid_error": 0.2168818721301682,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 21,
+          "centroid_rmse": 0.16796059598800023,
+          "normalized_centroid_rmse": 0.199994869130723,
+          "max_centroid_error": 0.2375157495459552,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 22,
+          "centroid_rmse": 0.1760879731779425,
+          "normalized_centroid_rmse": 0.2096723397774374,
+          "max_centroid_error": 0.20556749994979065,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 23,
+          "centroid_rmse": 0.1830269130633686,
+          "normalized_centroid_rmse": 0.2179347084962939,
+          "max_centroid_error": 0.22401015184322637,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 24,
+          "centroid_rmse": 0.18443011483027105,
+          "normalized_centroid_rmse": 0.21960553582388748,
+          "max_centroid_error": 0.21945331294252138,
+          "headline_criteria_passed": false
+        },
+        {
+          "test_balance_seed": 25,
+          "centroid_rmse": 0.19970336776992853,
+          "normalized_centroid_rmse": 0.23779177888226205,
+          "max_centroid_error": 0.2653863863439989,
+          "headline_criteria_passed": true
+        },
+        {
+          "test_balance_seed": 26,
+          "centroid_rmse": 0.20492122024048667,
+          "normalized_centroid_rmse": 0.24400480590716764,
+          "max_centroid_error": 0.23962915765811058,
+          "headline_criteria_passed": true
+        }
+      ],
+      "pass_count": 16,
+      "pass_rate": 0.8,
+      "all_resamples_passed": false
+    },
+    "corner_fidelity_status": {
+      "status": "requires_full_feature_rerun",
+      "predicted_corner_formula": "coordinate_t = (2*y_t-1)*sqrt(B_t)",
+      "cross_task_gram_terms_used": false,
+      "recoverable_primary_split_repaired": true,
+      "resample_corner_statistics_available": false,
+      "reason": "The compact archive exports primary projected coordinates only; the full held-out features and sampled indices for the other balance seeds are unavailable."
+    }
+  },
+  "plot_points": {
+    "artifact": "plot_data/hyperrect_points_crossfit_vicreg_celeba_epoch_1000_full_support_20x_v1.npz",
+    "n_points": 6304,
+    "coordinate_dim": 3,
+    "contains_raw_images": false,
+    "split": "test",
+    "balance_seed": 7,
+    "coordinate_system": "projection onto normalized train-fitted task mean-difference axes after frozen train-fitted ZCA rewhitening"
+  },
+  "test_box_diagnostics": {
+    "n_corners": 8,
+    "centroid_rmse": 0.1053866826751141,
+    "predicted_rms_radius": 0.7353961976627503,
+    "normalized_centroid_rmse": 0.14330599343599543,
+    "max_centroid_error": 0.17095289272179048,
+    "min_cell_count": 788,
+    "per_corner_error": [
+      {
+        "combo": [
+          0,
+          0,
+          0
+        ],
+        "l2_error": 0.0839221297582484
+      },
+      {
+        "combo": [
+          0,
+          0,
+          1
+        ],
+        "l2_error": 0.17095289272179048
+      },
+      {
+        "combo": [
+          0,
+          1,
+          0
+        ],
+        "l2_error": 0.137029028461811
+      },
+      {
+        "combo": [
+          0,
+          1,
+          1
+        ],
+        "l2_error": 0.015153940234797436
+      },
+      {
+        "combo": [
+          1,
+          0,
+          0
+        ],
+        "l2_error": 0.0257744559846809
+      },
+      {
+        "combo": [
+          1,
+          0,
+          1
+        ],
+        "l2_error": 0.1286995344703956
+      },
+      {
+        "combo": [
+          1,
+          1,
+          0
+        ],
+        "l2_error": 0.10116741052399851
+      },
+      {
+        "combo": [
+          1,
+          1,
+          1
+        ],
+        "l2_error": 0.07818998297001734
+      }
+    ]
+  },
+  "headline_criteria": {
+    "max_pairwise_abs_cos": {
+      "target": 0.15,
+      "observed": 0.10125567764043808,
+      "passed": true
+    },
+    "min_capture_B": {
+      "target": 0.1,
+      "observed": 0.1493811309337616,
+      "passed": true
+    },
+    "normalized_centroid_rmse": {
+      "target": 0.25,
+      "observed": 0.14330599343599543,
+      "passed": true
+    },
+    "min_cell_count": {
+      "target": 100,
+      "observed": 788,
+      "passed": true
+    }
+  },
+  "headline_criteria_passed": true,
+  "post_audit_repair": {
+    "status": "primary_geometry_repaired_resampling_pending",
+    "repair_date": "2026-08-10",
+    "source_metrics_json": "repro_exports/high_support_crossfit_20260723/celeba_vicreg/metrics/hyperrect_crossfit_vicreg_celeba_epoch_1000_full_support_20x_v1.json",
+    "predicted_corner_formula": "coordinate_t = (2*y_t-1)*sqrt(B_t)",
+    "capture_source": "train_selection.crossfit_probe_geometry.capture_B",
+    "serialized_geometry_consistent": true,
+    "primary_plot_coordinates_reused_without_refitting": true,
+    "full_resampling_rerun_required": true,
+    "train_feasible_candidates": 99
+  }
+}

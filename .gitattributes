@@ -1,0 +1,17 @@
+.gitattributes text eol=lf
+.gitignore text eol=lf
+
+# These files are hashed as direct inputs by the checked-in figure manifests.
+# Force stable bytes on Linux and Windows.
+analysis/bounds.py text eol=lf
+analysis/build_hyperrectangle_review.py text eol=lf
+analysis/build_paper_release.py text eol=lf
+analysis/compositional_transfer.py text eol=lf
+analysis/paper_figures_v2.py text eol=lf
+analysis/rebuild_natural_csvs.py text eol=lf
+analysis/tg_style.py text eol=lf
+configs/paper_release_20260824.json text eol=lf
+configs/paper_release_20260825c.json text eol=lf
+
+# Release bytes are already deterministic outputs and must not be transformed.
+paper_outputs/** -text

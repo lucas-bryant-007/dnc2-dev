@@ -36,7 +36,7 @@ class DSpritesCfg:
     name: str = "dsprites"
     npz_path: str = "./data/dsprites/dsprites.npz"
 
-    # Logic switch (set by train.py; only "vicreg" is wired for training).
+    # Logic switch set by train.py (VICReg and the supervised control are wired).
     method: str = "vicreg"
 
     # Image / loader params.
@@ -61,6 +61,11 @@ class DSpritesCfg:
     #   "granular": pair shares the 3 task *bits* (tightest clusters, cleanest box)
     #   "exact":    pair shares exact (shape, scale, posX) (more continuous spread)
     pair_mode: str = "granular"
+    # Which task factors are held fixed across the two views. ``None`` preserves
+    # every task factor (the historical behavior); an empty list makes all three
+    # task factors view-variant. This supports a controlled augmentation ablation
+    # without changing the downstream task definitions.
+    pair_factors: Optional[Sequence[str]] = None
     noise_std: float = 0.0                  # optional Gaussian pixel noise per view
 
     # Normalization ({0,1} pixels -> ~[-1,1]).
@@ -117,15 +122,32 @@ def build_groups(latents: np.ndarray, bits: np.ndarray, cfg: DSpritesCfg
                  ) -> Tuple[np.ndarray, List[np.ndarray]]:
     """Return (group_of[N], groups) where groups[g] = indices sharing the key.
 
-    ``granular`` keys on the 3 task bits (8 groups); ``exact`` keys on the exact
-    values of the task factors. Every factor *not* in ``cfg.task_factors`` (plus,
-    in granular mode, within-bin variation of the task factors) is nuisance and
-    varies freely within a group.
+    ``granular`` keys on the selected task bits; ``exact`` keys on the exact
+    values of the selected task factors. Every omitted factor is view-variant
+    and varies freely within a group.
     """
+    task_factors = list(cfg.task_factors)
+    pair_factors = (
+        task_factors if cfg.pair_factors is None else list(cfg.pair_factors)
+    )
+    unknown = sorted(set(pair_factors).difference(task_factors))
+    if unknown:
+        raise ValueError(
+            "pair_factors must be a subset of task_factors; unknown values: "
+            f"{unknown}"
+        )
+    if len(set(pair_factors)) != len(pair_factors):
+        raise ValueError("pair_factors must not contain duplicates")
     if cfg.pair_mode == "granular":
-        key = bits
+        columns = [task_factors.index(name) for name in pair_factors]
+        key = bits[:, columns] if columns else np.zeros((bits.shape[0], 1), dtype=np.int8)
     elif cfg.pair_mode == "exact":
-        key = latents[:, [FACTOR_COL[f] for f in cfg.task_factors]]
+        columns = [FACTOR_COL[name] for name in pair_factors]
+        key = (
+            latents[:, columns]
+            if columns
+            else np.zeros((latents.shape[0], 1), dtype=np.int8)
+        )
     else:
         raise ValueError(f"Unknown pair_mode={cfg.pair_mode!r} (use 'granular' or 'exact')")
     _, group_of = np.unique(key, axis=0, return_inverse=True)

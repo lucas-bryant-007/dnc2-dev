@@ -1,0 +1,15 @@
+{
+  "figure_files": 26,
+  "formats": [
+    "pdf",
+    "png"
+  ],
+  "main_figures": 7,
+  "primary_shot": 32,
+  "release_id": "paper_release_20260825c",
+  "reproduction_command": "python -m analysis.build_paper_release --config configs/paper_release_20260825c.json",
+  "source_commit": "4ca1944cb3d4ac158fd26220d402e1e0de3ad7bc",
+  "source_note": "exact source-file hashes cover working-tree changes",
+  "status": "audited_figure_release",
+  "supplementary_figures": 6
+}

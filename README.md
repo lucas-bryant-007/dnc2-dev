@@ -1,7 +1,17 @@
 # Directional Neural Collapse
 
-Research implementation for studying which task directions survive
-self-supervised representation learning. 
+Rich development workspace for studying which task directions survive
+self-supervised representation learning. This branch keeps the complete
+research implementation, extended validation suite, and curated historical
+evidence used to develop the paper. Raw datasets, checkpoints, caches, and
+transient runs remain outside Git.
+
+The public `DLFundamentals/dnc2` repository is the curated release surface.
+Paper-ready code and figures are promoted there from an immutable development
+commit; the full development archive is not merged wholesale.
+
+For the current paper review, start with `docs/paper_review_handoff.md` and
+`paper_outputs/paper_release_20260825c/`.
 
 ## Setup
 
@@ -21,6 +31,8 @@ Core geometry and estimators:
 
 - `analysis/hyperrect.py` - task probes, cross-fit geometry, and box diagnostics.
 - `analysis/bounds.py` - directional-CDNV and few-shot bounds.
+- `analysis/cdnv_conventions.py` - canonical normalization and paper-interface
+  conversions; see `docs/cdnv_conventions.md`.
 - `analysis/interference_core.py` - shared-bottleneck interference estimators.
 - `analysis/br/` - directional-collapse estimators and SSL subspace utilities.
 
@@ -31,17 +43,26 @@ Experiment drivers:
 - `analysis/permutation_box_null.py` - held-out permutation controls.
 - `analysis/dsprites_hyperrect.py` and `analysis/wide_interference.py` -
   controlled synthetic experiments.
-- `analysis/run_pretrained_crossfit.sh` - matched pretrained batch run.
+- `analysis/run_paper_rerun_s2.sh` - frozen four-GPU post-audit paper rerun;
+  see `docs/s2_paper_rerun.md`.
+- `analysis/run_compositional_followups_s2.sh` - corrected real-data transfer
+  summaries, geometry diagnostics, model selection, and shot sensitivity.
+- `analysis/run_augmentation_survival_s2.sh` - replicated causal view-sharing,
+  training-dynamics, supervised-objective, and model-scale controls.
+- `analysis/run_pretrained_crossfit.sh` - historical full-support launcher.
+- `analysis/compare_pretrained_crossfit.py` - protocol-aware fresh/reference
+  comparison; estimator changes are reported as non-reproductions rather than
+  ranked as if they were the same estimand.
 - `analysis/pusht/` - future-factor recoverability and regret.
 
-Required figure generators:
+Paper figure builders:
 
-- Meeting 1: `analysis/dsprites_hyperrect.py`,
-  `analysis/meeting1_summary.py`, `analysis/dsprites_taskfamily_spectrum.py`,
-  `analysis/dsprites_interference.py`, `analysis/wide_interference.py`, and
-  `analysis/hyperrect_bounds.py`.
-- Meeting 2 / pretrained hypercubes: `analysis/plot_crossfit_hyperrect.py`
-  renders the current CelebA and CUB-200 cross-fit result JSONs.
+- `analysis/build_paper_release.py` - complete immutable paper release.
+- `analysis/paper_figures_v2.py` - main and supplementary panel renderers.
+- `analysis/build_hyperrectangle_review.py` - natural/controlled box split,
+  all-attribute orthogonality, and candidate-selection audit.
+- `analysis/build_figure1_clarity.py` - focused controlled-pairing figure.
+- `analysis/tg_style.py` - shared deterministic PDF/PNG style.
 
 Supporting packages:
 
@@ -55,12 +76,30 @@ Supporting packages:
 - `docs/training_from_scratch.md`
 - `docs/celeba_experiment.md`
 - `docs/cub200_experiment.md`
+- `docs/s2_paper_rerun.md`
+- `docs/paper_experiment_matrix.md`
 - `analysis/pusht/README.md`
 
+## Current state
 
+The current audited review package is
+`paper_outputs/paper_release_20260825c/`: seven main figures, six supplementary
+figures, compact derived data, direct-source mappings, and SHA-256 provenance.
+The strict natural-image path freezes attribute selection, whitening, axes, and
+box predictions on training data before held-out evaluation. Controlled and
+natural same-population/held-out claims remain explicitly separated.
 
-Experiment output belongs in ignored directories such as `figures/`, `metrics/`,
-`logs/`, `runs/`, and `results/`. The full July 2026 evidence remains on the
-archival `integrate-paper-dev-20260807` branch.
+`paper_outputs/hyperrectangle_review_20260825b/` contains the proposed
+natural-only main panel, controlled supplement panel, all-attribute
+orthogonality ECDF, and train-only candidate audit. The open layout decision is
+whether this natural-only panel replaces the composite Figure 4.
 
-The project is active research code; citation metadata has not been released.
+The manuscript source is not in this repository. Source-ready corrections are
+recorded in `docs/manuscript_repairs.md`; the compiled PDFs outside this
+directory remain superseded until those repairs are applied and the manuscript
+is rebuilt without unresolved references.
+
+New experiment output belongs in ignored `results/`, `runs/`, or `logs/`
+directories. Promote only audited snapshots with frozen protocols and hashes.
+Older paper-output packages remain historical records and are not automatically
+current evidence.

@@ -15,6 +15,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.vicreg import LightlyVICReg
 from models.ijepa import LightlyIJEPA
 from models.wmse import LightlyWMSE
+from models.supervised import SupervisedAttributeModel
 from data_utils.mini_imagenet_datamodule import MiniImageNetDataModule, MiniImageNetCfg
 from data_utils.celebA_datamodule import CelebADataModule, CelebACfg
 
@@ -75,8 +76,13 @@ def main(cfg):
         model = LightlyIJEPA(cfg)
     elif cfg.method.name.lower() == "wmse":
         model = LightlyWMSE(cfg)
+    elif cfg.method.name.lower() == "supervised":
+        model = SupervisedAttributeModel(cfg)
     else:
-        raise ValueError(f"Unknown method: {cfg.method.name}. Supported: 'vicreg', 'ijepa', 'wmse'")
+        raise ValueError(
+            f"Unknown method: {cfg.method.name}. Supported: "
+            "'vicreg', 'ijepa', 'wmse', 'supervised'"
+        )
 
     # custom model checkpointing & logging
     sched_cb = ScheduledCheckpoint(
@@ -153,7 +159,7 @@ def main(cfg):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train self-supervised models")
+    parser = argparse.ArgumentParser(description="Train representation models")
     parser.add_argument(
         "--config",
         type=str,

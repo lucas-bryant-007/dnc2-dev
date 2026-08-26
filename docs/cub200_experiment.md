@@ -54,7 +54,9 @@ test -d "$CUB_ROOT/images"
 
 ## Run the frozen official VICReg encoder
 
-The first run downloads the official pretrained model into `TORCH_HOME`.
+Prepare and hash-check the official weights before launching the experiment.
+The evaluation loads this local file directly and does not fetch executable
+code through `torch.hub`.
 
 ```bash
 export ROOT="$HOME/dnc2_s1"
@@ -66,6 +68,8 @@ export GPU=2
 mkdir -p "$COUT/logs"
 
 cd "$ROOT/dnc2_work/dnc2-dev"
+"$PY" -m analysis.prepare_model_assets \
+  --asset-root "$ROOT" --models vicreg-imagenet
 
 nohup env \
   CUDA_VISIBLE_DEVICES="$GPU" \
@@ -73,6 +77,7 @@ nohup env \
   TORCH_HOME="$ROOT/cache/torch" \
   "$PY" -u analysis/cub200_hyperrect_crossfit.py \
   --data_root "$CUB_ROOT" \
+  --weights_path "$ROOT/cache/torch/hub/checkpoints/resnet50.pth" \
   --device cuda:0 \
   --batch_size 128 \
   --num_workers 12 \

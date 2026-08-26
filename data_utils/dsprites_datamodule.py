@@ -2,8 +2,8 @@
 
 Thin wrapper over ``dsprites_core`` (which holds all the pairing/grouping logic
 and is Lightning-free). Yields the project-standard
-``([view0, view1], labels, idx_enc, idx_pred)`` batches that ``LightlyVICReg``
-consumes. Only VICReg is wired (no I-JEPA masking on these 64x64 sprites).
+``([view0, view1], labels, idx_enc, idx_pred)`` batches consumed by VICReg and
+the matched supervised control. I-JEPA masking is not wired for 64x64 sprites.
 """
 from typing import Optional
 
@@ -35,6 +35,7 @@ class DSpritesDataModule(pl.LightningDataModule):
         self.ds_eval = DSpritesEvalDataset(imgs, bits, self.cfg)
         print(f"DSprites: {imgs.shape[0]} images, {len(groups)} pair-groups "
               f"(pair_mode={self.cfg.pair_mode}, tasks={list(self.cfg.task_factors)}, "
+              f"pair_factors={list(self.cfg.task_factors) if self.cfg.pair_factors is None else list(self.cfg.pair_factors)}, "
               f"shapes={list(self.cfg.shapes)})")
 
     def _make_loader(self, ds, train: bool, collate_fn, shuffle: bool,

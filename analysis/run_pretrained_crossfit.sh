@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Launch the matched pretrained cross-fit experiments on three GPUs.
+# Historical full-support launcher retained for exact provenance.
+# Use run_paper_rerun_s2.sh for the post-audit paper run.
 #
 # Usage:
 #   bash analysis/run_pretrained_crossfit.sh --detach
@@ -131,6 +132,7 @@ printf '%s\n' "$ijepa_pid" >"$IJEPA_OUT/run.pid"
     export MPLBACKEND=Agg TORCH_HOME
     "$PY" -u analysis/cub200_hyperrect_crossfit.py \
         --data_root "$CUB_ROOT" \
+        --weights_path "$CUB_MODEL" \
         --device cuda:0 \
         --batch_size 128 \
         --num_workers 12 \

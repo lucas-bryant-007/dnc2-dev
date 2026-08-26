@@ -128,6 +128,61 @@ class SSLSubspaceEstimator:
             psi = psi[:, :r]
         return psi
 
+    def ssl_eigenvalue_tolerance(self) -> float:
+        """Numerical zero used only to audit the paper's ``lambda_r > 0`` condition."""
+        scale = max(
+            1.0,
+            float(torch.max(torch.abs(self.ssl_eigvals_)).item()),
+        )
+        eps = torch.finfo(self.ssl_eigvals_.dtype).eps
+        return float(64.0 * eps * max(self.k_eff, 1) * scale)
+
+    def rank_spectral_diagnostics(self, r: int) -> dict:
+        """Record positivity and boundary eigengap for a requested top-r space."""
+        if r < 1 or r > self.k_eff:
+            raise ValueError(f"r must be in [1, {self.k_eff}], got {r}")
+        tolerance = self.ssl_eigenvalue_tolerance()
+        lambda_r = float(self.ssl_eigvals_[r - 1].item())
+        lambda_next = (
+            None if r == self.k_eff else float(self.ssl_eigvals_[r].item())
+        )
+        eigengap = None if lambda_next is None else lambda_r - lambda_next
+        return {
+            "rank": int(r),
+            "lambda_r": lambda_r,
+            "lambda_r_positive_above_numerical_tolerance": lambda_r > tolerance,
+            "positive_eigenvalue_tolerance": tolerance,
+            "lambda_r_plus_1": lambda_next,
+            "boundary_eigengap": eigengap,
+            "boundary_eigengap_above_numerical_tolerance": (
+                True if eigengap is None else eigengap > tolerance
+            ),
+            "positive_lambda_required_for_reported_theorem": True,
+            "boundary_eigengap_required_for_optimal_value": False,
+            "boundary_eigengap_interpretation": (
+                "audits_uniqueness_and_stability_of_the_selected_basis_not_"
+                "existence_of_a_top_r_optimum"
+            ),
+        }
+
+    def ssl_spectrum_provenance(self) -> dict:
+        """Serialize the empirical SSL spectrum needed to audit top-r claims."""
+        tolerance = self.ssl_eigenvalue_tolerance()
+        values = [float(value) for value in self.ssl_eigvals_.tolist()]
+        return {
+            "operator": "symmetrized_whitened_empirical_cross_view_operator",
+            "self_adjoint_by_construction": True,
+            "positive_semidefinite_population_operator_assumption": (
+                "requires_conditionally_iid_exchangeable_views"
+            ),
+            "eigenvalues_descending": values,
+            "positive_eigenvalue_tolerance": tolerance,
+            "n_positive_above_numerical_tolerance": sum(
+                value > tolerance for value in values
+            ),
+            "complete_finite_dimensional_eigenbasis": True,
+        }
+
     def first_stage_whitener_provenance(
         self,
         *,
@@ -161,6 +216,7 @@ class SSLSubspaceEstimator:
                 "min": float(self.cov_eigvals_[self.k_eff - 1].item()),
                 "max": self.lam_max,
             },
+            "ssl_spectrum": self.ssl_spectrum_provenance(),
             "transform_frozen_after_fit": True,
             "frozen_for_downstream_evaluation": True,
             "frozen_for_test": frozen_for_test,

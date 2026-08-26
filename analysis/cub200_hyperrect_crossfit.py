@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import gc
+import hashlib
 import os
 import sys
 import warnings
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -34,10 +36,16 @@ from data_utils import CUB200AttributeDataset, load_cub200_metadata
 from eval_utils import set_seed
 import hyperrect as H
 import metrics_io as mio
+from models.public_weights import (
+    OFFICIAL_VICREG_REVISION,
+    PUBLIC_WEIGHTS,
+    load_vicreg_imagenet_resnet50,
+)
 
 
-OFFICIAL_VICREG_REPOSITORY = "facebookresearch/vicreg:main"
-OFFICIAL_VICREG_WEIGHTS = "https://dl.fbaipublicfiles.com/vicreg/resnet50.pth"
+OFFICIAL_VICREG_REPOSITORY = "facebookresearch/vicreg"
+OFFICIAL_VICREG_WEIGHTS = PUBLIC_WEIGHTS["vicreg-imagenet"].url
+ANALYSIS_PROTOCOL_VERSION = "cub200_independent_third_fold_whitening_v1"
 
 
 def _eval_transform(image_size: int):
@@ -55,16 +63,29 @@ def _eval_transform(image_size: int):
     )
 
 
-def _load_official_vicreg(device: str):
-    model = torch.hub.load(
-        OFFICIAL_VICREG_REPOSITORY,
-        "resnet50",
-        pretrained=True,
-        trust_repo=True,
-    )
-    model.eval()
-    model.requires_grad_(False)
-    return model.to(device)
+def _sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        while chunk := handle.read(8 * 1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _encoder_provenance(weights_path: str | Path) -> dict[str, str]:
+    resolved = Path(weights_path).expanduser().resolve()
+    return {
+        "architecture": "ResNet-50",
+        "pretraining": "VICReg on ImageNet-1K",
+        "repository": OFFICIAL_VICREG_REPOSITORY,
+        "repository_revision": OFFICIAL_VICREG_REVISION,
+        "weights_url": OFFICIAL_VICREG_WEIGHTS,
+        "weights_path": str(resolved),
+        "weights_sha256": _sha256_file(resolved),
+    }
+
+
+def _load_official_vicreg(device: str, weights_path: str | Path):
+    return load_vicreg_imagenet_resnet50(weights_path, device=device)
 
 
 @torch.no_grad()
@@ -171,15 +192,11 @@ def _write_selection_failure_artifact(
             "attribute_count": len(metadata.attribute_names),
             "image_size": args.image_size,
             "crop_to_official_bounding_box": bool(args.crop_to_bbox),
-            "encoder": {
-                "architecture": "ResNet-50",
-                "pretraining": "VICReg on ImageNet-1K",
-                "repository": OFFICIAL_VICREG_REPOSITORY,
-                "weights_url": OFFICIAL_VICREG_WEIGHTS,
-            },
+            "encoder": _encoder_provenance(args.weights_path),
         },
         protocol={
             "name": "fixed_constraint_train_selection",
+            "analysis_protocol_version": ANALYSIS_PROTOCOL_VERSION,
             "population_estimand": "uniform_over_selected_eight_attribute_cells",
             "selection_split": "train",
             "evaluation_split": "test_not_reached",
@@ -220,7 +237,7 @@ def main(args):
         f"attributes={len(metadata.attribute_names)}, bbox_crop={args.crop_to_bbox}"
     )
     print("Loading official ImageNet-pretrained VICReg ResNet-50...")
-    model = _load_official_vicreg(args.device)
+    model = _load_official_vicreg(args.device, args.weights_path)
 
     print("\n=== TRAIN FEATURE EXTRACTION AND SELECTION ===")
     train_features, train_attrs = _extract_features(train_dataset, model, args)
@@ -429,13 +446,9 @@ def main(args):
         "dataset": "cub200",
         "tag": args.tag,
         "epoch": "official_imagenet1k",
-        "encoder": {
-            "architecture": "ResNet-50",
-            "pretraining": "VICReg on ImageNet-1K",
-            "repository": OFFICIAL_VICREG_REPOSITORY,
-            "weights_url": OFFICIAL_VICREG_WEIGHTS,
-        },
+        "encoder": _encoder_provenance(args.weights_path),
         "protocol": {
+            "analysis_protocol_version": ANALYSIS_PROTOCOL_VERSION,
             "population": "uniform_over_selected_eight_attribute_cells",
             "selection_split": "train",
             "evaluation_split": "test",
@@ -480,6 +493,11 @@ def main(args):
             "box_axes_and_predicted_corners": (
                 "fit on selected balanced train population and frozen for test"
             ),
+            "primary_test_balance_seed": int(args.test_balance_seeds[0]),
+            "test_balance_seeds": [
+                int(seed) for seed in args.test_balance_seeds
+            ],
+            "max_test_cell_samples": int(args.max_test_cell_samples),
             "criteria_status": (
                 "numeric_criteria_unchanged_after_first_diagnostic; "
                 "distinct_attribute_family_constraint_added_after_the_first_"
@@ -545,6 +563,11 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_root", required=True)
+    parser.add_argument(
+        "--weights_path",
+        required=True,
+        help="Pinned official VICReg resnet50.pth prepared by prepare_model_assets",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--num_workers", type=int, default=12)

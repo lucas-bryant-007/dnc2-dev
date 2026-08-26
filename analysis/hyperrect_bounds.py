@@ -38,12 +38,28 @@ DISPLAY = {"scale": "size", "posX": "x-position", "posY": "y-position",
 
 
 def load(json_path):
-    with open(json_path) as f:
+    with open(json_path, encoding="utf-8") as f:
         d = json.load(f)
     names = d["triple_names"]
     byname = {m["name"]: m for m in d["metrics"]}
     B = np.array([byname[n]["capture_B"] for n in names], dtype=np.float64)
-    cos = np.array(d["cosine_matrix"], dtype=np.float64)
+    cos_full = np.array(d["cosine_matrix"], dtype=np.float64)
+    attributes = d.get("attributes")
+    if attributes is None:
+        if cos_full.shape != (len(names), len(names)):
+            raise ValueError(
+                "metrics JSON needs 'attributes' to index a non-triple cosine matrix"
+            )
+        attributes = names
+    if cos_full.shape != (len(attributes), len(attributes)):
+        raise ValueError(
+            "cosine_matrix shape must match the serialized attributes list"
+        )
+    missing = [name for name in names if name not in attributes]
+    if missing:
+        raise ValueError(f"triple_names missing from attributes: {missing}")
+    indices = [attributes.index(name) for name in names]
+    cos = cos_full[np.ix_(indices, indices)]
     centers = {tuple(e["combo"]): np.array(e["center"], dtype=np.float64)
                for e in d["box"] if e.get("center") is not None}
     return d, names, B, cos, centers
