@@ -22,7 +22,7 @@ model:
   lr: 1.5e-4         # Base learning rate (will be scaled)
   weight_decay: 1e-6
   warmup_epochs: 10
-  min_lr: 0.002
+  min_lr: 6.0e-7
   # VICReg specific parameters
   lambda_param: 25.0  # Invariance loss weight
   mu_param: 25.0      # Variance loss weight
@@ -36,7 +36,7 @@ trainer:
   devices: 1
   accelerator: gpu
   strategy: auto
-  max_epochs: 1001
+  max_epochs: 300
   accumulate_grad_batches: 1
   use_distributed_sampler: false
   num_sanity_val_steps: 0

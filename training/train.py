@@ -24,6 +24,8 @@ from utils.linear_probe_callback import LinearProbeCallback
 from utils.cdnv_callback import CDNVCallback
 
 def main(cfg):
+    pl.seed_everything(cfg.seed, workers=True)
+
     print("\n========== CONFIG ==========")
     cfg_dict = namespace_to_dict(cfg)
     import json
@@ -112,7 +114,7 @@ def main(cfg):
         trainer.fit(model, datamodule=data_module)
 
     # export after training (only on global rank 0)
-    if trainer.is_global_zero:
+    if trainer.is_global_zero and cfg.method.name.lower() == "ijepa":
         export_path = f"{cfg.paths.exp_dir}/teacher_encoder_only.pt"
         export_teacher_encoder_only(model, export_path, extra_meta={"img_size": cfg.data.img_size})
         print(f"Exported teacher encoder to: {export_path}")
