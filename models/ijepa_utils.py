@@ -73,10 +73,10 @@ class IJEPAPredictorViT(nn.Module):
         predictor_embed_dim: int = 384,
         depth: int = 2,
         num_heads: int = 12,
-        mlp_ratio: float = 2.0,
+        mlp_ratio: float = 4.0,
         qkv_bias: bool = True,
-        drop: float = 0.1,
-        attn_drop: float = 0.1,
+        drop: float = 0.0,
+        attn_drop: float = 0.0,
     ):
         super().__init__()
         
@@ -137,7 +137,6 @@ class IJEPAPredictorViT(nn.Module):
 
         # Add Positional Embeddings to Context
         # We grab the embeddings for the specific context indices
-        # breakpoint()
         pos_embed_context = apply_masks(self.predictor_pos_embed, context_masks)
         x += pos_embed_context
 

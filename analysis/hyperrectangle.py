@@ -17,12 +17,11 @@ import json
 import math
 import random
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-
-from br.ssl_subspace import fit_ssl_subspace
 
 
 ATTRIBUTES = (
@@ -36,7 +35,27 @@ ATTRIBUTES = (
     "Wearing_Hat", "Wearing_Lipstick", "Wearing_Necklace", "Wearing_Necktie",
     "Young",
 )
-MODELS = ("vicreg_celeba", "ijepa_celeba")
+MODEL_SPECS = {
+    "vicreg_celeba": {
+        "repo_id": "dlf-ssl/vicreg-resnet50-celeba",
+        "filename": "checkpoints/epoch_1000/model.safetensors",
+    },
+    "ijepa_celeba": {
+        "repo_id": "dlf-ssl/ijepa-resnet50-celeba",
+        "filename": "checkpoints/epoch_1000/model.safetensors",
+    },
+    "vicreg_imagenet": {
+        "url": "https://dl.fbaipublicfiles.com/vicreg/resnet50.pth",
+        "filename": "resnet50.pth",
+        "sha256": "c843e7652491ff2f712734619fd74d85e5e92ac902615665ad3fd50dc6ada591",
+    },
+    "ijepa_imagenet": {
+        "url": "https://dl.fbaipublicfiles.com/ijepa/IN1K-vit.h.14-300e.pth.tar",
+        "filename": "IN1K-vit.h.14-300e.pth.tar",
+        "sha256": "0382013c481743e9ccea89f970bc6c6aa126aa19a62127500d6e672a641aae22",
+    },
+}
+MODELS = tuple(MODEL_SPECS)
 CELLS = tuple(itertools.product((-1, 1), repeat=3))
 
 # Frozen paper protocol. These are not CLI knobs because they must not be tuned
@@ -48,7 +67,7 @@ MIN_TRAIN_CELL, MAX_TRAIN_CELL = 1000, 5000
 PROXY_MAX_COSINE, MIN_TRAIN_CAPTURE, MAX_TRAIN_COSINE = 0.25, 0.10, 0.12
 MAX_TEST_CELL, MIN_TEST_CELL = 500, 100
 MIN_TEST_CAPTURE, MAX_TEST_COSINE, MAX_TEST_RMSE = 0.10, 0.15, 0.25
-EIGENVALUE_CUTOFF, SSL_RIDGE = 1e-3, 1e-3
+COVARIANCE_EIGENVALUE_CUTOFF, SSL_EIGENVALUE_CUTOFF, SSL_RIDGE = 1e-3, 1e-3, 1e-3
 
 
 @dataclass(frozen=True)
@@ -89,7 +108,69 @@ class SelectionFailure(RuntimeError):
         self.attempts = attempts
 
 
-# ------------------------------------------------------------------ checkpoint
+# --------------------------------------------------------- download/checkpoint
+
+def _snapshot_revision(path):
+    parts = path.parts
+    return parts[parts.index("snapshots") + 1] if "snapshots" in parts else None
+
+
+def resolve_weights(model_name, weights=None, cache_dir=None):
+    """Return a local checkpoint, downloading the published default if needed."""
+    if model_name not in MODELS:
+        raise ValueError(f"model must be one of {MODELS}")
+    if weights:
+        path = Path(weights).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        return path, {"source": "user_supplied", "downloaded_automatically": False}
+
+    spec = MODEL_SPECS[model_name]
+    if "repo_id" in spec:
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError as error:
+            raise RuntimeError(
+                "Automatic model download requires `pip install huggingface_hub`."
+            ) from error
+        kwargs = {"repo_id": spec["repo_id"], "revision": "main"}
+        if cache_dir:
+            kwargs["cache_dir"] = str(Path(cache_dir).expanduser().resolve())
+        # Keep the snapshot path instead of resolving its blob symlink: the
+        # commit hash and adjacent config.json are part of model provenance.
+        path = Path(hf_hub_download(filename=spec["filename"], **kwargs)).absolute()
+        # Local CelebA checkpoints need their companion training metadata so the
+        # resolved architecture and any metadata mismatch remain auditable.
+        hf_hub_download(filename="config.json", **kwargs)
+        return path, {
+            "source": "huggingface_hub",
+            "repo_id": spec["repo_id"],
+            "filename": spec["filename"],
+            "revision": _snapshot_revision(path),
+            "downloaded_automatically": True,
+        }
+
+    root = (Path(cache_dir).expanduser().resolve() if cache_dir
+            else Path(torch.hub.get_dir()).resolve() / "hyperrectangle")
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / spec["filename"]
+    if not path.is_file() or _sha256(path) != spec["sha256"]:
+        partial_path = path.with_suffix(path.suffix + ".part")
+        print(f"Download {spec['url']} -> {path}")
+        torch.hub.download_url_to_file(spec["url"], str(partial_path), progress=True)
+        observed = _sha256(partial_path)
+        if observed != spec["sha256"]:
+            partial_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"downloaded {model_name} SHA-256 mismatch: {observed}"
+            )
+        partial_path.replace(path)
+    return path, {
+        "source": "official_url",
+        "url": spec["url"],
+        "expected_sha256": spec["sha256"],
+        "downloaded_automatically": True,
+    }
 
 def _checkpoint_value(checkpoint, section, key):
     config = checkpoint.get("hyper_parameters", checkpoint)
@@ -126,37 +207,111 @@ def _load_local_vicreg(checkpoint, state_dict=None):
     backbone = torch.nn.Sequential(*list(network.children())[:-1])
     state = checkpoint["state_dict"] if state_dict is None else state_dict
     backbone.load_state_dict(_state_with_prefix(state, "backbone."), strict=True)
-    return backbone, architecture
+    return backbone, {"architecture": architecture, "embedding_dimension": 2048 if architecture == "resnet50" else 512,
+                      "image_size": 128, "patch_size": None, "metadata_warnings": []}
+
+
+def _infer_vit_metadata(state):
+    patch = state["patch_embed.proj.weight"]
+    embed_dim, patch_size = int(patch.shape[0]), int(patch.shape[-1])
+    blocks = [int(key.split(".")[1]) for key in state if key.startswith("blocks.")]
+    depth = max(blocks) + 1
+    has_class_token = "cls_token" in state
+    position_tokens = int(state["pos_embed"].shape[1]) - int(has_class_token)
+    grid_size = math.isqrt(position_tokens)
+    if grid_size * grid_size != position_tokens:
+        raise ValueError(f"I-JEPA has non-square positional grid: {position_tokens} tokens")
+    sizes = {768: ("base", 12), 1024: ("large", 16), 1280: ("huge", 16)}
+    if embed_dim not in sizes:
+        raise ValueError(f"unsupported I-JEPA embedding dimension: {embed_dim}")
+    size, heads = sizes[embed_dim]
+    return {
+        "architecture": f"vit_{size}_patch{patch_size}_{grid_size * patch_size}",
+        "embedding_dimension": embed_dim,
+        "depth": depth,
+        "num_heads": heads,
+        "image_size": grid_size * patch_size,
+        "patch_size": patch_size,
+        "has_class_token": has_class_token,
+    }
+
+
+def _build_ijepa(state):
+    import timm
+
+    metadata = _infer_vit_metadata(state)
+    num_classes = int(state["head.weight"].shape[0]) if "head.weight" in state else 0
+    backbone = timm.models.vision_transformer.VisionTransformer(
+        img_size=metadata["image_size"], patch_size=metadata["patch_size"],
+        embed_dim=metadata["embedding_dimension"], depth=metadata["depth"],
+        num_heads=metadata["num_heads"], mlp_ratio=4.0, qkv_bias=True,
+        norm_layer=partial(torch.nn.LayerNorm, eps=1e-6),
+        class_token=metadata["has_class_token"], num_classes=num_classes,
+        global_pool="token" if metadata["has_class_token"] else "",
+        weight_init="skip",
+    )
+    backbone.load_state_dict(state, strict=True)
+    return backbone, metadata
+
+
+def _declared_ijepa_metadata(checkpoint):
+    model = checkpoint.get("model", {}) if isinstance(checkpoint, dict) else {}
+    data = checkpoint.get("data", {}) if isinstance(checkpoint, dict) else {}
+    return {"architecture": model.get("encoder_type"),
+            "image_size": model.get("image_size", data.get("img_size")),
+            "patch_size": model.get("patch_size")}
 
 
 def _load_local_ijepa(checkpoint, state_dict=None):
-    import timm
-
-    architecture = _checkpoint_value(checkpoint, "model", "encoder_type").lower()
-    allowed = {"vit_base_patch32_224", "vit_base_patch16_224", "vit_large_patch16_224"}
-    if architecture not in allowed:
-        raise ValueError(f"unsupported I-JEPA backbone: {architecture}")
-    backbone = timm.create_model(architecture, pretrained=False)
     state = checkpoint["state_dict"] if state_dict is None else state_dict
-    backbone.load_state_dict(
-        _state_with_prefix(state, _ijepa_encoder_prefix(state)), strict=True
-    )
-    return backbone, architecture
+    selected = _state_with_prefix(state, _ijepa_encoder_prefix(state))
+    backbone, metadata = _build_ijepa(selected)
+    declared = _declared_ijepa_metadata(checkpoint)
+    warnings = [f"declared {key}={value}, inferred {metadata[key]} from checkpoint tensors"
+                for key, value in declared.items()
+                if value is not None and str(value).lower() != str(metadata[key]).lower()]
+    return backbone, {**metadata, "declared_metadata": declared,
+                      "metadata_warnings": warnings}
+
+
+def _load_imagenet_vicreg(state):
+    from torchvision.models import resnet50
+
+    backbone = resnet50(weights=None)
+    backbone.fc = torch.nn.Identity()
+    backbone.load_state_dict(state, strict=True)
+    return backbone, {"architecture": "resnet50", "embedding_dimension": 2048,
+                      "image_size": 224, "patch_size": None, "metadata_warnings": []}
+
+
+def _load_imagenet_ijepa(path, checkpoint, state):
+    if "target_encoder" in checkpoint:
+        selected = {key.removeprefix("module."): value
+                    for key, value in checkpoint["target_encoder"].items()}
+        format_name = "official_meta_full_checkpoint_target_encoder"
+    else:
+        raise ValueError(f"unrecognized official I-JEPA checkpoint format: {path}")
+    backbone, metadata = _build_ijepa(selected)
+    return backbone, {**metadata, "checkpoint_format": format_name,
+                      "metadata_warnings": []}
 
 
 def _read_checkpoint(path):
     if path.suffix == ".safetensors":
         from safetensors.torch import load_file
 
-        config_path = path.parents[2] / "config.json"
-        return json.loads(config_path.read_text(encoding="utf-8")), load_file(path)
+        config_paths = [parent / "config.json" for parent in (path.parent, *path.parents)]
+        config_path = next((candidate for candidate in config_paths if candidate.is_file()), None)
+        config = json.loads(config_path.read_text(encoding="utf-8")) if config_path else {}
+        return config, load_file(path)
     try:
         checkpoint = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
     except RuntimeError as error:
         if "mmap" not in str(error).lower():
             raise
         checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-    return checkpoint, checkpoint["state_dict"]
+    state = checkpoint["state_dict"] if "state_dict" in checkpoint else checkpoint
+    return checkpoint, state
 
 
 def _sha256(path):
@@ -167,25 +322,30 @@ def _sha256(path):
     return digest.hexdigest()
 
 
-def load_encoder(model_name, weights, device):
-    path = Path(weights).expanduser().resolve()
-    if model_name not in MODELS:
-        raise ValueError(f"model must be one of {MODELS}")
-    if not path.is_file():
-        raise FileNotFoundError(path)
+def load_encoder(model_name, weights, device, model_cache_dir=None):
+    path, source = resolve_weights(model_name, weights, model_cache_dir)
     checkpoint, state = _read_checkpoint(path)
-    method = _checkpoint_value(checkpoint, "method", "name").lower()
-    if method != model_name.split("_", 1)[0]:
-        raise ValueError(f"requested {model_name}, but checkpoint says {method}")
-    if method == "vicreg":
-        model, architecture = _load_local_vicreg(checkpoint, state)
+    method = model_name.split("_", 1)[0]
+    if model_name.endswith("_celeba"):
+        declared_method = _checkpoint_value(checkpoint, "method", "name").lower()
+        if method != declared_method:
+            raise ValueError(f"requested {model_name}, but checkpoint says {declared_method}")
+    if model_name == "vicreg_celeba":
+        model, metadata = _load_local_vicreg(checkpoint, state)
         encoder_name = "backbone"
-    else:
-        model, architecture = _load_local_ijepa(checkpoint, state)
+    elif model_name == "ijepa_celeba":
+        model, metadata = _load_local_ijepa(checkpoint, state)
         encoder_name = "EMA teacher, mean patch pooling"
+    elif model_name == "vicreg_imagenet":
+        model, metadata = _load_imagenet_vicreg(state)
+        encoder_name = "official backbone"
+    else:
+        model, metadata = _load_imagenet_ijepa(path, checkpoint, state)
+        encoder_name = "official target encoder, mean patch pooling"
     model = model.to(device).eval().requires_grad_(False)
     return EncoderAdapter(model, method == "ijepa", {
-        "method": method, "architecture": architecture, "encoder": encoder_name,
+        "name": model_name, "method": method, "pretraining_dataset": model_name.split("_", 1)[1],
+        "encoder": encoder_name, **metadata, **source,
         "weights": str(path), "sha256": _sha256(path),
     })
 
@@ -205,9 +365,21 @@ def build_transforms(model_name):
                  transforms.RandomGrayscale(p=0.1),
                  transforms.RandomApply([transforms.GaussianBlur(7, (0.1, 2.0))], p=0.5)]
         evaluate = [transforms.CenterCrop(160), transforms.Resize((128, 128))]
-    else:
+    elif model_name == "ijepa_celeba":
         train = [transforms.RandomCrop(160), transforms.Resize((224, 224)),
                  transforms.RandomHorizontalFlip()]
+        evaluate = [transforms.Resize((224, 224))]
+    elif model_name == "vicreg_imagenet":
+        train = [transforms.RandomResizedCrop(224, scale=(0.08, 1.0)),
+                 transforms.RandomHorizontalFlip(),
+                 transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.2, 0.1)], p=0.8),
+                 transforms.RandomGrayscale(p=0.2),
+                 transforms.RandomApply([transforms.GaussianBlur(23)], p=0.5)]
+        evaluate = [transforms.Resize(256), transforms.CenterCrop(224)]
+    else:
+        # Official I-JEPA ViT-H/14 uses a 224 crop, scale [0.3,1.0], and no
+        # color distortion, blur, or horizontal flip.
+        train = [transforms.RandomResizedCrop(224, scale=(0.3, 1.0))]
         evaluate = [transforms.Resize((224, 224))]
     return transforms.Compose(train + tensor), transforms.Compose(evaluate + tensor)
 
@@ -273,17 +445,51 @@ def extract_paired_features(dataset, encode, transform, *, device, batch_size,
                           batch_size, max_samples, views=2))
 
 
-def fit_ssl_map(first, second, relative_threshold=EIGENVALUE_CUTOFF):
-    estimator = fit_ssl_subspace(first, second, rel_eig_threshold=relative_threshold,
-                                 whiten_ridge_rel=SSL_RIDGE)
-    mapping = LinearMap(estimator.mean_.squeeze(0),
-                        estimator.whiten_ @ estimator.ssl_eigvecs_)
+def fit_ssl_map(first, second, covariance_threshold=COVARIANCE_EIGENVALUE_CUTOFF,
+                ssl_threshold=SSL_EIGENVALUE_CUTOFF):
+    """Fit the train-only paired-view map and retain genuinely stable directions."""
+    if first.shape != second.shape or first.ndim != 2:
+        raise ValueError("paired SSL views must have the same [N,D] shape")
+    joined = torch.cat((first, second))
+    mean = joined.mean(0)
+    first_centered, second_centered = first - mean, second - mean
+    joined_centered = joined - mean
+    covariance = joined_centered.T @ joined_centered / len(joined_centered)
+    covariance_values, covariance_vectors = torch.linalg.eigh(covariance)
+    order = torch.argsort(covariance_values, descending=True)
+    covariance_values, covariance_vectors = covariance_values[order], covariance_vectors[:, order]
+    if covariance_values[0] <= 0:
+        raise ValueError("paired features have no positive covariance directions")
+    covariance_keep = covariance_values >= covariance_values[0] * covariance_threshold
+    retained_covariance_values = covariance_values[covariance_keep]
+    ridge = SSL_RIDGE * covariance_values[0]
+    whitener = covariance_vectors[:, covariance_keep] / (retained_covariance_values + ridge).sqrt()
+
+    first_white, second_white = first_centered @ whitener, second_centered @ whitener
+    cross = first_white.T @ second_white / len(first)
+    cross = (cross + cross.T) / 2
+    ssl_values, ssl_vectors = torch.linalg.eigh(cross)
+    order = torch.argsort(ssl_values, descending=True)
+    ssl_values, ssl_vectors = ssl_values[order], ssl_vectors[:, order]
+    if ssl_values[0] <= 0:
+        raise ValueError("paired views have no positively stable SSL directions")
+    ssl_keep = ssl_values >= ssl_values[0] * ssl_threshold
+    ssl_keep &= ssl_values > 0
+    retained_ssl_values = ssl_values[ssl_keep]
+    mapping = LinearMap(mean, whitener @ ssl_vectors[:, ssl_keep])
     return mapping, {
         "fit_split": "train",
         "fit_population": "all train instances; two augmented views each",
-        "input_dimension": first.shape[1], "retained_dimension": estimator.k_eff,
-        "relative_eigenvalue_cutoff": relative_threshold,
+        "input_dimension": first.shape[1],
+        "covariance_retained_dimension": int(covariance_keep.sum()),
+        "retained_dimension": int(ssl_keep.sum()),
+        "covariance_relative_eigenvalue_cutoff": covariance_threshold,
+        "ssl_positive_relative_eigenvalue_cutoff": ssl_threshold,
         "whitening_ridge_relative_to_top_eigenvalue": SSL_RIDGE,
+        "top_ssl_eigenvalue": float(ssl_values[0]),
+        "minimum_retained_ssl_eigenvalue": float(retained_ssl_values[-1]),
+        "nonpositive_ssl_directions_dropped": int((ssl_values <= 0).sum()),
+        "ssl_retention_rule": "positive cross-view eigenvalue >= cutoff * top eigenvalue",
         "frozen_for_test": True,
     }
 
@@ -297,7 +503,7 @@ def transform_in_chunks(features, mapping, device, batch_size):
 
 # ------------------------------------------------------------------------ math
 
-def fit_whitener(features, relative_threshold=EIGENVALUE_CUTOFF):
+def fit_whitener(features, relative_threshold=COVARIANCE_EIGENVALUE_CUTOFF):
     mean = features.mean(0)
     centered = features - mean
     covariance = centered.T @ centered / len(features)
@@ -503,6 +709,60 @@ def corner_diagnostics(observed, predicted):
                                  for combo, error in zip(combos, errors, strict=True)]}
 
 
+def side_length_diagnostics(observed, predicted, names):
+    """Compare all twelve observed centroid edges with the predicted box edges."""
+    observed_by_sign = {tuple(row["signs"]): row for row in observed}
+    predicted_by_sign = {tuple(row["signs"]): row for row in predicted}
+    axes, all_observed, all_predicted = [], [], []
+    for axis, name in enumerate(names):
+        observed_lengths, axial_lengths, predicted_lengths, edges = [], [], [], []
+        for signs in CELLS:
+            if signs[axis] != -1:
+                continue
+            opposite = list(signs); opposite[axis] = 1; opposite = tuple(opposite)
+            low, high = observed_by_sign[signs], observed_by_sign[opposite]
+            if low["center"] is None or high["center"] is None:
+                raise ValueError("all eight centroids are required for side lengths")
+            low_center = torch.tensor(low["center"], dtype=torch.float64)
+            high_center = torch.tensor(high["center"], dtype=torch.float64)
+            predicted_low = torch.tensor(predicted_by_sign[signs]["center"], dtype=torch.float64)
+            predicted_high = torch.tensor(predicted_by_sign[opposite]["center"], dtype=torch.float64)
+            delta = high_center - low_center
+            observed_length = float(torch.linalg.vector_norm(delta))
+            predicted_length = float(torch.linalg.vector_norm(predicted_high - predicted_low))
+            observed_lengths.append(observed_length)
+            axial_lengths.append(abs(float(delta[axis])))
+            predicted_lengths.append(predicted_length)
+            edges.append({"from_signs": list(signs), "to_signs": list(opposite),
+                          "observed_euclidean_length": observed_length,
+                          "observed_axis_coordinate_length": axial_lengths[-1],
+                          "predicted_length": predicted_length})
+        empirical_mean = sum(observed_lengths) / len(observed_lengths)
+        predicted_mean = sum(predicted_lengths) / len(predicted_lengths)
+        axes.append({
+            "attribute": name, "n_parallel_edges": len(edges),
+            "empirical_euclidean_lengths": observed_lengths,
+            "empirical_axis_coordinate_lengths": axial_lengths,
+            "mean_empirical_euclidean_length": empirical_mean,
+            "mean_empirical_axis_coordinate_length": sum(axial_lengths) / len(axial_lengths),
+            "predicted_full_length_2sqrtB": predicted_mean,
+            "empirical_to_predicted_ratio": empirical_mean / predicted_mean,
+            "relative_error": (empirical_mean - predicted_mean) / predicted_mean,
+            "edges": edges,
+        })
+        all_observed.extend(observed_lengths); all_predicted.extend(predicted_lengths)
+    differences = [observed - predicted
+                   for observed, predicted in zip(all_observed, all_predicted, strict=True)]
+    return {
+        "definition": "Euclidean distances between held-out centroids differing in one label",
+        "per_axis": axes,
+        "mean_empirical_edge_length": sum(all_observed) / len(all_observed),
+        "mean_predicted_edge_length": sum(all_predicted) / len(all_predicted),
+        "edge_length_rmse": math.sqrt(sum(value * value for value in differences) / len(differences)),
+        "n_edges": len(all_observed),
+    }
+
+
 def evaluate_test_seed(features, labels, selection, seed):
     rows, counts, n = _balanced_rows(labels, seed, MAX_TEST_CELL)
     _, cells = measure_cell_centroids(features[rows], labels[rows], selection["box"]["axes"])
@@ -510,13 +770,16 @@ def evaluate_test_seed(features, labels, selection, seed):
     geometry = _crossfit_geometry(features[fold_a], labels[fold_a],
                                   features[fold_b], labels[fold_b])
     diagnostics = corner_diagnostics(cells, selection["box"]["predicted_corners"])
+    side_lengths = side_length_diagnostics(
+        cells, selection["box"]["predicted_corners"], selection["names"])
     passed = bool(geometry["valid"] and geometry["maximum_absolute_cosine"] <= MAX_TEST_COSINE
                   and min(geometry["capture_B"]) >= MIN_TEST_CAPTURE
                   and diagnostics["normalized_centroid_rmse"] <= MAX_TEST_RMSE
                   and n >= MIN_TEST_CELL)
     return {"seed": seed, "original_cell_counts": counts, "samples_per_cell": n,
             "cell_centroids": cells, "crossfit_probe_geometry": geometry,
-            "corner_diagnostics": diagnostics, "headline_criteria_passed": passed}
+            "corner_diagnostics": diagnostics, "side_length_diagnostics": side_lengths,
+            "headline_criteria_passed": passed}
 
 
 def summarize_stability(records, names):
@@ -545,7 +808,7 @@ def write_json(path, payload):
 
 
 def plot_hyperrectangle(path, names, observed, predicted, *, subtitle="Frozen encoder",
-                        diagnostics=None, maximum_cosine=None, passed=True):
+                        diagnostics=None, maximum_cosine=None, side_lengths=None, passed=True):
     """Paper Figure 4 styling: observed solid, train prediction dashed."""
     import matplotlib
     matplotlib.use("Agg")
@@ -580,13 +843,17 @@ def plot_hyperrectangle(path, names, observed, predicted, *, subtitle="Frozen en
                 fontsize=10.8, fontweight="bold")
     axis.text2D(0.5, 0.975, subtitle, transform=axis.transAxes, ha="center", va="top",
                 fontsize=8.8, color=slate)
-    axis.text2D(0.5, 0.035, "\n".join(n.replace("_", " ").lower() for n in names),
+    axis.text2D(0.5, 0.115, "\n".join(n.replace("_", " ").lower() for n in names),
                 transform=axis.transAxes, ha="center", va="bottom", fontsize=8.6,
                 color=slate, linespacing=1.35)
     if diagnostics is not None and maximum_cosine is not None:
         caption = (f"RMSE {diagnostics['normalized_centroid_rmse']:.3f}    "
                    f"max|cos| {maximum_cosine:.3f}")
-        axis.text2D(0.5, -0.075, caption + ("" if passed else "\nmisses fixed criteria"),
+        if side_lengths is not None:
+            ratio = (side_lengths["mean_empirical_edge_length"] /
+                     side_lengths["mean_predicted_edge_length"])
+            caption += f"    edge ratio {ratio:.3f}"
+        axis.text2D(0.5, -0.055, caption + ("" if passed else "\nmisses fixed criteria"),
                     transform=axis.transAxes, ha="center", va="bottom", fontsize=9.6)
     handles = (Line2D([0], [0], color=ink, lw=1.7, marker="o", ms=6.5,
                       markerfacecolor=colors[1], label="observed held-out centroids"),
@@ -594,9 +861,9 @@ def plot_hyperrectangle(path, names, observed, predicted, *, subtitle="Frozen en
                       ms=5.4, markerfacecolor="white", label="train-predicted capture box"))
     figure.legend(handles=handles, loc="upper center", ncol=2, bbox_to_anchor=(0.5, 1.0),
                   frameon=False, fontsize=8.8)
-    figure.text(0.5, 0.018, "Geometry fitted on train; evaluated on held-out test images.",
-                ha="center", color=slate, fontsize=8.2)
-    figure.subplots_adjust(left=0.01, right=0.99, top=0.88, bottom=0.09)
+    figure.text(0.5, 0.006, "Geometry fitted on train; evaluated on held-out test images.",
+                ha="center", color=slate, fontsize=7.8)
+    figure.subplots_adjust(left=0.01, right=0.99, top=0.88, bottom=0.11)
     path.parent.mkdir(parents=True, exist_ok=True); stem = path.with_suffix("")
     figure.savefig(stem.with_suffix(".pdf"), bbox_inches="tight", pad_inches=0.02,
                    metadata={"Creator": "minimal hyperrectangle", "CreationDate": None})
@@ -614,21 +881,23 @@ def run_experiment(args):
     figure_path = output / f"hyperrectangle_{args.model}.png"
 
     print(f"1/6  Load {args.model} on {device}")
-    encoder = load_encoder(args.model, args.weights, device)
+    encoder = load_encoder(args.model, args.weights, device, args.model_cache_dir)
     train_transform, eval_transform = build_transforms(args.model)
     train, test = load_celeba_splits(args.cache_dir)
     names = resolve_celeba_attributes(train)
+    batch_size = args.batch_size or (8 if args.model == "ijepa_imagenet"
+                                     else 32 if args.model == "ijepa_celeba" else 128)
 
     print("2/6  Fit paired-view SSL map on train")
     view_a, view_b = extract_paired_features(
         train, encoder.encode, train_transform, device=device,
-        batch_size=args.batch_size, max_samples=args.max_samples)
+        batch_size=batch_size, max_samples=args.max_samples)
     ssl_map, ssl_record = fit_ssl_map(view_a, view_b); del view_a, view_b
 
     print("3/6  Select and fit three train tasks")
     train_features, train_labels = extract_dataset_features(
         train, encoder.encode, eval_transform, names, device=device,
-        batch_size=args.batch_size, max_samples=args.max_samples)
+        batch_size=batch_size, max_samples=args.max_samples)
     raw_dimension = train_features.shape[1]
     train_features = transform_in_chunks(train_features, ssl_map, device,
                                          args.transform_batch_size)
@@ -652,10 +921,16 @@ def run_experiment(args):
     print("4/6  Evaluate 20 held-out balanced resamples")
     test_features, test_labels = extract_dataset_features(
         test, encoder.encode, eval_transform, names, device=device,
-        batch_size=args.batch_size, max_samples=args.max_samples)
+        batch_size=batch_size, max_samples=args.max_samples)
     test_features = selection["whitener"].transform(transform_in_chunks(
         test_features, ssl_map, device, args.transform_batch_size))
     test_labels = test_labels.to(device)[:, indices]
+    _, all_test_cells = measure_cell_centroids(
+        test_features, test_labels, selection["box"]["axes"])
+    all_test_diagnostics = corner_diagnostics(
+        all_test_cells, selection["box"]["predicted_corners"])
+    all_test_side_lengths = side_length_diagnostics(
+        all_test_cells, selection["box"]["predicted_corners"], selection["names"])
     records = [evaluate_test_seed(test_features, test_labels, selection, seed)
                for seed in TEST_SEEDS]
     primary, stability = records[0], summarize_stability(records, selection["names"])
@@ -671,7 +946,7 @@ def run_experiment(args):
         "model": encoder.provenance, "selection_succeeded": True,
         "selected_triple": selection["names"],
         "protocol": {
-            "analysis_protocol": "minimal_paper_accurate_celeba_v1",
+            "analysis_protocol": "minimal_paper_accurate_celeba_v2",
             "selection_split": "train", "evaluation_split": "test",
             "population": "uniform_over_selected_eight_attribute_cells",
             "triple_and_geometry_frozen_before_test": True,
@@ -680,6 +955,7 @@ def run_experiment(args):
             "test_exact_whiteness_claimed": False,
             "post_selection_unbiasedness_claimed": False,
             "test_resamples_are_correlated_not_independent_replications": True,
+            "figure_centroids_use_all_held_out_samples_in_each_cell": True,
             "fixed_test_criteria": {"max_pairwise_abs_cos": MAX_TEST_COSINE,
                                     "min_capture_B": MIN_TEST_CAPTURE,
                                     "max_normalized_centroid_rmse": MAX_TEST_RMSE,
@@ -687,6 +963,7 @@ def run_experiment(args):
         "samples": {"train": min(len(train), args.max_samples or len(train)),
                     "test": min(len(test), args.max_samples or len(test)),
                     "raw_feature_dimension": raw_dimension,
+                    "feature_extraction_batch_size": batch_size,
                     "max_samples_diagnostic_cap": args.max_samples,
                     "train_fingerprint": getattr(train, "_fingerprint", None),
                     "test_fingerprint": getattr(test, "_fingerprint", None)},
@@ -700,35 +977,46 @@ def run_experiment(args):
             "capture_B": capture,
             "sqrt_capture_B_half_sides": [math.sqrt(value) for value in capture],
             "full_edge_lengths": [2 * math.sqrt(value) for value in capture],
+            "mean_predicted_full_edge_length": sum(2 * math.sqrt(value) for value in capture) / 3,
             "same_sample_plug_in_capture_B": selection["box"]["plug_in_capture_B"],
             "fitted_task_axis_cosine_matrix": selection["box"]["cosine_matrix"],
             "predicted_box": selection["box"]["predicted_corners"],
             "train_cell_centroids": train_cells},
         "test_evaluation": {"triple_names": selection["names"],
-                            "box": primary["cell_centroids"],
+                            "box": all_test_cells,
                             "predicted_box": selection["box"]["predicted_corners"],
-                            "crossfit_probe_geometry": test_geometry},
-        "test_box_diagnostics": primary["corner_diagnostics"],
+                            "crossfit_probe_geometry": test_geometry,
+                            "all_held_out_corner_counts": [row["count"] for row in all_test_cells],
+                            "all_held_out_total_samples": sum(row["count"] for row in all_test_cells)},
+        "test_box_diagnostics": all_test_diagnostics,
+        "test_side_length_diagnostics": all_test_side_lengths,
         "headline_criteria_passed": primary["headline_criteria_passed"],
         "test_stability": {**stability, "records": [
             {"seed": row["seed"], "samples_per_cell": row["samples_per_cell"],
              "capture_B": row["crossfit_probe_geometry"]["capture_B"],
              "maximum_absolute_cosine": row["crossfit_probe_geometry"]["maximum_absolute_cosine"],
              "normalized_centroid_rmse": row["corner_diagnostics"]["normalized_centroid_rmse"],
+             "mean_empirical_edge_length": row["side_length_diagnostics"]["mean_empirical_edge_length"],
+             "mean_predicted_edge_length": row["side_length_diagnostics"]["mean_predicted_edge_length"],
              "headline_criteria_passed": row["headline_criteria_passed"]}
             for row in records]}}
     write_json(json_path, payload)
 
     print("6/6  Save paper-style figure")
-    subtitle = ("VICReg, pretrained on CelebA" if args.model == "vicreg_celeba"
-                else "I-JEPA, pretrained on CelebA")
-    plot_hyperrectangle(figure_path, selection["names"], primary["cell_centroids"],
-                        selection["box"]["predicted_corners"], subtitle=subtitle,
-                        diagnostics=primary["corner_diagnostics"],
+    subtitles = {"vicreg_celeba": "VICReg, pretrained on CelebA",
+                 "ijepa_celeba": "I-JEPA, pretrained on CelebA",
+                 "vicreg_imagenet": "VICReg, pretrained on ImageNet-1K",
+                 "ijepa_imagenet": "I-JEPA, pretrained on ImageNet-1K"}
+    plot_hyperrectangle(figure_path, selection["names"], all_test_cells,
+                        selection["box"]["predicted_corners"], subtitle=subtitles[args.model],
+                        diagnostics=all_test_diagnostics,
                         maximum_cosine=test_geometry["max_abs_cos"],
+                        side_lengths=all_test_side_lengths,
                         passed=primary["headline_criteria_passed"])
     print(f"Selected: {selection['names']}")
-    print(f"Primary normalized RMSE: {primary['corner_diagnostics']['normalized_centroid_rmse']:.4f}")
+    print(f"Held-out normalized RMSE: {all_test_diagnostics['normalized_centroid_rmse']:.4f}")
+    print(f"Mean edges empirical/predicted: {all_test_side_lengths['mean_empirical_edge_length']:.4f}/"
+          f"{all_test_side_lengths['mean_predicted_edge_length']:.4f}")
     print(f"Stability: {stability['pass_count']}/{stability['n_resamples']} passed")
     print(json_path); print(figure_path.with_suffix(".pdf")); print(figure_path)
     return json_path, figure_path
@@ -737,11 +1025,15 @@ def run_experiment(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True, choices=MODELS)
-    parser.add_argument("--weights", required=True)
+    parser.add_argument("--weights", default=None,
+                        help="optional local override; otherwise download the published checkpoint")
+    parser.add_argument("--model-cache-dir", default=None,
+                        help="optional model-download cache directory")
     parser.add_argument("--out-dir", default="hyperrectangle_output")
     parser.add_argument("--cache-dir", default=None)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--batch-size", type=int, default=None,
+                        help="override safe per-model default")
     parser.add_argument("--transform-batch-size", type=int, default=4096)
     parser.add_argument("--max-samples", type=int, default=None,
                         help="diagnostic subset only; omit for a paper run")

@@ -35,6 +35,7 @@ class CelebACfg:
     
     # I-JEPA specific
     n_target_blocks: int = 4
+    min_context_patches: int = 10
 
 
 class CelebADataModule(pl.LightningDataModule):
@@ -111,7 +112,7 @@ class CelebADataModule(pl.LightningDataModule):
         return [torch.stack(images)], torch.tensor(labels, dtype=torch.long), None, None
 
     # ──────────────────────────────────────────────────────────────
-    #  I-JEPA mask generation (placeholder — wire in your real logic)
+    #  I-JEPA multi-block mask generation
     # ──────────────────────────────────────────────────────────────
     def _generate_jepa_masks(self, batch_size: int):
         """
@@ -161,6 +162,16 @@ class CelebADataModule(pl.LightningDataModule):
             mask_tgt_union = torch.stack(tgt_masks).sum(dim=0).clamp(max=1)
             mask_enc = mask_ctx * (1 - mask_tgt_union)
             enc_tok = torch.nonzero(mask_enc.flatten()).squeeze(-1) + 1
+            for _attempt in range(100):
+                if enc_tok.numel() >= self.cfg.min_context_patches:
+                    break
+                mask_ctx.zero_()
+                top_c, left_c = sample_block_position(gh, gw, ctx_h, ctx_w)
+                mask_ctx[top_c : top_c + ctx_h, left_c : left_c + ctx_w] = 1
+                mask_enc = mask_ctx * (1 - mask_tgt_union)
+                enc_tok = torch.nonzero(mask_enc.flatten()).squeeze(-1) + 1
+            else:
+                raise RuntimeError("could not sample a valid I-JEPA context mask")
 
             idx_enc_list.append(enc_tok)
             idx_pred_list.append(tgt_indices)

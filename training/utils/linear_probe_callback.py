@@ -89,7 +89,6 @@ class LinearProbeCallback(pl.Callback):
             device = pl_module.device
 
             backbone = pl_module.backbone  # frozen for probe
-            breakpoint()
 
             # feature dim
             with torch.no_grad():

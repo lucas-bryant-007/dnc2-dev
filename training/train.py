@@ -98,6 +98,7 @@ def main(cfg):
         accelerator=cfg.trainer.accelerator,
         strategy=strategy,
         max_epochs=cfg.trainer.max_epochs,
+        accumulate_grad_batches=cfg.trainer.accumulate_grad_batches,
         use_distributed_sampler=cfg.trainer.get('use_distributed_sampler', False),
         log_every_n_steps=cfg.logging.log_every_n_steps,
         precision=cfg.precision,

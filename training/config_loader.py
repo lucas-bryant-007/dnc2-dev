@@ -19,6 +19,12 @@ def _substitute_env_vars(value: Any) -> Any:
         # Pattern: ${oc.env:VAR_NAME,default} or ${oc.env:VAR_NAME}
         pattern = r'\$\{oc\.env:([^,}]+)(?:,([^}]*))?\}'
 
+        full_match = re.fullmatch(pattern, value)
+        if full_match:
+            var_name, default_val = full_match.groups()
+            resolved = os.environ.get(var_name, default_val)
+            return None if resolved is None or resolved.lower() == "null" else resolved
+
         def replace_env(match):
             var_name = match.group(1)
             default_val = match.group(2)

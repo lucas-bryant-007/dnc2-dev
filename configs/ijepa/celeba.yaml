@@ -7,10 +7,12 @@ data:
   name: celeba
   hf_repo: flwrlabs/celeba
   hf_cache_dir: ${oc.env:HF_DATASETS_CACHE,~/.cache/huggingface/datasets}
-  img_size: 128
+  img_size: 224
+  patch_size: 16
   batch_size: 1024
   num_workers: 32
   num_views: 2
+  min_context_patches: 10
   train_split: train
   test_split: test
   label_key: "Male"
@@ -18,20 +20,16 @@ data:
 model:
   encoder_type: "vit_base_patch16_224"
   pretrained: false
-  lr: 3e-4         # Base learning rate (will be scaled)
+  lr: 3e-4         # Optimizer learning rate (not batch-scaled)
   weight_decay: 1e-6
   warmup_epochs: 10
-  min_lr: 0.002
-  # IJEPA specific parameters
-  context_encoder_depth: 12
-  target_encoder_depth: 12
+  min_lr: 0.000001
+  # I-JEPA specific parameters
   predictor_depth: 6
   predictor_heads: 12
-  embed_dim: 768
   ema_momentum_start: 0.996
   ema_momentum_end: 1.0
-  image_size: 224
-  patch_size: 14
+  patch_size: 16
 
 # Training configuration
 trainer:
@@ -78,7 +76,7 @@ ckpt_schedule:
 
 # Linear probe callback configuration
 probe:
-  enabled: true
+  enabled: false
   every_n_epochs: 20
   max_epochs: 100             # probe training epochs (keep small)
   lr: 0.1
@@ -88,6 +86,6 @@ probe:
 
 # CDNV callback configuration
 cdnv:
-  enabled: true
+  enabled: false
   every_n_epochs: 20
   num_classes: 2

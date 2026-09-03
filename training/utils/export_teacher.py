@@ -13,20 +13,27 @@ def export_teacher_encoder_only(
     """
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-    # In our LightlyMAE module:
-    # lightly_mae_module.backbone is MaskedVisionTransformerTIMM
-    # We want the underlying ViT weights for use in Stage 2.
-    state = lightly_mae_module.backbone.state_dict()
-
+    teacher = getattr(lightly_mae_module, "teacher", None)
+    if teacher is None:
+        raise ValueError("teacher export requires a model with an EMA teacher")
+    state = {f"teacher.{key}": value for key, value in teacher.state_dict().items()}
+    cfg = lightly_mae_module.cfg
     meta = {
-        "type": "teacher_encoder_only",
-        "vit_name": lightly_mae_module.cfg.stage.vit_name,
-        "mask_ratio_stage1": float(lightly_mae_module.cfg.stage.mask_ratio),
-        "patch_size": int(lightly_mae_module.patch_size),
+        "type": "ijepa_ema_teacher_encoder_only",
+        "encoder_type": str(cfg.model.encoder_type),
+        "patch_size": int(cfg.model.patch_size),
+        "image_size": int(cfg.data.img_size),
         "sequence_length": int(lightly_mae_module.sequence_length),
     }
     if extra_meta:
         meta.update(extra_meta)
 
-    payload = {"state_dict": state, "meta": meta}
+    payload = {
+        "state_dict": state,
+        "hyper_parameters": {
+            "method": {"name": "ijepa"},
+            "model": {"encoder_type": str(cfg.model.encoder_type)},
+        },
+        "meta": meta,
+    }
     torch.save(payload, out_path)

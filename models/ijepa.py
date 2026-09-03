@@ -1,10 +1,9 @@
 import math
+import warnings
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.amp import autocast
 from torch.optim.lr_scheduler import LambdaLR
-from omegaconf import OmegaConf
 from copy import deepcopy
 
 import os, sys
@@ -17,7 +16,6 @@ from lightly.models.modules import MaskedVisionTransformerTIMM
 
 # timm vit builders
 from timm.models.vision_transformer import vit_base_patch32_224, vit_base_patch16_224, vit_large_patch16_224
-import timm.optim.optim_factory as optim_factory
 
 def _namespace_to_dict(ns) -> dict:
     """
@@ -59,6 +57,22 @@ class LightlyIJEPA(pl.LightningModule):
         self.backbone = MaskedVisionTransformerTIMM(vit=vit_student)
         self.sequence_length = self.backbone.sequence_length  # includes CLS
 
+        patch_size = vit_student.patch_embed.patch_size
+        patch_size = patch_size[0] if isinstance(patch_size, tuple) else patch_size
+        image_size = vit_student.patch_embed.img_size
+        image_size = image_size[0] if isinstance(image_size, tuple) else image_size
+        if int(cfg.model.patch_size) != patch_size:
+            raise ValueError(
+                f"Configured patch_size={cfg.model.patch_size} does not match "
+                f"{cfg.model.encoder_type} patch size {patch_size}."
+            )
+        if int(cfg.data.img_size) != image_size:
+            raise ValueError(
+                f"Configured data.img_size={cfg.data.img_size} does not match "
+                f"{cfg.model.encoder_type} image size {image_size}."
+            )
+        self.expected_image_size = image_size
+
         D = vit_student.embed_dim
 
         # ── predictor ─────────────────────────────────────────────────
@@ -86,6 +100,12 @@ class LightlyIJEPA(pl.LightningModule):
         nn.init.normal_(self.mask_token, std=0.02)
 
         self.criterion = nn.MSELoss()
+
+    def train(self, mode: bool = True):
+        """Train the student/predictor while keeping the EMA teacher deterministic."""
+        super().train(mode)
+        self.teacher.eval()
+        return self
 
     # ──────────────────────────────────────────────────────────────────
     #  EMA helpers
@@ -145,7 +165,17 @@ class LightlyIJEPA(pl.LightningModule):
         views, _, idx_keep, idx_mask = batch
         images = views[0]  # [B, 3, H, W]
 
-        assert idx_mask.min() > 0, "CLS token should not be masked"
+        if tuple(images.shape[-2:]) != (self.expected_image_size,) * 2:
+            raise ValueError(
+                f"Expected {self.expected_image_size}x{self.expected_image_size} images, "
+                f"got {tuple(images.shape[-2:])}."
+            )
+        if idx_keep.numel() == 0 or idx_mask.numel() == 0:
+            raise ValueError("I-JEPA masks need at least one context and target token")
+        if idx_keep.min() <= 0 or idx_mask.min() <= 0:
+            raise ValueError("CLS token at index 0 must not appear in I-JEPA masks")
+        if max(int(idx_keep.max()), int(idx_mask.max())) >= self.sequence_length:
+            raise ValueError("I-JEPA mask index exceeds the encoder token grid")
 
         # teacher: full image, no grad, normalized targets
         teacher_mask = self.extract_teacher_features(
@@ -186,8 +216,8 @@ class LightlyIJEPA(pl.LightningModule):
         )
         return loss
 
-    def on_train_batch_end(self, outputs, batch, batch_idx):
-        """EMA update of teacher after every optimiser step."""
+    def on_before_zero_grad(self, optimizer):
+        """Update the EMA teacher once after each optimiser step."""
         self._update_teacher()
 
     # ──────────────────────────────────────────────────────────────────
@@ -207,6 +237,11 @@ class LightlyIJEPA(pl.LightningModule):
         warmup_epochs = int(self.cfg.model.warmup_epochs)
         max_epochs = int(self.cfg.trainer.max_epochs)
         min_lr = float(self.cfg.model.min_lr)
+        if scaled_lr <= 0 or min_lr < 0 or min_lr > scaled_lr:
+            raise ValueError(
+                f"Expected 0 <= min_lr <= lr, got min_lr={min_lr:g} "
+                f"and lr={scaled_lr:g}."
+            )
 
         # ── Collect parameters explicitly ─────────────────────────
         no_wd_keywords = {"pos_embed", "cls_token", "mask_token", "bias"}
@@ -265,22 +300,25 @@ class LightlyIJEPA(pl.LightningModule):
     # ──────────────────────────────────────────────────────────────────
     #  Checkpointing
     # ──────────────────────────────────────────────────────────────────
-    def on_save_checkpoint(self, checkpoint):
-        """Strip teacher keys — they are reconstructed from student via EMA."""
-        sd = checkpoint["state_dict"]
-        for k in list(sd.keys()):
-            if k.startswith("teacher."):
-                sd.pop(k)
-
-    def on_load_checkpoint(self, checkpoint):
-        """After loading student weights, re-initialise teacher as a copy."""
-        pass  # let load_state_dict run first, then fix teacher below
-
     def load_state_dict(self, state_dict, strict: bool = True):
+        """Load exact new checkpoints; identify legacy student-only checkpoints."""
+        if any(key.startswith("teacher.") for key in state_dict):
+            return super().load_state_dict(state_dict, strict=strict)
+
         result = super().load_state_dict(state_dict, strict=False)
-        # ── reconstruct teacher from the (just-loaded) student ────────
-        for teacher_p, student_p in zip(
-            self.teacher.parameters(), self.backbone.parameters()
-        ):
-            teacher_p.data.copy_(student_p.data)
+        non_teacher_missing = [
+            key for key in result.missing_keys if not key.startswith("teacher.")
+        ]
+        if strict and (non_teacher_missing or result.unexpected_keys):
+            raise RuntimeError(
+                f"Invalid I-JEPA checkpoint: missing={non_teacher_missing}, "
+                f"unexpected={result.unexpected_keys}"
+            )
+        self.teacher.load_state_dict(self.backbone.state_dict(), strict=True)
+        warnings.warn(
+            "Legacy I-JEPA checkpoint has no EMA teacher; reconstructed it from "
+            "the student. New checkpoints preserve the exact EMA teacher.",
+            UserWarning,
+            stacklevel=2,
+        )
         return result

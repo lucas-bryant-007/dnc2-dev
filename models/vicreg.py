@@ -107,7 +107,12 @@ class LightlyVICReg(pl.LightningModule):
         self.log("train/lr", lr, on_step=False, on_epoch=True, prog_bar=False, sync_dist=True)
 
     def configure_optimizers(self):
-        scaled_lr = float(self.cfg.model.lr) * self.trainer.world_size * self.cfg.data.batch_size / 256.0
+        effective_batch_size = (
+            self.trainer.world_size
+            * self.cfg.data.batch_size
+            * self.cfg.trainer.accumulate_grad_batches
+        )
+        scaled_lr = float(self.cfg.model.lr) * effective_batch_size / 256.0
         
         optimizer = torch.optim.AdamW(
             self.parameters(),
@@ -124,7 +129,12 @@ class LightlyVICReg(pl.LightningModule):
         # Warmup + cosine decay scheduler
         warmup_epochs = self.cfg.model.warmup_epochs
         max_epochs = self.cfg.trainer.max_epochs
-        min_lr = self.cfg.model.min_lr
+        min_lr = float(self.cfg.model.min_lr)
+        if scaled_lr <= 0 or min_lr < 0 or min_lr > scaled_lr:
+            raise ValueError(
+                f"Expected 0 <= min_lr <= scaled_lr, got min_lr={min_lr:g} "
+                f"and scaled_lr={scaled_lr:g}."
+            )
 
         def lr_lambda(epoch):
             # epoch is 0-indexed
