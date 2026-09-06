@@ -1,0 +1,2 @@
+# Preserve runnable shell scripts when this branch is checked out on Windows.
+*.sh text eol=lf

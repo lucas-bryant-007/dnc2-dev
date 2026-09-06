@@ -1,5 +1,8 @@
 # Directional Neural Collapse
 
+Run the new CelebA VICReg and both ImageNet-pretrained hyperrectangle experiments
+on a server using the [three-model launch instructions](docs/hyperrectangle_server.md).
+
 Lean research implementation for studying which task directions survive
 self-supervised representation learning. Generated results, checkpoints, and
 paper assets are intentionally excluded.
