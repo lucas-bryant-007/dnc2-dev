@@ -46,7 +46,8 @@ PY
 
 validate_result() {
     "$PYTHON_BIN" - "$1" <<'PY'
-import json, pathlib, sys
+import itertools, json, pathlib, sys
+import numpy as np
 path = pathlib.Path(sys.argv[1])
 data = json.loads(path.read_text())
 if not data.get('selection_succeeded'):
@@ -57,6 +58,28 @@ for field in ('ssl_subspace', 'train_selection', 'test_evaluation', 'test_side_l
 assert data['test_stability']['n_resamples'] == 20
 assert data['test_side_length_diagnostics']['n_edges'] == 12
 assert data['samples']['max_samples_diagnostic_cap'] is None
+record = data.get('plot_points') or {}
+assert record.get('samples_per_cell') == 20
+assert record.get('n_points') == 160
+assert record.get('contains_raw_images') is False
+assert record.get('selected_after_train_geometry_was_frozen') is True
+assert record.get('display_selection_used_for_fitting_or_metric_computation') is False
+assert record.get('points_belong_to_primary_balanced_test_resample') is True
+points = (path.parent / record['artifact']).resolve()
+assert points.parent == path.parent.resolve(), 'Plot points must be beside the result JSON'
+assert points.is_file() and points.stat().st_size > 0, f'Missing plot points: {points}'
+with np.load(points, allow_pickle=False) as archive:
+    coords = archive['coords']
+    cells = archive['granular_task']
+    signs = archive['signs']
+    rows = archive['test_row_indices']
+    triple = [str(value) for value in archive['triple_names'].tolist()]
+assert coords.shape == (160, 3) and np.isfinite(coords).all()
+assert cells.shape == (160,) and np.array_equal(np.bincount(cells, minlength=8), np.full(8, 20))
+expected_signs = np.repeat(np.asarray(tuple(itertools.product((-1, 1), repeat=3))), 20, axis=0)
+assert signs.shape == (160, 3) and np.array_equal(signs, expected_signs)
+assert rows.shape == (160,) and np.unique(rows).size == 160
+assert triple == data['selected_triple']
 for suffix in ('.pdf', '.png'):
     figure = path.with_suffix(suffix)
     assert figure.is_file() and figure.stat().st_size > 0, f'Missing figure: {figure}'

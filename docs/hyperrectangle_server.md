@@ -7,12 +7,12 @@ This branch runs new CelebA VICReg, ImageNet VICReg, and ImageNet I-JEPA on Cele
 SSH into s2 from your laptop, then clone a separate checkout:
 
 ```bash
-git clone --single-branch --branch server-hyperrectangles-20260906 \
-  https://github.com/lucas-bryant-007/dnc2-dev.git dnc2-hyperrectangles-20260906
-cd dnc2-hyperrectangles-20260906
+git clone --single-branch --branch server-hyperrectangles-points-20260906 \
+  https://github.com/lucas-bryant-007/dnc2-dev.git dnc2-hyperrectangles-points-20260906
+cd dnc2-hyperrectangles-points-20260906
 ```
 
-This branch starts from main at `7f97d2d` and adds the standalone experiment from minimal at `1cdeae5`, the launcher, and these instructions. It does not require switching an existing training checkout.
+This branch starts from the validated three-model server branch at `29a0cf4` and adds the requested genuine held-out sample overlays, reusable point-coordinate sidecars, stage timings, and artifact checks. It does not require switching an existing training checkout.
 
 ## Locate the inputs
 
@@ -65,7 +65,15 @@ tail -n 30 "$OUT_DIR/vicreg_imagenet.log"
 tail -n 30 "$OUT_DIR/ijepa_imagenet.log"
 ```
 
-Each model has its own output folder containing `hyperrectangle_MODEL.json`, `.png`, and `.pdf`. JSON records the checkpoint hash, dimensions, selection, all held-out cell counts, twelve side lengths, and twenty balanced test resamples. The output root records source/checkpoint hashes, the executed source snapshot, package versions, commands, GPU information, and the supervisor PID/exit code.
+Each model has its own output folder containing `hyperrectangle_MODEL.json`, `.png`, `.pdf`, and `_points.npz`. The figure overlays twenty genuine held-out samples around each of the eight all-sample cell centroids. The 160 displayed points are selected deterministically within cell using test seed 7 only after all train-fitted geometry is frozen. They belong to the primary balanced test resample, but the choice of which points to display does not enter selection, fitting, or metric computation. The NPZ preserves their 3D coordinates, joint labels, and test-row indices so later style changes need no GPU rerun and contains no raw images. JSON records the checkpoint hash, dimensions, selection, all held-out cell counts, twelve side lengths, and twenty balanced test resamples. The output root records source/checkpoint hashes, the executed source snapshot, package versions, commands, GPU information, and the supervisor PID/exit code.
+
+After retrieving the result folder, regenerate a figure locally from its JSON and NPZ without loading CelebA or a model:
+
+```bash
+python analysis/replot_hyperrectangle.py \
+  --json /RESULT/MODEL/hyperrectangle_MODEL.json \
+  --output /RESULT/MODEL/hyperrectangle_MODEL_replot.png
+```
 
 - `completed`: evaluation and artifacts completed, with the primary test criteria met.
 - `completed_criteria_failed`: evaluation and artifacts completed, with the primary test criteria missed; retain this result.

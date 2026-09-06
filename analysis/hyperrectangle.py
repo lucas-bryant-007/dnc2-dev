@@ -16,10 +16,12 @@ import itertools
 import json
 import math
 import random
+import time
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 
@@ -61,6 +63,7 @@ CELLS = tuple(itertools.product((-1, 1), repeat=3))
 # Frozen paper protocol. These are not CLI knobs because they must not be tuned
 # after looking at the held-out result.
 SELECTION_SEED, TEST_SEEDS = 6, tuple(range(7, 27))
+PLOT_SAMPLE_SEED, PLOT_SAMPLES_PER_CELL = TEST_SEEDS[0], 20
 CANDIDATE_POOL, MAX_EXACT_CANDIDATES = 12, 10
 MIN_CLASS_FRACTION, CANDIDATE_MIN_CAPTURE = 0.20, 0.05
 MIN_TRAIN_CELL, MAX_TRAIN_CELL = 1000, 5000
@@ -802,14 +805,82 @@ def summarize_stability(records, names):
 
 # ---------------------------------------------------------------------- output
 
+def select_plot_points(features, labels, axes, *, seed=PLOT_SAMPLE_SEED,
+                       samples_per_cell=PLOT_SAMPLES_PER_CELL):
+    """Select genuine held-out points without affecting any fitted quantity."""
+    rows, original_counts, selected_per_cell = _balanced_rows(
+        labels, seed, samples_per_cell)
+    if selected_per_cell != samples_per_cell:
+        raise ValueError(
+            f"plot requires {samples_per_cell} samples in every cell; "
+            f"only {selected_per_cell} are available")
+    signs = as_pm_one(labels[rows]).to(torch.int8)
+    expected_signs = torch.tensor(
+        CELLS, dtype=signs.dtype, device=signs.device).repeat_interleave(
+            selected_per_cell, dim=0)
+    if not torch.equal(signs, expected_signs):
+        raise AssertionError("plot-point cells are not in the expected order")
+    coordinates = features[rows] @ axes.T
+    if coordinates.shape != (8 * selected_per_cell, 3):
+        raise ValueError(f"unexpected plot coordinate shape: {coordinates.shape}")
+    if not bool(torch.isfinite(coordinates).all()):
+        raise ValueError("plot coordinates contain non-finite values")
+    return {
+        "coordinates": coordinates.detach().cpu(),
+        "cell_indices": torch.arange(8, device=rows.device).repeat_interleave(
+            selected_per_cell).cpu(),
+        "signs": signs.cpu(),
+        "test_row_indices": rows.cpu(),
+        "seed": seed,
+        "samples_per_cell": selected_per_cell,
+        "original_cell_counts": original_counts,
+    }
+
+
+def write_plot_points(path, points, names):
+    """Persist the displayed coordinates for deterministic CPU-only replotting."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        coords=points["coordinates"].numpy().astype(np.float32, copy=False),
+        granular_task=points["cell_indices"].numpy().astype(np.int8, copy=False),
+        signs=points["signs"].numpy().astype(np.int8, copy=False),
+        test_row_indices=points["test_row_indices"].numpy().astype(np.int64, copy=False),
+        triple_names=np.asarray(names),
+        split=np.asarray("test"),
+        balance_seed=np.asarray(points["seed"], dtype=np.int64),
+        samples_per_cell=np.asarray(points["samples_per_cell"], dtype=np.int64),
+    )
+    return {
+        "artifact": path.name,
+        "split": "test",
+        "contains_raw_images": False,
+        "contains_individual_embedding_coordinates": True,
+        "n_points": len(points["coordinates"]),
+        "coordinate_dimension": 3,
+        "samples_per_cell": points["samples_per_cell"],
+        "balance_seed": points["seed"],
+        "sampling": "deterministic_without_replacement_within_each_joint_label_cell",
+        "selected_after_train_geometry_was_frozen": True,
+        "display_selection_used_for_fitting_or_metric_computation": False,
+        "points_belong_to_primary_balanced_test_resample": True,
+        "coordinate_system": (
+            "projection onto normalized train-fitted task axes after the frozen "
+            "train-fitted SSL map and balanced whitener"),
+        "original_heldout_cell_counts": points["original_cell_counts"],
+    }
+
 def write_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
 def plot_hyperrectangle(path, names, observed, predicted, *, subtitle="Frozen encoder",
-                        diagnostics=None, maximum_cosine=None, side_lengths=None, passed=True):
-    """Paper Figure 4 styling: observed solid, train prediction dashed."""
+                        diagnostics=None, maximum_cosine=None, side_lengths=None, passed=True,
+                        sample_coordinates=None, sample_cells=None,
+                        samples_per_cell=PLOT_SAMPLES_PER_CELL,
+                        sample_size=8, sample_alpha=0.24):
+    """Paper Figure 4 styling with genuine held-out samples behind the boxes."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -824,7 +895,21 @@ def plot_hyperrectangle(path, names, observed, predicted, *, subtitle="Frozen en
                                 "text.color": ink, "pdf.fonttype": 42, "ps.fonttype": 42})
     observed = torch.tensor([row["center"] for row in observed])
     predicted = torch.tensor([row["center"] for row in predicted])
+    sample_coordinates = (
+        torch.empty((0, 3)) if sample_coordinates is None
+        else torch.as_tensor(sample_coordinates).detach().cpu())
+    sample_cells = (
+        torch.empty((0,), dtype=torch.long) if sample_cells is None
+        else torch.as_tensor(sample_cells, dtype=torch.long).detach().cpu())
+    if sample_coordinates.shape != (len(sample_cells), 3):
+        raise ValueError("sample coordinates and cell labels do not align")
     figure = plt.figure(figsize=(4.9, 4.4)); axis = figure.add_subplot(111, projection="3d")
+    for index, color in enumerate(colors):
+        cloud = sample_coordinates[sample_cells == index]
+        if len(cloud):
+            axis.scatter(*cloud.T, s=sample_size, alpha=sample_alpha,
+                         color=color, edgecolors="none",
+                         depthshade=False, rasterized=True)
     for first, second in edges:
         axis.plot(*observed[[first, second]].T, color=ink, lw=1.7)
         axis.plot(*predicted[[first, second]].T, color=amber, lw=1.25, ls=(0, (3, 2)))
@@ -833,8 +918,15 @@ def plot_hyperrectangle(path, names, observed, predicted, *, subtitle="Frozen en
                      depthshade=False)
         axis.scatter(*predicted[index], s=19, marker="D", facecolor="white",
                      edgecolor=amber, lw=0.7, depthshade=False)
-    points, center = torch.cat((observed, predicted)), torch.cat((observed, predicted)).mean(0)
-    span = max(0.70 * (points.max(0).values - points.min(0).values).max().item(), 1e-6)
+    box_points = torch.cat((observed, predicted))
+    center = box_points.mean(0)
+    span = max(0.70 * (box_points.max(0).values - box_points.min(0).values).max().item(),
+               1e-6)
+    if len(sample_coordinates):
+        lower, upper = torch.quantile(
+            sample_coordinates.float(), torch.tensor((0.025, 0.975)), dim=0)
+        sample_span = torch.stack(((lower - center).abs(), (upper - center).abs())).max().item()
+        span = max(span, 1.08 * sample_span)
     axis.set_xlim(center[0] - span, center[0] + span)
     axis.set_ylim(center[1] - span, center[1] + span)
     axis.set_zlim(center[2] - span, center[2] + span)
@@ -861,7 +953,12 @@ def plot_hyperrectangle(path, names, observed, predicted, *, subtitle="Frozen en
                       ms=5.4, markerfacecolor="white", label="train-predicted capture box"))
     figure.legend(handles=handles, loc="upper center", ncol=2, bbox_to_anchor=(0.5, 1.0),
                   frameon=False, fontsize=8.8)
-    figure.text(0.5, 0.006, "Geometry fitted on train; evaluated on held-out test images.",
+    footer = "Train-fitted geometry; held-out centroids"
+    if len(sample_coordinates):
+        footer += f" and {samples_per_cell} samples per cell."
+    else:
+        footer += "; evaluated on held-out test images."
+    figure.text(0.5, 0.006, footer,
                 ha="center", color=slate, fontsize=7.8)
     figure.subplots_adjust(left=0.01, right=0.99, top=0.88, bottom=0.11)
     path.parent.mkdir(parents=True, exist_ok=True); stem = path.with_suffix("")
@@ -879,6 +976,7 @@ def run_experiment(args):
     output = Path(args.out_dir).expanduser().resolve()
     json_path = output / f"hyperrectangle_{args.model}.json"
     figure_path = output / f"hyperrectangle_{args.model}.png"
+    run_started = stage_started = time.perf_counter()
 
     print(f"1/6  Load {args.model} on {device}")
     encoder = load_encoder(args.model, args.weights, device, args.model_cache_dir)
@@ -887,13 +985,17 @@ def run_experiment(args):
     names = resolve_celeba_attributes(train)
     batch_size = args.batch_size or (8 if args.model == "ijepa_imagenet"
                                      else 32 if args.model == "ijepa_celeba" else 128)
+    print(f"  1/6 elapsed: {time.perf_counter() - stage_started:.1f}s")
 
+    stage_started = time.perf_counter()
     print("2/6  Fit paired-view SSL map on train")
     view_a, view_b = extract_paired_features(
         train, encoder.encode, train_transform, device=device,
         batch_size=batch_size, max_samples=args.max_samples)
     ssl_map, ssl_record = fit_ssl_map(view_a, view_b); del view_a, view_b
+    print(f"  2/6 elapsed: {time.perf_counter() - stage_started:.1f}s")
 
+    stage_started = time.perf_counter()
     print("3/6  Select and fit three train tasks")
     train_features, train_labels = extract_dataset_features(
         train, encoder.encode, eval_transform, names, device=device,
@@ -917,7 +1019,9 @@ def run_experiment(args):
         selection["whitener"].transform(train_features[rows]),
         train_labels[rows][:, indices], selection["box"]["axes"])
     del train_features, train_labels
+    print(f"  3/6 elapsed: {time.perf_counter() - stage_started:.1f}s")
 
+    stage_started = time.perf_counter()
     print("4/6  Evaluate 20 held-out balanced resamples")
     test_features, test_labels = extract_dataset_features(
         test, encoder.encode, eval_transform, names, device=device,
@@ -931,10 +1035,17 @@ def run_experiment(args):
         all_test_cells, selection["box"]["predicted_corners"])
     all_test_side_lengths = side_length_diagnostics(
         all_test_cells, selection["box"]["predicted_corners"], selection["names"])
+    plot_points = select_plot_points(
+        test_features, test_labels, selection["box"]["axes"])
+    plot_points_path = output / f"hyperrectangle_{args.model}_points.npz"
+    plot_points_record = write_plot_points(
+        plot_points_path, plot_points, selection["names"])
     records = [evaluate_test_seed(test_features, test_labels, selection, seed)
                for seed in TEST_SEEDS]
     primary, stability = records[0], summarize_stability(records, selection["names"])
+    print(f"  4/6 elapsed: {time.perf_counter() - stage_started:.1f}s")
 
+    stage_started = time.perf_counter()
     print("5/6  Save paper-compatible numbers")
     train_geometry = _named_geometry(selection["crossfit_probe_geometry"], selection["names"],
                                      "selected_using_same_probe_observations")
@@ -956,6 +1067,12 @@ def run_experiment(args):
             "post_selection_unbiasedness_claimed": False,
             "test_resamples_are_correlated_not_independent_replications": True,
             "figure_centroids_use_all_held_out_samples_in_each_cell": True,
+            "figure_sample_overlay": {
+                "split": "test", "balance_seed": PLOT_SAMPLE_SEED,
+                "samples_per_cell": PLOT_SAMPLES_PER_CELL,
+                "selected_after_train_geometry_was_frozen": True,
+                "display_selection_used_for_fitting_or_metric_computation": False,
+                "points_belong_to_primary_balanced_test_resample": True},
             "fixed_test_criteria": {"max_pairwise_abs_cos": MAX_TEST_COSINE,
                                     "min_capture_B": MIN_TEST_CAPTURE,
                                     "max_normalized_centroid_rmse": MAX_TEST_RMSE,
@@ -990,6 +1107,7 @@ def run_experiment(args):
                             "all_held_out_total_samples": sum(row["count"] for row in all_test_cells)},
         "test_box_diagnostics": all_test_diagnostics,
         "test_side_length_diagnostics": all_test_side_lengths,
+        "plot_points": plot_points_record,
         "headline_criteria_passed": primary["headline_criteria_passed"],
         "test_stability": {**stability, "records": [
             {"seed": row["seed"], "samples_per_cell": row["samples_per_cell"],
@@ -1001,7 +1119,9 @@ def run_experiment(args):
              "headline_criteria_passed": row["headline_criteria_passed"]}
             for row in records]}}
     write_json(json_path, payload)
+    print(f"  5/6 elapsed: {time.perf_counter() - stage_started:.1f}s")
 
+    stage_started = time.perf_counter()
     print("6/6  Save paper-style figure")
     subtitles = {"vicreg_celeba": "VICReg, pretrained on CelebA",
                  "ijepa_celeba": "I-JEPA, pretrained on CelebA",
@@ -1012,13 +1132,19 @@ def run_experiment(args):
                         diagnostics=all_test_diagnostics,
                         maximum_cosine=test_geometry["max_abs_cos"],
                         side_lengths=all_test_side_lengths,
-                        passed=primary["headline_criteria_passed"])
+                        passed=primary["headline_criteria_passed"],
+                        sample_coordinates=plot_points["coordinates"],
+                        sample_cells=plot_points["cell_indices"],
+                        samples_per_cell=plot_points["samples_per_cell"])
+    print(f"  6/6 elapsed: {time.perf_counter() - stage_started:.1f}s")
+    print(f"  total elapsed: {time.perf_counter() - run_started:.1f}s")
     print(f"Selected: {selection['names']}")
     print(f"Held-out normalized RMSE: {all_test_diagnostics['normalized_centroid_rmse']:.4f}")
     print(f"Mean edges empirical/predicted: {all_test_side_lengths['mean_empirical_edge_length']:.4f}/"
           f"{all_test_side_lengths['mean_predicted_edge_length']:.4f}")
     print(f"Stability: {stability['pass_count']}/{stability['n_resamples']} passed")
-    print(json_path); print(figure_path.with_suffix(".pdf")); print(figure_path)
+    print(json_path); print(plot_points_path)
+    print(figure_path.with_suffix(".pdf")); print(figure_path)
     return json_path, figure_path
 
 

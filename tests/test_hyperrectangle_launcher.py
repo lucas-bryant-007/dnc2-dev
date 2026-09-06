@@ -14,7 +14,8 @@ BASH = str(GIT_BASH) if GIT_BASH.is_file() else shutil.which("bash")
 pytestmark = pytest.mark.skipif(not BASH, reason="Bash is required")
 
 SIMULATED_EXPERIMENT = '''
-import json, os, pathlib, sys
+import itertools, json, os, pathlib, sys
+import numpy as np
 args = sys.argv[1:]
 assert "--max-samples" not in args
 model = args[args.index("--model") + 1]
@@ -25,10 +26,19 @@ if case == "execution" and model == "vicreg_celeba":
     sys.exit(17)
 data = {
     "selection_succeeded": True,
+    "selected_triple": ["task_a", "task_b", "task_c"],
     "ssl_subspace": {}, "train_selection": {}, "test_evaluation": {},
     "test_side_length_diagnostics": {"n_edges": 12},
     "test_stability": {"n_resamples": 20},
     "samples": {"max_samples_diagnostic_cap": None},
+    "plot_points": {
+        "artifact": "hyperrectangle_" + model + "_points.npz",
+        "samples_per_cell": 20, "n_points": 160,
+        "contains_raw_images": False,
+        "selected_after_train_geometry_was_frozen": True,
+        "display_selection_used_for_fitting_or_metric_computation": False,
+        "points_belong_to_primary_balanced_test_resample": True,
+    },
     "headline_criteria_passed": model != "vicreg_imagenet",
 }
 if case == "selection" and model == "vicreg_celeba":
@@ -39,6 +49,15 @@ if data["selection_succeeded"]:
     stem.with_suffix(".png").write_bytes(b"simulated PNG")
     if not (case == "missing_artifact" and model == "vicreg_celeba"):
         stem.with_suffix(".pdf").write_bytes(b"simulated PDF")
+    if not (case == "missing_points" and model == "vicreg_celeba"):
+        np.savez_compressed(
+            out / data["plot_points"]["artifact"],
+            coords=np.zeros((160, 3), dtype=np.float32),
+            granular_task=np.repeat(np.arange(8, dtype=np.int8), 20),
+            signs=np.repeat(np.asarray(tuple(itertools.product((-1, 1), repeat=3)), dtype=np.int8), 20, axis=0),
+            test_row_indices=np.arange(160, dtype=np.int64),
+            triple_names=np.asarray(data["selected_triple"]),
+        )
 '''
 
 
@@ -81,6 +100,7 @@ main "$LAUNCH_MODE"
     ("selection", "selection_failed"),
     ("execution", "execution_failed"),
     ("missing_artifact", "artifact_validation_failed"),
+    ("missing_points", "artifact_validation_failed"),
 ])
 def test_batch_continues_and_reports_actual_outcomes(tmp_path, case, first_status):
     env = environment(tmp_path, case)

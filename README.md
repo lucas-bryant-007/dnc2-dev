@@ -1,6 +1,7 @@
 # Directional Neural Collapse
 
-Run the new CelebA VICReg and both ImageNet-pretrained hyperrectangle experiments
+Run the new CelebA VICReg and both ImageNet-pretrained hyperrectangle experiments,
+including twenty genuine held-out samples around every displayed cell centroid,
 on a server using the [three-model launch instructions](docs/hyperrectangle_server.md).
 
 Lean research implementation for studying which task directions survive
