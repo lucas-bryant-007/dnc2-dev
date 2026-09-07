@@ -75,6 +75,20 @@ python analysis/replot_hyperrectangle.py \
   --output /RESULT/MODEL/hyperrectangle_MODEL_replot.png
 ```
 
+The replotter defaults to twenty deterministic bootstrap mini-batch means per
+cell, which shows held-out centroid stability without letting the much wider
+individual-image spread obscure the box. Use `--cloud-mode individual` to
+restore the genuine individual points. For a text-free, tightly cropped vector
+PDF suitable for figure assembly, run:
+
+```bash
+python analysis/replot_hyperrectangle.py \
+  --json /RESULT/MODEL/hyperrectangle_MODEL.json \
+  --output /RESULT/MODEL/hyperrectangle_MODEL_cube.pdf \
+  --cloud-batch-size 20 \
+  --cube-only
+```
+
 - `completed`: evaluation and artifacts completed, with the primary test criteria met.
 - `completed_criteria_failed`: evaluation and artifacts completed, with the primary test criteria missed; retain this result.
 - `selection_failed`: the training selection found no eligible triple; the batch proceeds to the next model.

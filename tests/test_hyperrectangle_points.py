@@ -10,7 +10,7 @@ from analysis.hyperrectangle import (
     select_plot_points,
     write_plot_points,
 )
-from analysis.replot_hyperrectangle import replot_result
+from analysis.replot_hyperrectangle import bootstrap_centroid_cloud, replot_result
 
 
 def synthetic_points():
@@ -98,6 +98,24 @@ def test_saved_sidecar_supports_cpu_only_replot(tmp_path):
     }
     json_path = tmp_path / "result.json"
     json_path.write_text(json.dumps(payload), encoding="utf-8")
-    png, pdf = replot_result(json_path, tmp_path / "replot.png")
+    png, pdf = replot_result(
+        json_path, tmp_path / "replot.png", cube_only=True)
     assert png.is_file() and png.stat().st_size > 0
     assert pdf.is_file() and pdf.stat().st_size > 0
+
+
+def test_bootstrap_centroid_cloud_is_balanced_and_deterministic():
+    features, labels = synthetic_points()
+    points = select_plot_points(features, labels, torch.eye(3), seed=7)
+    coordinates = points["coordinates"].numpy()
+    cells = points["cell_indices"].numpy()
+
+    first_coordinates, first_cells = bootstrap_centroid_cloud(
+        coordinates, cells, points_per_cell=20, batch_size=8, seed=7)
+    second_coordinates, second_cells = bootstrap_centroid_cloud(
+        coordinates, cells, points_per_cell=20, batch_size=8, seed=7)
+
+    assert first_coordinates.shape == (160, 3)
+    assert np.array_equal(first_coordinates, second_coordinates)
+    assert np.array_equal(first_cells, second_cells)
+    assert np.array_equal(np.bincount(first_cells, minlength=8), np.full(8, 20))

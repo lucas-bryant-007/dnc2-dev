@@ -879,7 +879,8 @@ def plot_hyperrectangle(path, names, observed, predicted, *, subtitle="Frozen en
                         diagnostics=None, maximum_cosine=None, side_lengths=None, passed=True,
                         sample_coordinates=None, sample_cells=None,
                         samples_per_cell=PLOT_SAMPLES_PER_CELL,
-                        sample_size=8, sample_alpha=0.24):
+                        sample_size=8, sample_alpha=0.24,
+                        sample_description=None, cube_only=False):
     """Paper Figure 4 styling with genuine held-out samples behind the boxes."""
     import matplotlib
     matplotlib.use("Agg")
@@ -903,68 +904,102 @@ def plot_hyperrectangle(path, names, observed, predicted, *, subtitle="Frozen en
         else torch.as_tensor(sample_cells, dtype=torch.long).detach().cpu())
     if sample_coordinates.shape != (len(sample_cells), 3):
         raise ValueError("sample coordinates and cell labels do not align")
-    figure = plt.figure(figsize=(4.9, 4.4)); axis = figure.add_subplot(111, projection="3d")
+    figure = plt.figure(figsize=(4.0, 4.0) if cube_only else (4.9, 4.4))
+    axis = (
+        figure.add_axes((0, 0, 1, 1), projection="3d")
+        if cube_only else figure.add_subplot(111, projection="3d")
+    )
     for index, color in enumerate(colors):
         cloud = sample_coordinates[sample_cells == index]
         if len(cloud):
-            axis.scatter(*cloud.T, s=sample_size, alpha=sample_alpha,
-                         color=color, edgecolors="none",
-                         depthshade=False, rasterized=True)
+            axis.scatter(
+                *cloud.T, s=sample_size, alpha=sample_alpha,
+                color=color, edgecolors="none", depthshade=False,
+                rasterized=not cube_only)
     for first, second in edges:
         axis.plot(*observed[[first, second]].T, color=ink, lw=1.7)
-        axis.plot(*predicted[[first, second]].T, color=amber, lw=1.25, ls=(0, (3, 2)))
+        axis.plot(
+            *predicted[[first, second]].T, color=amber, lw=1.25,
+            ls=(0, (3, 2)))
     for index, color in enumerate(colors):
-        axis.scatter(*observed[index], s=30, color=color, edgecolor=ink, lw=0.6,
-                     depthshade=False)
-        axis.scatter(*predicted[index], s=19, marker="D", facecolor="white",
-                     edgecolor=amber, lw=0.7, depthshade=False)
+        axis.scatter(
+            *observed[index], s=30, color=color, edgecolor=ink, lw=0.6,
+            depthshade=False)
+        axis.scatter(
+            *predicted[index], s=19, marker="D", facecolor="white",
+            edgecolor=amber, lw=0.7, depthshade=False)
     box_points = torch.cat((observed, predicted))
     center = box_points.mean(0)
     span = max(0.70 * (box_points.max(0).values - box_points.min(0).values).max().item(),
                1e-6)
     if len(sample_coordinates):
-        lower, upper = torch.quantile(
-            sample_coordinates.float(), torch.tensor((0.025, 0.975)), dim=0)
+        if cube_only:
+            lower = sample_coordinates.min(0).values
+            upper = sample_coordinates.max(0).values
+        else:
+            lower, upper = torch.quantile(
+                sample_coordinates.float(), torch.tensor((0.025, 0.975)), dim=0)
         sample_span = torch.stack(((lower - center).abs(), (upper - center).abs())).max().item()
         span = max(span, 1.08 * sample_span)
     axis.set_xlim(center[0] - span, center[0] + span)
     axis.set_ylim(center[1] - span, center[1] + span)
     axis.set_zlim(center[2] - span, center[2] + span)
     axis.set_box_aspect((1, 1, 1)); axis.view_init(elev=18, azim=-56); axis.set_axis_off()
-    axis.text2D(0.5, 1.05, "CelebA", transform=axis.transAxes, ha="center", va="top",
-                fontsize=10.8, fontweight="bold")
-    axis.text2D(0.5, 0.975, subtitle, transform=axis.transAxes, ha="center", va="top",
-                fontsize=8.8, color=slate)
-    axis.text2D(0.5, 0.115, "\n".join(n.replace("_", " ").lower() for n in names),
-                transform=axis.transAxes, ha="center", va="bottom", fontsize=8.6,
-                color=slate, linespacing=1.35)
-    if diagnostics is not None and maximum_cosine is not None:
-        caption = (f"RMSE {diagnostics['normalized_centroid_rmse']:.3f}    "
-                   f"max|cos| {maximum_cosine:.3f}")
-        if side_lengths is not None:
-            ratio = (side_lengths["mean_empirical_edge_length"] /
-                     side_lengths["mean_predicted_edge_length"])
-            caption += f"    edge ratio {ratio:.3f}"
-        axis.text2D(0.5, -0.055, caption + ("" if passed else "\nmisses fixed criteria"),
-                    transform=axis.transAxes, ha="center", va="bottom", fontsize=9.6)
-    handles = (Line2D([0], [0], color=ink, lw=1.7, marker="o", ms=6.5,
-                      markerfacecolor=colors[1], label="observed held-out centroids"),
-               Line2D([0], [0], color=amber, lw=1.25, ls=(0, (3, 2)), marker="D",
-                      ms=5.4, markerfacecolor="white", label="train-predicted capture box"))
-    figure.legend(handles=handles, loc="upper center", ncol=2, bbox_to_anchor=(0.5, 1.0),
-                  frameon=False, fontsize=8.8)
-    footer = "Train-fitted geometry; held-out centroids"
-    if len(sample_coordinates):
-        footer += f" and {samples_per_cell} samples per cell."
-    else:
-        footer += "; evaluated on held-out test images."
-    figure.text(0.5, 0.006, footer,
-                ha="center", color=slate, fontsize=7.8)
-    figure.subplots_adjust(left=0.01, right=0.99, top=0.88, bottom=0.11)
+    if not cube_only:
+        axis.text2D(0.5, 1.05, "CelebA", transform=axis.transAxes, ha="center", va="top",
+                    fontsize=10.8, fontweight="bold")
+        axis.text2D(0.5, 0.975, subtitle, transform=axis.transAxes, ha="center", va="top",
+                    fontsize=8.8, color=slate)
+        task_line = "tasks: " + "  ·  ".join(
+            n.replace("_", " ").lower() for n in names)
+        axis.text2D(0.5, 0.91, task_line, transform=axis.transAxes,
+                    ha="center", va="top", fontsize=7.7, color=slate)
+        if diagnostics is not None and maximum_cosine is not None:
+            caption = (f"RMSE {diagnostics['normalized_centroid_rmse']:.3f}    "
+                       f"max|cos| {maximum_cosine:.3f}")
+            if side_lengths is not None:
+                ratio = (side_lengths["mean_empirical_edge_length"] /
+                         side_lengths["mean_predicted_edge_length"])
+                caption += f"    edge ratio {ratio:.3f}"
+            axis.text2D(0.5, 0.005, caption + ("" if passed else "\nmisses fixed criteria"),
+                        transform=axis.transAxes, ha="center", va="bottom", fontsize=9.6)
+        handles = (Line2D([0], [0], color=ink, lw=1.7, marker="o", ms=6.5,
+                          markerfacecolor=colors[1], label="observed held-out centroids"),
+                   Line2D([0], [0], color=amber, lw=1.25, ls=(0, (3, 2)), marker="D",
+                          ms=5.4, markerfacecolor="white", label="train-predicted capture box"))
+        figure.legend(handles=handles, loc="upper center", ncol=2,
+                      bbox_to_anchor=(0.5, 1.0), frameon=False, fontsize=8.8)
+        footer = "Train-fitted geometry; held-out centroids"
+        if len(sample_coordinates):
+            if sample_description is None:
+                sample_description = f"{samples_per_cell} samples per cell"
+            footer += f" and {sample_description}."
+        else:
+            footer += "; evaluated on held-out test images."
+        figure.text(0.5, 0.006, footer, ha="center", color=slate, fontsize=7.8)
+        figure.subplots_adjust(left=0.01, right=0.99, top=0.88, bottom=0.08)
     path.parent.mkdir(parents=True, exist_ok=True); stem = path.with_suffix("")
-    figure.savefig(stem.with_suffix(".pdf"), bbox_inches="tight", pad_inches=0.02,
+    pad_inches = 0 if cube_only else 0.02
+    if cube_only:
+        from mpl_toolkits.mplot3d import proj3d
+        from matplotlib.transforms import Bbox
+        figure.canvas.draw()
+        crop_coordinates = torch.cat((observed, predicted, sample_coordinates)).numpy()
+        projected_x, projected_y, _ = proj3d.proj_transform(
+            crop_coordinates[:, 0], crop_coordinates[:, 1],
+            crop_coordinates[:, 2], axis.get_proj())
+        display_coordinates = axis.transData.transform(
+            np.column_stack((projected_x, projected_y)))
+        output_bbox = Bbox.from_extents(
+            display_coordinates[:, 0].min(), display_coordinates[:, 1].min(),
+            display_coordinates[:, 0].max(), display_coordinates[:, 1].max(),
+        ).padded(8)
+        output_bbox = output_bbox.transformed(figure.dpi_scale_trans.inverted())
+    else:
+        output_bbox = "tight"
+    figure.savefig(stem.with_suffix(".pdf"), bbox_inches=output_bbox, pad_inches=pad_inches,
                    metadata={"Creator": "minimal hyperrectangle", "CreationDate": None})
-    figure.savefig(stem.with_suffix(".png"), bbox_inches="tight", pad_inches=0.02,
+    figure.savefig(stem.with_suffix(".png"), bbox_inches=output_bbox, pad_inches=pad_inches,
                    dpi=320, metadata={"Software": "minimal hyperrectangle"})
     plt.close(figure)
 
