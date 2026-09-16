@@ -56,6 +56,7 @@ MODEL_SPECS = {
         "filename": "IN1K-vit.h.14-300e.pth.tar",
         "sha256": "0382013c481743e9ccea89f970bc6c6aa126aa19a62127500d6e672a641aae22",
     },
+    "supervised_celeba": {},  # No published default: explicit --weights required.
 }
 MODELS = tuple(MODEL_SPECS)
 CELLS = tuple(itertools.product((-1, 1), repeat=3))
@@ -129,6 +130,8 @@ def resolve_weights(model_name, weights=None, cache_dir=None):
         return path, {"source": "user_supplied", "downloaded_automatically": False}
 
     spec = MODEL_SPECS[model_name]
+    if not spec:
+        raise ValueError(f"{model_name} has no published checkpoint; pass --weights")
     if "repo_id" in spec:
         try:
             from huggingface_hub import hf_hub_download
@@ -333,9 +336,15 @@ def load_encoder(model_name, weights, device, model_cache_dir=None):
         declared_method = _checkpoint_value(checkpoint, "method", "name").lower()
         if method != declared_method:
             raise ValueError(f"requested {model_name}, but checkpoint says {declared_method}")
-    if model_name == "vicreg_celeba":
+    if model_name in {"vicreg_celeba", "supervised_celeba"}:
         model, metadata = _load_local_vicreg(checkpoint, state)
         encoder_name = "backbone"
+        if model_name == "supervised_celeba":
+            # The classifier head is excluded; only the ResNet trunk is evaluated.
+            metadata["supervised_target"] = _checkpoint_value(checkpoint, "data", "label_key")
+            metadata["checkpoint_epoch"] = checkpoint.get("epoch")
+            metadata["analysis_transform_protocol"] = (
+                "VICReg CelebA analysis transforms; not the supervised training augmentation")
     elif model_name == "ijepa_celeba":
         model, metadata = _load_local_ijepa(checkpoint, state)
         encoder_name = "EMA teacher, mean patch pooling"
@@ -356,12 +365,12 @@ def load_encoder(model_name, weights, device, model_cache_dir=None):
 # ------------------------------------------------------------------------ data
 
 def build_transforms(model_name):
-    """The same method-specific CelebA transforms used during training."""
+    """Method-specific CelebA transforms; supervised reuses the VICReg analysis protocol."""
     from torchvision import transforms
 
     normalize = transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     tensor = [transforms.ToTensor(), normalize]
-    if model_name == "vicreg_celeba":
+    if model_name in {"vicreg_celeba", "supervised_celeba"}:
         train = [transforms.RandomCrop(160), transforms.Resize((128, 128)),
                  transforms.RandomHorizontalFlip(),
                  transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.2, 0.05)], p=0.8),
@@ -449,8 +458,15 @@ def extract_paired_features(dataset, encode, transform, *, device, batch_size,
 
 
 def fit_ssl_map(first, second, covariance_threshold=COVARIANCE_EIGENVALUE_CUTOFF,
-                ssl_threshold=SSL_EIGENVALUE_CUTOFF):
-    """Fit the train-only paired-view map and retain genuinely stable directions."""
+                ssl_threshold=SSL_EIGENVALUE_CUTOFF, covariance_dimension=None):
+    """Fit the train-only paired-view map and retain genuinely stable directions.
+
+    ``covariance_dimension`` replaces the relative eigenvalue cutoff: an integer
+    keeps that many leading covariance directions; ``"keff"`` keeps each encoder's
+    own effective dimension, the participation ratio (sum lambda)^2 / sum lambda^2
+    of its covariance spectrum, so encoders with very different spectra (e.g.
+    supervised vs. SSL) are each evaluated at their own intrinsic dimension.
+    """
     if first.shape != second.shape or first.ndim != 2:
         raise ValueError("paired SSL views must have the same [N,D] shape")
     joined = torch.cat((first, second))
@@ -463,7 +479,21 @@ def fit_ssl_map(first, second, covariance_threshold=COVARIANCE_EIGENVALUE_CUTOFF
     covariance_values, covariance_vectors = covariance_values[order], covariance_vectors[:, order]
     if covariance_values[0] <= 0:
         raise ValueError("paired features have no positive covariance directions")
-    covariance_keep = covariance_values >= covariance_values[0] * covariance_threshold
+    positive = covariance_values.clamp_min(0)
+    participation_ratio = float(positive.sum().square() / positive.square().sum())
+    cumulative = torch.cumsum(positive, 0) / positive.sum()
+    dimension_99 = int((cumulative < 0.99).sum()) + 1
+    if covariance_dimension == "keff":
+        covariance_dimension = math.ceil(participation_ratio)
+    if covariance_dimension is None:
+        covariance_keep = covariance_values >= covariance_values[0] * covariance_threshold
+    else:
+        if not 1 <= covariance_dimension <= len(covariance_values):
+            raise ValueError(f"covariance_dimension must be in [1, {len(covariance_values)}]")
+        covariance_keep = torch.zeros_like(covariance_values, dtype=torch.bool)
+        covariance_keep[:covariance_dimension] = True
+        if covariance_values[covariance_dimension - 1] <= 0:
+            raise ValueError("requested covariance dimension includes non-positive eigenvalues")
     retained_covariance_values = covariance_values[covariance_keep]
     ridge = SSL_RIDGE * covariance_values[0]
     whitener = covariance_vectors[:, covariance_keep] / (retained_covariance_values + ridge).sqrt()
@@ -485,6 +515,12 @@ def fit_ssl_map(first, second, covariance_threshold=COVARIANCE_EIGENVALUE_CUTOFF
         "fit_population": "all train instances; two augmented views each",
         "input_dimension": first.shape[1],
         "covariance_retained_dimension": int(covariance_keep.sum()),
+        "covariance_dimension_rule": ("relative_eigenvalue_cutoff" if covariance_dimension is None
+                                      else "fixed_dimension"),
+        "effective_dimension_participation_ratio": participation_ratio,
+        "dimension_for_99pct_variance": dimension_99,
+        "minimum_retained_covariance_eigenvalue_relative_to_top": float(
+            retained_covariance_values[-1] / covariance_values[0]),
         "retained_dimension": int(ssl_keep.sum()),
         "covariance_relative_eigenvalue_cutoff": covariance_threshold,
         "ssl_positive_relative_eigenvalue_cutoff": ssl_threshold,
@@ -622,9 +658,37 @@ def fit_task_axes(features, labels, names, capture_B=None):
             "predicted_corners": predicted}
 
 
-def select_train_triple(features, attributes, names, *, seed=SELECTION_SEED):
-    """Screen and fit only on train; test is never passed to this function."""
+def select_train_triple(features, attributes, names, *, seed=SELECTION_SEED,
+                        fixed_attributes=None):
+    """Screen and fit only on train; test is never passed to this function.
+
+    ``fixed_attributes`` bypasses the automatic search so a triple chosen elsewhere
+    (e.g. for a matched comparison across encoders) can be evaluated. The frozen
+    train criteria are still computed and reported, but not required.
+    """
     screened, labels = fit_whitener(features).transform(features), as_pm_one(attributes)
+    if fixed_attributes:
+        if len(set(fixed_attributes)) != 3:
+            raise ValueError("three distinct fixed attributes are required")
+        triple = tuple(names.index(name) for name in fixed_attributes)
+        proxy = _balanced_proxy(screened, labels[:, triple])
+        if min(proxy["counts"]) < MIN_TRAIN_CELL:
+            raise ValueError("fixed triple has insufficient training cell support")
+        fit = fit_triple_on_train(features, labels, triple, names, seed=seed)
+        if fit["box"] is None:
+            raise SelectionFailure([{"rank": 1, "triple": fit["triple"], "proxy": proxy,
+                                     "passed": False, "reason": "non-positive capture"}])
+        geometry = fit["crossfit_probe_geometry"]
+        attempt = {"rank": 1, "triple": fit["triple"], "proxy": proxy,
+                   "original_cell_counts": fit["balance"]["original_cell_counts"],
+                   "samples_per_cell": fit["balance"]["samples_per_cell"],
+                   "capture_B": geometry["capture_B"],
+                   "maximum_absolute_cosine": geometry["maximum_absolute_cosine"],
+                   "passed": fit["passed"], "mode": "fixed_attributes"}
+        print(f"  fixed triple {fit['triple']}: train criteria passed={fit['passed']}")
+        return {"indices": list(triple), "names": fit["triple"], "selected_rows": fit["selected_rows"],
+                "whitener": fit["whitener"], "box": fit["box"], "exact_attempts": [attempt],
+                "crossfit_probe_geometry": geometry, "balance": fit["balance"]}
     eligible = []
     for index in range(labels.shape[1]):
         fraction = min((labels[:, index] > 0).float().mean().item(),
@@ -646,35 +710,23 @@ def select_train_triple(features, attributes, names, *, seed=SELECTION_SEED):
     attempts = []
     for rank, (_min_b, _cos, _mean_b, triple, proxy) in enumerate(
             ranked[:MAX_EXACT_CANDIDATES], 1):
-        rows, counts, n = _balanced_rows(labels[:, triple], seed, MAX_TRAIN_CELL)
-        n_white, n_a = n // 3, (n - n // 3) // 2
-        white_rows, fold_a, fold_b = _split_cells(rows, n, (n_white, n_a, n - n_white - n_a))
-        whitener = fit_whitener(features[white_rows])
-        geometry = _crossfit_geometry(
-            whitener.transform(features[fold_a]), labels[fold_a][:, triple],
-            whitener.transform(features[fold_b]), labels[fold_b][:, triple])
-        passed = bool(geometry["valid"] and min(geometry["capture_B"]) >= MIN_TRAIN_CAPTURE
-                      and geometry["maximum_absolute_cosine"] <= MAX_TRAIN_COSINE)
-        attempt = {"rank": rank, "triple": [names[i] for i in triple], "proxy": proxy,
-                   "original_cell_counts": counts, "samples_per_cell": n,
+        fit = fit_triple_on_train(features, labels, triple, names, seed=seed)
+        geometry = fit["crossfit_probe_geometry"]
+        attempt = {"rank": rank, "triple": fit["triple"], "proxy": proxy,
+                   "original_cell_counts": fit["balance"]["original_cell_counts"],
+                   "samples_per_cell": fit["balance"]["samples_per_cell"],
                    "capture_B": geometry["capture_B"],
                    "maximum_absolute_cosine": geometry["maximum_absolute_cosine"],
-                   "passed": passed}
+                   "passed": fit["passed"]}
         attempts.append(attempt)
         cosine_text = ("invalid" if geometry["maximum_absolute_cosine"] is None
                        else f"{geometry['maximum_absolute_cosine']:.3f}")
-        print(f"  candidate {rank}: {attempt['triple']} max|cos|={cosine_text} passed={passed}")
-        if passed:
-            balanced = whitener.transform(features[rows])
-            box = fit_task_axes(balanced, labels[rows][:, triple], attempt["triple"],
-                                geometry["capture_B"])
-            return {"indices": list(triple), "names": attempt["triple"],
-                    "selected_rows": rows, "whitener": whitener, "box": box,
-                    "exact_attempts": attempts, "crossfit_probe_geometry": geometry,
-                    "balance": {"original_cell_counts": counts, "samples_per_cell": n,
-                                "whitening_samples_per_cell": n_white,
-                                "probe_samples_per_cell_a": n_a,
-                                "probe_samples_per_cell_b": n - n_white - n_a}}
+        print(f"  candidate {rank}: {attempt['triple']} max|cos|={cosine_text} passed={fit['passed']}")
+        if fit["passed"]:
+            return {"indices": list(triple), "names": fit["triple"],
+                    "selected_rows": fit["selected_rows"], "whitener": fit["whitener"],
+                    "box": fit["box"], "exact_attempts": attempts,
+                    "crossfit_probe_geometry": geometry, "balance": fit["balance"]}
     raise SelectionFailure(attempts)
 
 
@@ -764,6 +816,211 @@ def side_length_diagnostics(observed, predicted, names):
         "edge_length_rmse": math.sqrt(sum(value * value for value in differences) / len(differences)),
         "n_edges": len(all_observed),
     }
+
+
+def box_shape_diagnostics(observed, predicted):
+    """Exact factorial decomposition of the eight centroids.
+
+    Writing each centroid as m(y) = a0 + sum_i a_i y_i + sum_{i<j} a_ij y_i y_j
+    + a_123 y1 y2 y3 fits the eight points exactly. The predicted box has a0 = 0,
+    a_i = sqrt(B_i) e_i and no interaction terms. Squared corner error therefore
+    splits into: shift (a0), side length (diagonal of a_i vs sqrt(B_i)), tilted
+    edges (off-diagonal of a_i) and interactions (a_ij, a_123). The non-box share
+    is the fraction of centered centroid energy in the last two groups; it is 0
+    for any axis-aligned box regardless of its position or side lengths.
+    """
+    observed_by = {tuple(row["signs"]): row["center"] for row in observed}
+    predicted_by = {tuple(row["signs"]): row["center"] for row in predicted}
+    if any(observed_by.get(signs) is None for signs in CELLS):
+        raise ValueError("all eight held-out centroids are required")
+    signs = torch.tensor(CELLS, dtype=torch.float64)
+    centroids = torch.tensor([observed_by[cell] for cell in CELLS], dtype=torch.float64)
+    corners = torch.tensor([predicted_by[cell] for cell in CELLS], dtype=torch.float64)
+    terms = [()] + [(i,) for i in range(3)] + [(0, 1), (0, 2), (1, 2), (0, 1, 2)]
+    design = torch.stack([signs[:, list(term)].prod(1) if term else torch.ones(8, dtype=torch.float64)
+                          for term in terms], dim=1)
+    coefficients = design.T @ centroids / 8
+    predicted_coefficients = design.T @ corners / 8
+    main = coefficients[1:4]
+    error = coefficients - predicted_coefficients
+    parts = {
+        "shift": float(error[0].square().sum()),
+        "side_length": float((main.diagonal() - predicted_coefficients[1:4].diagonal()).square().sum()),
+        "tilted_edges": float((main - torch.diag(main.diagonal())).square().sum()),
+        "pair_interactions": float(error[4:7].square().sum()),
+        "triple_interaction": float(error[7].square().sum()),
+    }
+    total_error = float((centroids - corners).square().sum(1).mean())
+    centered_energy = float(coefficients[1:].square().sum())
+    non_box = parts["tilted_edges"] + parts["pair_interactions"] + parts["triple_interaction"]
+    unit = F.normalize(main, dim=1)
+    triangle = torch.triu_indices(3, 3, 1)
+    return {
+        "decomposition": "exact_factorial_expansion_of_eight_centroids",
+        "squared_error_parts": parts,
+        "squared_error_shares": {key: value / total_error if total_error > 0 else None
+                                 for key, value in parts.items()},
+        "mean_squared_corner_error": total_error,
+        "centered_centroid_energy": centered_energy,
+        "non_box_share": non_box / centered_energy if centered_energy > 0 else None,
+        "additive_share": float(main.square().sum()) / centered_energy if centered_energy > 0 else None,
+        "main_effect_vectors": main.tolist(),
+        "edge_direction_max_abs_cosine": float((unit @ unit.T).abs()[triangle.unbind()].max()),
+    }
+
+
+def fit_triple_on_train(features, labels, triple, names, *, seed=SELECTION_SEED):
+    """Balanced train fit for one attribute triple: whitener, cross-fit capture, axes."""
+    rows, counts, n = _balanced_rows(labels[:, triple], seed, MAX_TRAIN_CELL)
+    n_white, n_a = n // 3, (n - n // 3) // 2
+    white_rows, fold_a, fold_b = _split_cells(rows, n, (n_white, n_a, n - n_white - n_a))
+    whitener = fit_whitener(features[white_rows])
+    geometry = _crossfit_geometry(
+        whitener.transform(features[fold_a]), labels[fold_a][:, triple],
+        whitener.transform(features[fold_b]), labels[fold_b][:, triple])
+    passed = bool(geometry["valid"] and min(geometry["capture_B"]) >= MIN_TRAIN_CAPTURE
+                  and geometry["maximum_absolute_cosine"] <= MAX_TRAIN_COSINE)
+    box = None
+    if geometry["valid"] and min(geometry["capture_B"]) > 0:
+        box = fit_task_axes(whitener.transform(features[rows]), labels[rows][:, triple],
+                            [names[i] for i in triple], geometry["capture_B"])
+    return {"triple": [names[i] for i in triple], "indices": list(triple),
+            "selected_rows": rows, "whitener": whitener, "box": box,
+            "crossfit_probe_geometry": geometry, "passed": passed,
+            "balance": {"original_cell_counts": counts, "samples_per_cell": n,
+                        "whitening_samples_per_cell": n_white,
+                        "probe_samples_per_cell_a": n_a,
+                        "probe_samples_per_cell_b": n - n_white - n_a}}
+
+
+def evaluate_all_triples(train_features, train_labels, test_features, test_labels, names, *,
+                         log_every=50):
+    """Score every attribute triple with enough support, not just the selected one.
+
+    Train-side fit and thresholds are identical to ``select_train_triple``; the
+    only difference is that nothing is screened on capture or proxy cosine, so the
+    result is a distribution over triples rather than a single choice. Test
+    centroids use every held-out image in each cell.
+    """
+    train_pm, test_pm = as_pm_one(train_labels), as_pm_one(test_labels)
+    eligible = [index for index in range(train_pm.shape[1])
+                if min((train_pm[:, index] > 0).float().mean().item(),
+                       (train_pm[:, index] < 0).float().mean().item()) >= MIN_CLASS_FRACTION]
+    signs = torch.tensor(CELLS, dtype=train_pm.dtype, device=train_pm.device)
+
+    def cell_counts(labels, triple):
+        return [int((labels[:, triple] == cell).all(1).sum()) for cell in signs]
+
+    records, skipped = [], {"train_support": 0, "test_support": 0, "invalid_capture": 0}
+    candidates = list(itertools.combinations(eligible, 3))
+    for number, triple in enumerate(candidates, 1):
+        train_counts, test_counts = cell_counts(train_pm, triple), cell_counts(test_pm, triple)
+        if min(train_counts) < MIN_TRAIN_CELL:
+            skipped["train_support"] += 1; continue
+        if min(test_counts) < MIN_TEST_CELL:
+            skipped["test_support"] += 1; continue
+        fit = fit_triple_on_train(train_features, train_labels, triple, names)
+        if fit["box"] is None:
+            skipped["invalid_capture"] += 1; continue
+        whitened_test = fit["whitener"].transform(test_features)
+        triple_labels = test_labels[:, triple]
+        _, cells = measure_cell_centroids(whitened_test, triple_labels, fit["box"]["axes"])
+        corners = corner_diagnostics(cells, fit["box"]["predicted_corners"])
+        shape = box_shape_diagnostics(cells, fit["box"]["predicted_corners"])
+        rows, _, n = _balanced_rows(triple_labels, TEST_SEEDS[0], MAX_TEST_CELL)
+        fold_a, fold_b = _split_cells(rows, n, (n // 2, n - n // 2))
+        test_geometry = _crossfit_geometry(whitened_test[fold_a], triple_labels[fold_a],
+                                           whitened_test[fold_b], triple_labels[fold_b])
+        test_passed = bool(test_geometry["valid"]
+                           and test_geometry["maximum_absolute_cosine"] <= MAX_TEST_COSINE
+                           and min(test_geometry["capture_B"]) >= MIN_TEST_CAPTURE
+                           and corners["normalized_centroid_rmse"] <= MAX_TEST_RMSE
+                           and n >= MIN_TEST_CELL)
+        train_geometry = fit["crossfit_probe_geometry"]
+        records.append({
+            "triple": fit["triple"], "train_cell_counts": train_counts,
+            "test_cell_counts": test_counts, "train_samples_per_cell": fit["balance"]["samples_per_cell"],
+            "train_capture_B": train_geometry["capture_B"],
+            "train_max_abs_cos": train_geometry["maximum_absolute_cosine"],
+            "train_criteria_passed": fit["passed"],
+            "test_capture_B_seed7": test_geometry["capture_B"],
+            "test_max_abs_cos_seed7": test_geometry["maximum_absolute_cosine"],
+            "normalized_centroid_rmse": corners["normalized_centroid_rmse"],
+            "non_box_share": shape["non_box_share"],
+            "squared_error_shares": shape["squared_error_shares"],
+            "edge_direction_max_abs_cosine": shape["edge_direction_max_abs_cosine"],
+            "test_criteria_passed": test_passed,
+        })
+        if number % log_every == 0 or number == len(candidates):
+            print(f"  triples {number}/{len(candidates)}: {len(records)} scored")
+
+    def quantiles(key):
+        values = torch.tensor([row[key] for row in records if row[key] is not None], dtype=torch.float64)
+        if not len(values):
+            return None
+        q = torch.quantile(values, torch.tensor([0.1, 0.25, 0.5, 0.75, 0.9], dtype=torch.float64))
+        return {"mean": values.mean().item(), "min": values.min().item(), "max": values.max().item(),
+                "q10": q[0].item(), "q25": q[1].item(), "median": q[2].item(),
+                "q75": q[3].item(), "q90": q[4].item()}
+
+    summary = {
+        "eligible_attributes": [names[i] for i in eligible],
+        "n_candidate_triples": len(candidates), "n_scored": len(records), "skipped": skipped,
+        "fraction_passing_train_criteria": (sum(r["train_criteria_passed"] for r in records) / len(records)
+                                            if records else None),
+        "fraction_passing_test_criteria": (sum(r["test_criteria_passed"] for r in records) / len(records)
+                                           if records else None),
+        "normalized_centroid_rmse": quantiles("normalized_centroid_rmse"),
+        "non_box_share": quantiles("non_box_share"),
+        "train_max_abs_cos": quantiles("train_max_abs_cos"),
+        "test_criteria": {"max_pairwise_abs_cos": MAX_TEST_COSINE, "min_capture_B": MIN_TEST_CAPTURE,
+                          "max_normalized_centroid_rmse": MAX_TEST_RMSE, "min_cell_count": MIN_TEST_CELL},
+        "train_criteria": {"min_capture_B": MIN_TRAIN_CAPTURE, "max_pairwise_abs_cos": MAX_TRAIN_COSINE,
+                           "min_cell_count": MIN_TRAIN_CELL},
+        "note": ("Every triple is fit on train and evaluated on all held-out images; "
+                 "no capture or proxy-cosine screening is applied, unlike the automatic selection."),
+    }
+    return {"summary": summary, "triples": records}
+
+
+def write_all_triples_csv(path, records):
+    import csv
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["attribute_1", "attribute_2", "attribute_3", "min_train_cell", "min_test_cell",
+                         "train_B_1", "train_B_2", "train_B_3", "train_max_abs_cos", "train_criteria_passed",
+                         "test_B_1", "test_B_2", "test_B_3", "test_max_abs_cos",
+                         "normalized_centroid_rmse", "non_box_share", "edge_direction_max_abs_cosine",
+                         "shift_share", "side_length_share", "tilted_edges_share",
+                         "pair_interactions_share", "triple_interaction_share", "test_criteria_passed"])
+        for row in records:
+            shares = row["squared_error_shares"]
+            writer.writerow([*row["triple"], min(row["train_cell_counts"]), min(row["test_cell_counts"]),
+                             *row["train_capture_B"], row["train_max_abs_cos"], row["train_criteria_passed"],
+                             *row["test_capture_B_seed7"], row["test_max_abs_cos_seed7"],
+                             row["normalized_centroid_rmse"], row["non_box_share"],
+                             row["edge_direction_max_abs_cosine"],
+                             shares["shift"], shares["side_length"], shares["tilted_edges"],
+                             shares["pair_interactions"], shares["triple_interaction"],
+                             row["test_criteria_passed"]])
+
+
+def write_features(path, **arrays):
+    """Persist encoder features so later analyses need no GPU or model download."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {}
+    for key, value in arrays.items():
+        value = value.detach().cpu() if torch.is_tensor(value) else value
+        if torch.is_tensor(value):
+            value = value.numpy()
+        if isinstance(value, np.ndarray) and value.dtype == np.float32:
+            value = value.astype(np.float16)  # L2-normalized features; ample precision
+        payload[key] = value
+    np.savez(path, **payload)
+    return {"artifact": path.name, "arrays": {key: list(value.shape) for key, value in payload.items()},
+            "float_dtype": "float16", "features_are_l2_normalized": True}
 
 
 def evaluate_test_seed(features, labels, selection, seed):
@@ -1027,7 +1284,17 @@ def run_experiment(args):
     view_a, view_b = extract_paired_features(
         train, encoder.encode, train_transform, device=device,
         batch_size=batch_size, max_samples=args.max_samples)
-    ssl_map, ssl_record = fit_ssl_map(view_a, view_b); del view_a, view_b
+    ssl_dim = args.ssl_dim if args.ssl_dim in (None, "keff") else int(args.ssl_dim)
+    ssl_map, ssl_record = fit_ssl_map(view_a, view_b, covariance_dimension=ssl_dim)
+    print(f"  retained {ssl_record['retained_dimension']} dims "
+          f"(rule {ssl_record['covariance_dimension_rule']}, k_eff "
+          f"{ssl_record['effective_dimension_participation_ratio']:.1f})")
+    feature_records = {}
+    if args.save_features:
+        feature_records["train_paired_views"] = write_features(
+            output / f"features_{args.model}_train_paired_views.npz",
+            view_a=view_a, view_b=view_b)
+    del view_a, view_b
     print(f"  2/6 elapsed: {time.perf_counter() - stage_started:.1f}s")
 
     stage_started = time.perf_counter()
@@ -1036,40 +1303,77 @@ def run_experiment(args):
         train, encoder.encode, eval_transform, names, device=device,
         batch_size=batch_size, max_samples=args.max_samples)
     raw_dimension = train_features.shape[1]
+    if args.save_features:
+        feature_records["train"] = write_features(
+            output / f"features_{args.model}_train.npz",
+            features=train_features, labels=train_labels, attribute_names=np.asarray(names))
     train_features = transform_in_chunks(train_features, ssl_map, device,
                                          args.transform_batch_size)
     train_labels = train_labels.to(device)
+    selection, selection_failure = None, None
     try:
-        selection = select_train_triple(train_features, train_labels, names)
+        selection = select_train_triple(train_features, train_labels, names,
+                                        fixed_attributes=args.fixed_attributes)
     except SelectionFailure as error:
-        write_json(json_path, {"method": encoder.provenance["method"], "dataset": "celeba",
-                               "model": encoder.provenance, "selection_succeeded": False,
-                               "failure_reason": str(error),
-                               "exact_train_candidate_attempts": error.attempts,
-                               "ssl_subspace": ssl_record})
-        print(f"Selection failed honestly; saved {json_path}")
-        return json_path, None
-    indices, rows = selection["indices"], selection["selected_rows"]
-    _, train_cells = measure_cell_centroids(
-        selection["whitener"].transform(train_features[rows]),
-        train_labels[rows][:, indices], selection["box"]["axes"])
-    del train_features, train_labels
+        selection_failure = error
+        print(f"Selection failed honestly: {error}")
+    if selection is not None:
+        indices, rows = selection["indices"], selection["selected_rows"]
+        _, train_cells = measure_cell_centroids(
+            selection["whitener"].transform(train_features[rows]),
+            train_labels[rows][:, indices], selection["box"]["axes"])
     print(f"  3/6 elapsed: {time.perf_counter() - stage_started:.1f}s")
 
     stage_started = time.perf_counter()
     print("4/6  Evaluate 20 held-out balanced resamples")
-    test_features, test_labels = extract_dataset_features(
+    test_features, all_test_labels = extract_dataset_features(
         test, encoder.encode, eval_transform, names, device=device,
         batch_size=batch_size, max_samples=args.max_samples)
-    test_features = selection["whitener"].transform(transform_in_chunks(
-        test_features, ssl_map, device, args.transform_batch_size))
-    test_labels = test_labels.to(device)[:, indices]
+    if args.save_features:
+        feature_records["test"] = write_features(
+            output / f"features_{args.model}_test.npz",
+            features=test_features, labels=all_test_labels, attribute_names=np.asarray(names))
+    test_ssl_features = transform_in_chunks(test_features, ssl_map, device,
+                                            args.transform_batch_size)
+    all_test_labels = all_test_labels.to(device)
+
+    all_triples_record = None
+    if args.all_triples:
+        print("  scoring every eligible attribute triple")
+        all_triples_record = evaluate_all_triples(
+            train_features, train_labels, test_ssl_features, all_test_labels, names)
+        all_triples_json = output / f"hyperrectangle_{args.model}_all_triples.json"
+        write_json(all_triples_json, {"model": encoder.provenance, "ssl_subspace": ssl_record,
+                                      **all_triples_record})
+        write_all_triples_csv(output / f"hyperrectangle_{args.model}_all_triples.csv",
+                              all_triples_record["triples"])
+        summary = all_triples_record["summary"]
+        print(f"  {summary['n_scored']} triples scored; median RMSE "
+              f"{summary['normalized_centroid_rmse']['median']:.3f}, median non-box "
+              f"{summary['non_box_share']['median']:.4f}")
+    del train_features, train_labels
+
+    if selection is None:
+        write_json(json_path, {"method": encoder.provenance["method"], "dataset": "celeba",
+                               "model": encoder.provenance, "selection_succeeded": False,
+                               "failure_reason": str(selection_failure),
+                               "exact_train_candidate_attempts": selection_failure.attempts,
+                               "ssl_subspace": ssl_record,
+                               "all_triples_summary": (all_triples_record["summary"]
+                                                       if all_triples_record else None),
+                               "feature_artifacts": feature_records})
+        print(f"Saved {json_path}")
+        return json_path, None
+    test_features = selection["whitener"].transform(test_ssl_features)
+    del test_ssl_features
+    test_labels = all_test_labels[:, indices]
     _, all_test_cells = measure_cell_centroids(
         test_features, test_labels, selection["box"]["axes"])
     all_test_diagnostics = corner_diagnostics(
         all_test_cells, selection["box"]["predicted_corners"])
     all_test_side_lengths = side_length_diagnostics(
         all_test_cells, selection["box"]["predicted_corners"], selection["names"])
+    all_test_shape = box_shape_diagnostics(all_test_cells, selection["box"]["predicted_corners"])
     plot_points = select_plot_points(
         test_features, test_labels, selection["box"]["axes"])
     plot_points_path = output / f"hyperrectangle_{args.model}_points.npz"
@@ -1092,7 +1396,11 @@ def run_experiment(args):
         "model": encoder.provenance, "selection_succeeded": True,
         "selected_triple": selection["names"],
         "protocol": {
-            "analysis_protocol": "minimal_paper_accurate_celeba_v2",
+            "analysis_protocol": "minimal_paper_accurate_celeba_v3",
+            "selection_mode": "fixed_attributes" if args.fixed_attributes else "automatic",
+            "fixed_attributes": args.fixed_attributes,
+            "train_criteria_passed": selection["exact_attempts"][-1]["passed"],
+            "ssl_covariance_dimension_override": args.ssl_dim,
             "selection_split": "train", "evaluation_split": "test",
             "population": "uniform_over_selected_eight_attribute_cells",
             "triple_and_geometry_frozen_before_test": True,
@@ -1142,6 +1450,9 @@ def run_experiment(args):
                             "all_held_out_total_samples": sum(row["count"] for row in all_test_cells)},
         "test_box_diagnostics": all_test_diagnostics,
         "test_side_length_diagnostics": all_test_side_lengths,
+        "test_box_shape_diagnostics": all_test_shape,
+        "all_triples_summary": all_triples_record["summary"] if all_triples_record else None,
+        "feature_artifacts": feature_records,
         "plot_points": plot_points_record,
         "headline_criteria_passed": primary["headline_criteria_passed"],
         "test_stability": {**stability, "records": [
@@ -1158,7 +1469,8 @@ def run_experiment(args):
 
     stage_started = time.perf_counter()
     print("6/6  Save paper-style figure")
-    subtitles = {"vicreg_celeba": "VICReg, pretrained on CelebA",
+    subtitles = {"supervised_celeba": "Supervised on CelebA",
+                 "vicreg_celeba": "VICReg, pretrained on CelebA",
                  "ijepa_celeba": "I-JEPA, pretrained on CelebA",
                  "vicreg_imagenet": "VICReg, pretrained on ImageNet-1K",
                  "ijepa_imagenet": "I-JEPA, pretrained on ImageNet-1K"}
@@ -1175,6 +1487,7 @@ def run_experiment(args):
     print(f"  total elapsed: {time.perf_counter() - run_started:.1f}s")
     print(f"Selected: {selection['names']}")
     print(f"Held-out normalized RMSE: {all_test_diagnostics['normalized_centroid_rmse']:.4f}")
+    print(f"Non-box share: {all_test_shape['non_box_share']:.4f}")
     print(f"Mean edges empirical/predicted: {all_test_side_lengths['mean_empirical_edge_length']:.4f}/"
           f"{all_test_side_lengths['mean_predicted_edge_length']:.4f}")
     print(f"Stability: {stability['pass_count']}/{stability['n_resamples']} passed")
@@ -1198,6 +1511,17 @@ def main():
     parser.add_argument("--transform-batch-size", type=int, default=4096)
     parser.add_argument("--max-samples", type=int, default=None,
                         help="diagnostic subset only; omit for a paper run")
+    parser.add_argument("--ssl-dim", default=None, metavar="N|keff",
+                        help="paired-view map dimension: an integer keeps that many leading "
+                             "covariance directions; 'keff' keeps the encoder's own effective "
+                             "dimension (participation ratio); default is the relative cutoff")
+    parser.add_argument("--fixed-attributes", nargs=3, default=None, metavar="ATTR",
+                        help="evaluate this triple instead of searching; train criteria are "
+                             "reported but not required")
+    parser.add_argument("--all-triples", action="store_true",
+                        help="also score every attribute triple with enough cell support")
+    parser.add_argument("--save-features", action="store_true",
+                        help="write raw encoder features (float16 .npz) for CPU-only reanalysis")
     run_experiment(parser.parse_args())
 
 
