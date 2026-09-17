@@ -82,6 +82,19 @@ def test_run_with_all_triples_keff_and_saved_features(tmp_path, monkeypatch):
     triples = json.loads((tmp_path / "hyperrectangle_vicreg_celeba_all_triples.json").read_text())
     best = min(triples["triples"], key=lambda row: row["normalized_centroid_rmse"])
     assert "Young" not in best["triple"]
+    # Every scored triple carries its eight held-out centroids and predicted corners.
+    assert all(len(row["centroids"]) == 8 for row in triples["triples"])
+    import csv as _csv
+    with (tmp_path / "hyperrectangle_vicreg_celeba_all_triples_centroids.csv").open() as handle:
+        centroid_rows = list(_csv.DictReader(handle))
+    assert len(centroid_rows) == 8 * summary["n_scored"]
+    first = centroid_rows[0]
+    assert {first["label_1"], first["label_2"], first["label_3"]} <= {"-1", "1"}
+    recomputed = math.sqrt(sum(
+        sum((float(r[f"observed_{i}"]) - float(r[f"predicted_{i}"])) ** 2 for i in (1, 2, 3))
+        for r in centroid_rows[:8]) / sum(
+        sum(float(r[f"predicted_{i}"]) ** 2 for i in (1, 2, 3)) for r in centroid_rows[:8]))
+    assert abs(recomputed - float(first["normalized_centroid_rmse"])) < 1e-6
 
     for key in ("train_paired_views", "train", "test"):
         assert (tmp_path / payload["feature_artifacts"][key]["artifact"]).is_file()

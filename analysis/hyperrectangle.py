@@ -950,6 +950,9 @@ def evaluate_all_triples(train_features, train_labels, test_features, test_label
             "squared_error_shares": shape["squared_error_shares"],
             "edge_direction_max_abs_cosine": shape["edge_direction_max_abs_cosine"],
             "test_criteria_passed": test_passed,
+            "centroids": [{"signs": cell["signs"], "count": cell["count"],
+                           "observed": cell["center"], "predicted": corner["center"]}
+                          for cell, corner in zip(cells, fit["box"]["predicted_corners"], strict=True)],
         })
         if number % log_every == 0 or number == len(candidates):
             print(f"  triples {number}/{len(candidates)}: {len(records)} scored")
@@ -1005,6 +1008,24 @@ def write_all_triples_csv(path, records):
                              shares["shift"], shares["side_length"], shares["tilted_edges"],
                              shares["pair_interactions"], shares["triple_interaction"],
                              row["test_criteria_passed"]])
+
+
+def write_all_triples_centroids_csv(path, records):
+    """One row per (triple, label cell): held-out centroid and train-predicted corner."""
+    import csv
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["attribute_1", "attribute_2", "attribute_3", "label_1", "label_2", "label_3",
+                         "n_test_images", "observed_1", "observed_2", "observed_3",
+                         "predicted_1", "predicted_2", "predicted_3",
+                         "normalized_centroid_rmse", "non_box_share"])
+        for row in records:
+            for cell in row["centroids"]:
+                writer.writerow([*row["triple"], *cell["signs"], cell["count"], *cell["observed"],
+                                 *cell["predicted"], row["normalized_centroid_rmse"],
+                                 row["non_box_share"]])
 
 
 def write_features(path, **arrays):
@@ -1384,6 +1405,9 @@ def run_experiment(args):
                                       **all_triples_record})
         write_all_triples_csv(output / f"hyperrectangle_{args.model}_all_triples.csv",
                               all_triples_record["triples"])
+        write_all_triples_centroids_csv(
+            output / f"hyperrectangle_{args.model}_all_triples_centroids.csv",
+            all_triples_record["triples"])
         summary = all_triples_record["summary"]
         print(f"  {summary['n_scored']} triples scored; median RMSE "
               f"{summary['normalized_centroid_rmse']['median']:.3f}, median non-box "
