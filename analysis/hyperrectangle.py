@@ -556,6 +556,33 @@ def fit_whitener(features, relative_threshold=COVARIANCE_EIGENVALUE_CUTOFF):
                     values[keep], relative_threshold)
 
 
+def fit_weighted_whitener(features, weights, relative_threshold=COVARIANCE_EIGENVALUE_CUTOFF,
+                          chunk_size=32768):
+    """Whitener for the population defined by non-negative row weights (rows with 0 are ignored).
+
+    The covariance is accumulated in chunks so the full feature matrix is never copied.
+    """
+    weights = weights.to(features.dtype)
+    total = weights.sum()
+    if not bool(total > 0):
+        raise ValueError("whitening weights must have positive mass")
+    weights = weights / total
+    mean = weights @ features
+    dimension = features.shape[1]
+    second_moment = torch.zeros((dimension, dimension), dtype=torch.float64, device=features.device)
+    rows = torch.nonzero(weights > 0).squeeze(1)
+    for part in rows.split(chunk_size):
+        scaled = (features[part] - mean) * weights[part].sqrt()[:, None]
+        second_moment += (scaled.T @ scaled).double()
+    values, vectors = torch.linalg.eigh(second_moment)
+    order = torch.argsort(values, descending=True)
+    values, vectors = values[order].to(features.dtype), vectors[:, order].to(features.dtype)
+    keep = values > values[0] * relative_threshold
+    if not keep.any():
+        raise ValueError("whitening retained no directions")
+    return Whitener(mean, vectors[:, keep] / values[keep].sqrt(), values[keep], relative_threshold)
+
+
 def as_pm_one(labels):
     values = set(torch.unique(labels).cpu().tolist())
     if values <= {0.0, 1.0}:
@@ -870,11 +897,32 @@ def box_shape_diagnostics(observed, predicted):
 
 
 def fit_triple_on_train(features, labels, triple, names, *, seed=SELECTION_SEED):
-    """Balanced train fit for one attribute triple: whitener, cross-fit capture, axes."""
+    """Balanced train fit for one attribute triple: whitener, cross-fit capture, axes.
+
+    The whitener targets the population with equal mass on the eight label cells. It is
+    fitted on every train row outside the two probe folds, reweighted to equal cell mass,
+    so it stays independent of the capture estimate while using far more data than a
+    balanced subsample. (A whitener fitted on a few thousand rows overfits when the
+    dimension is large: held-out variance exceeds 1 and capture estimates exceed 1.)
+    """
     rows, counts, n = _balanced_rows(labels[:, triple], seed, MAX_TRAIN_CELL)
     n_white, n_a = n // 3, (n - n // 3) // 2
-    white_rows, fold_a, fold_b = _split_cells(rows, n, (n_white, n_a, n - n_white - n_a))
-    whitener = fit_whitener(features[white_rows])
+    _, fold_a, fold_b = _split_cells(rows, n, (n_white, n_a, n - n_white - n_a))
+    signs = as_pm_one(labels[:, triple])
+    available = torch.ones(len(features), dtype=torch.bool, device=features.device)
+    available[fold_a] = False
+    available[fold_b] = False
+    weights = torch.zeros(len(features), dtype=features.dtype, device=features.device)
+    whitening_rows_per_cell = []
+    for cell in CELLS:
+        members = (signs == signs.new_tensor(cell)).all(1) & available
+        count = int(members.sum())
+        if count == 0:
+            raise ValueError("a label cell has no rows left for whitening")
+        weights[members] = 1.0 / (8 * count)
+        whitening_rows_per_cell.append(count)
+    effective_size = 64.0 / sum(1.0 / count for count in whitening_rows_per_cell)
+    whitener = fit_weighted_whitener(features, weights)
     geometry = _crossfit_geometry(
         whitener.transform(features[fold_a]), labels[fold_a][:, triple],
         whitener.transform(features[fold_b]), labels[fold_b][:, triple])
@@ -888,7 +936,12 @@ def fit_triple_on_train(features, labels, triple, names, *, seed=SELECTION_SEED)
             "selected_rows": rows, "whitener": whitener, "box": box,
             "crossfit_probe_geometry": geometry, "passed": passed,
             "balance": {"original_cell_counts": counts, "samples_per_cell": n,
-                        "whitening_samples_per_cell": n_white,
+                        "whitening_population": "all train rows outside the probe folds, "
+                                                "reweighted to equal mass per label cell",
+                        "whitening_rows_per_cell": whitening_rows_per_cell,
+                        "whitening_effective_sample_size": effective_size,
+                        "whitening_dimension_to_effective_sample_ratio":
+                            features.shape[1] / effective_size,
                         "probe_samples_per_cell_a": n_a,
                         "probe_samples_per_cell_b": n - n_white - n_a}}
 
@@ -929,6 +982,8 @@ def evaluate_all_triples(train_features, train_labels, test_features, test_label
         shape = box_shape_diagnostics(cells, fit["box"]["predicted_corners"])
         rows, _, n = _balanced_rows(triple_labels, TEST_SEEDS[0], MAX_TEST_CELL)
         fold_a, fold_b = _split_cells(rows, n, (n // 2, n - n // 2))
+        # Exact whitening would give 1; values above 1 mean the train whitener overfits.
+        heldout_variance = float(whitened_test[rows].var(0).mean())
         test_geometry = _crossfit_geometry(whitened_test[fold_a], triple_labels[fold_a],
                                            whitened_test[fold_b], triple_labels[fold_b])
         test_passed = bool(test_geometry["valid"]
@@ -943,6 +998,8 @@ def evaluate_all_triples(train_features, train_labels, test_features, test_label
             "train_capture_B": train_geometry["capture_B"],
             "train_max_abs_cos": train_geometry["maximum_absolute_cosine"],
             "train_criteria_passed": fit["passed"],
+            "whitening_effective_sample_size": fit["balance"]["whitening_effective_sample_size"],
+            "heldout_mean_whitened_variance": heldout_variance,
             "test_capture_B_seed7": test_geometry["capture_B"],
             "test_max_abs_cos_seed7": test_geometry["maximum_absolute_cosine"],
             "normalized_centroid_rmse": corners["normalized_centroid_rmse"],
@@ -976,6 +1033,11 @@ def evaluate_all_triples(train_features, train_labels, test_features, test_label
         "normalized_centroid_rmse": quantiles("normalized_centroid_rmse"),
         "non_box_share": quantiles("non_box_share"),
         "train_max_abs_cos": quantiles("train_max_abs_cos"),
+        "heldout_mean_whitened_variance": quantiles("heldout_mean_whitened_variance"),
+        "whitening_effective_sample_size": quantiles("whitening_effective_sample_size"),
+        "fraction_of_capture_estimates_above_one": (
+            sum(value > 1 for row in records for value in row["train_capture_B"]) / (3 * len(records))
+            if records else None),
         "test_criteria": {"max_pairwise_abs_cos": MAX_TEST_COSINE, "min_capture_B": MIN_TEST_CAPTURE,
                           "max_normalized_centroid_rmse": MAX_TEST_RMSE, "min_cell_count": MIN_TEST_CELL},
         "train_criteria": {"min_capture_B": MIN_TRAIN_CAPTURE, "max_pairwise_abs_cos": MAX_TRAIN_COSINE,
@@ -997,7 +1059,8 @@ def write_all_triples_csv(path, records):
                          "test_B_1", "test_B_2", "test_B_3", "test_max_abs_cos",
                          "normalized_centroid_rmse", "non_box_share", "edge_direction_max_abs_cosine",
                          "shift_share", "side_length_share", "tilted_edges_share",
-                         "pair_interactions_share", "triple_interaction_share", "test_criteria_passed"])
+                         "pair_interactions_share", "triple_interaction_share", "test_criteria_passed",
+                         "whitening_effective_sample_size", "heldout_mean_whitened_variance"])
         for row in records:
             shares = row["squared_error_shares"]
             writer.writerow([*row["triple"], min(row["train_cell_counts"]), min(row["test_cell_counts"]),
@@ -1007,7 +1070,8 @@ def write_all_triples_csv(path, records):
                              row["edge_direction_max_abs_cosine"],
                              shares["shift"], shares["side_length"], shares["tilted_edges"],
                              shares["pair_interactions"], shares["triple_interaction"],
-                             row["test_criteria_passed"]])
+                             row["test_criteria_passed"], row["whitening_effective_sample_size"],
+                             row["heldout_mean_whitened_variance"]])
 
 
 def write_all_triples_centroids_csv(path, records):
@@ -1457,7 +1521,7 @@ def run_experiment(args):
         "model": provenance, "selection_succeeded": True,
         "selected_triple": selection["names"],
         "protocol": {
-            "analysis_protocol": "minimal_paper_accurate_celeba_v3",
+            "analysis_protocol": "minimal_paper_accurate_celeba_v4",
             "selection_mode": "fixed_attributes" if args.fixed_attributes else "automatic",
             "fixed_attributes": args.fixed_attributes,
             "train_criteria_passed": selection["exact_attempts"][-1]["passed"],

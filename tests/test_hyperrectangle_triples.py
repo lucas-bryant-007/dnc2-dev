@@ -9,7 +9,11 @@ from analysis.hyperrectangle import (
     box_shape_diagnostics,
     corner_diagnostics,
     evaluate_all_triples,
+    _balanced_rows,
     fit_ssl_map,
+    fit_triple_on_train,
+    fit_weighted_whitener,
+    fit_whitener,
     select_train_triple,
     write_features,
 )
@@ -139,3 +143,51 @@ def test_write_features_round_trips_as_float16(tmp_path):
     assert np.allclose(loaded["features"], features.numpy(), atol=2e-3)
     assert list(loaded["attribute_names"]) == ["x", "y"]
     assert record["arrays"]["features"] == [10, 4]
+
+
+def _imbalanced_high_dim(n, seed, dim=1000, capture=(0.6, 0.5, 0.4)):
+    generator = torch.Generator().manual_seed(seed)
+    labels = (torch.rand(n, 3, generator=generator) < torch.tensor([0.25, 0.5, 0.35])).float()
+    pm = 2 * labels - 1
+    features = torch.randn(n, dim, generator=generator)
+    for t, b in enumerate(capture):
+        features[:, t] = pm[:, t] * math.sqrt(b) + math.sqrt(1 - b) * features[:, t]
+    return features, labels
+
+
+def test_weighted_whitener_matches_plain_whitener_for_uniform_weights():
+    features = torch.randn(4000, 12, generator=torch.Generator().manual_seed(0)) * torch.arange(1, 13)
+    plain = fit_whitener(features)
+    weighted = fit_weighted_whitener(features, torch.ones(len(features)))
+    assert torch.allclose(plain.mean, weighted.mean, atol=1e-5)
+    white = weighted.transform(features)
+    assert torch.allclose(white.T @ white / len(white), torch.eye(12), atol=1e-3)
+    # Zero-weight rows are ignored entirely.
+    padded = torch.cat((features, 1e3 * torch.ones(50, 12)))
+    ignored = fit_weighted_whitener(padded, torch.cat((torch.ones(4000), torch.zeros(50))))
+    assert torch.allclose(ignored.eigenvalues, weighted.eigenvalues, rtol=1e-4)
+
+
+def test_triple_fit_keeps_capture_valid_when_dimension_is_large():
+    """Regression: a whitener fitted on a third of the balanced subsample overfits.
+
+    In this setting (dimension / whitening rows = 0.11) that estimator returned capture
+    0.65 / 0.56 / 0.46 for a true 0.60 / 0.50 / 0.40 and held-out variance 1.12.
+    """
+    features, labels = _imbalanced_high_dim(80000, 5)
+    fit = fit_triple_on_train(features, labels, (0, 1, 2), ["a", "b", "c"])
+    capture = fit["crossfit_probe_geometry"]["capture_B"]
+    for estimate, truth in zip(capture, (0.6, 0.5, 0.4)):
+        assert abs(estimate - truth) < 0.04, capture
+    balance = fit["balance"]
+    assert balance["whitening_effective_sample_size"] > 2 * 8 * (balance["samples_per_cell"] // 3)
+    assert balance["whitening_dimension_to_effective_sample_ratio"] < 0.05
+    # The probe folds are excluded from the whitening rows in every cell.
+    held = balance["probe_samples_per_cell_a"] + balance["probe_samples_per_cell_b"]
+    assert all(rows + held == count for rows, count in
+               zip(balance["whitening_rows_per_cell"], balance["original_cell_counts"]))
+    # Held-out data stays close to unit variance under the fitted whitener.
+    test_features, test_labels = _imbalanced_high_dim(20000, 6)
+    rows, _, _ = _balanced_rows(test_labels, 7, None)
+    white = fit["whitener"].transform(test_features[rows])
+    assert abs(float(white.var(0).mean()) - 1) < 0.06
