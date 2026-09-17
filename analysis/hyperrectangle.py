@@ -1023,6 +1023,32 @@ def write_features(path, **arrays):
             "float_dtype": "float16", "features_are_l2_normalized": True}
 
 
+def load_saved_features(directory, model_name):
+    """Load the float16 feature dumps written by ``--save-features`` (CPU-only reanalysis)."""
+    directory = Path(directory).expanduser().resolve()
+    paths = {kind: directory / f"features_{model_name}_{kind}.npz"
+             for kind in ("train_paired_views", "train", "test")}
+    for path in paths.values():
+        if not path.is_file():
+            raise FileNotFoundError(path)
+    tensor = lambda array: torch.from_numpy(np.asarray(array, dtype=np.float32))
+    with np.load(paths["train_paired_views"]) as archive:
+        views = tensor(archive["view_a"]), tensor(archive["view_b"])
+    loaded = {}
+    for kind in ("train", "test"):
+        with np.load(paths[kind], allow_pickle=False) as archive:
+            loaded[kind] = (tensor(archive["features"]), tensor(archive["labels"]))
+            names = [str(name) for name in archive["attribute_names"]]
+    original = directory / f"hyperrectangle_{model_name}.json"
+    provenance = (json.loads(original.read_text(encoding="utf-8")).get("model", {})
+                  if original.is_file() else {"name": model_name, "method": model_name.split("_", 1)[0]})
+    provenance = {**provenance, "features_loaded_from": str(directory),
+                  "feature_file_sha256": {kind: _sha256(path) for kind, path in paths.items()},
+                  "feature_precision": "float16 on disk"}
+    return {"views": views, "train": loaded["train"], "test": loaded["test"],
+            "names": names, "provenance": provenance}
+
+
 def evaluate_test_seed(features, labels, selection, seed):
     rows, counts, n = _balanced_rows(labels, seed, MAX_TEST_CELL)
     _, cells = measure_cell_centroids(features[rows], labels[rows], selection["box"]["axes"])
@@ -1270,18 +1296,28 @@ def run_experiment(args):
     figure_path = output / f"hyperrectangle_{args.model}.png"
     run_started = stage_started = time.perf_counter()
 
-    print(f"1/6  Load {args.model} on {device}")
-    encoder = load_encoder(args.model, args.weights, device, args.model_cache_dir)
-    train_transform, eval_transform = build_transforms(args.model)
-    train, test = load_celeba_splits(args.cache_dir)
-    names = resolve_celeba_attributes(train)
-    batch_size = args.batch_size or (8 if args.model == "ijepa_imagenet"
-                                     else 32 if args.model == "ijepa_celeba" else 128)
+    saved = None
+    if args.features_dir:
+        print(f"1/6  Load saved {args.model} features from {args.features_dir}")
+        saved = load_saved_features(args.features_dir, args.model)
+        provenance, names, batch_size = saved["provenance"], saved["names"], None
+        train_fingerprint = test_fingerprint = None
+    else:
+        print(f"1/6  Load {args.model} on {device}")
+        encoder = load_encoder(args.model, args.weights, device, args.model_cache_dir)
+        provenance = encoder.provenance
+        train_transform, eval_transform = build_transforms(args.model)
+        train, test = load_celeba_splits(args.cache_dir)
+        names = resolve_celeba_attributes(train)
+        train_fingerprint = getattr(train, "_fingerprint", None)
+        test_fingerprint = getattr(test, "_fingerprint", None)
+        batch_size = args.batch_size or (8 if args.model == "ijepa_imagenet"
+                                         else 32 if args.model == "ijepa_celeba" else 128)
     print(f"  1/6 elapsed: {time.perf_counter() - stage_started:.1f}s")
 
     stage_started = time.perf_counter()
     print("2/6  Fit paired-view SSL map on train")
-    view_a, view_b = extract_paired_features(
+    view_a, view_b = saved["views"] if saved else extract_paired_features(
         train, encoder.encode, train_transform, device=device,
         batch_size=batch_size, max_samples=args.max_samples)
     ssl_dim = args.ssl_dim if args.ssl_dim in (None, "keff") else int(args.ssl_dim)
@@ -1290,7 +1326,7 @@ def run_experiment(args):
           f"(rule {ssl_record['covariance_dimension_rule']}, k_eff "
           f"{ssl_record['effective_dimension_participation_ratio']:.1f})")
     feature_records = {}
-    if args.save_features:
+    if args.save_features and not saved:
         feature_records["train_paired_views"] = write_features(
             output / f"features_{args.model}_train_paired_views.npz",
             view_a=view_a, view_b=view_b)
@@ -1299,11 +1335,11 @@ def run_experiment(args):
 
     stage_started = time.perf_counter()
     print("3/6  Select and fit three train tasks")
-    train_features, train_labels = extract_dataset_features(
+    train_features, train_labels = saved["train"] if saved else extract_dataset_features(
         train, encoder.encode, eval_transform, names, device=device,
         batch_size=batch_size, max_samples=args.max_samples)
-    raw_dimension = train_features.shape[1]
-    if args.save_features:
+    raw_dimension, n_train = train_features.shape[1], len(train_features)
+    if args.save_features and not saved:
         feature_records["train"] = write_features(
             output / f"features_{args.model}_train.npz",
             features=train_features, labels=train_labels, attribute_names=np.asarray(names))
@@ -1326,10 +1362,11 @@ def run_experiment(args):
 
     stage_started = time.perf_counter()
     print("4/6  Evaluate 20 held-out balanced resamples")
-    test_features, all_test_labels = extract_dataset_features(
+    test_features, all_test_labels = saved["test"] if saved else extract_dataset_features(
         test, encoder.encode, eval_transform, names, device=device,
         batch_size=batch_size, max_samples=args.max_samples)
-    if args.save_features:
+    n_test = len(test_features)
+    if args.save_features and not saved:
         feature_records["test"] = write_features(
             output / f"features_{args.model}_test.npz",
             features=test_features, labels=all_test_labels, attribute_names=np.asarray(names))
@@ -1343,7 +1380,7 @@ def run_experiment(args):
         all_triples_record = evaluate_all_triples(
             train_features, train_labels, test_ssl_features, all_test_labels, names)
         all_triples_json = output / f"hyperrectangle_{args.model}_all_triples.json"
-        write_json(all_triples_json, {"model": encoder.provenance, "ssl_subspace": ssl_record,
+        write_json(all_triples_json, {"model": provenance, "ssl_subspace": ssl_record,
                                       **all_triples_record})
         write_all_triples_csv(output / f"hyperrectangle_{args.model}_all_triples.csv",
                               all_triples_record["triples"])
@@ -1354,8 +1391,8 @@ def run_experiment(args):
     del train_features, train_labels
 
     if selection is None:
-        write_json(json_path, {"method": encoder.provenance["method"], "dataset": "celeba",
-                               "model": encoder.provenance, "selection_succeeded": False,
+        write_json(json_path, {"method": provenance["method"], "dataset": "celeba",
+                               "model": provenance, "selection_succeeded": False,
                                "failure_reason": str(selection_failure),
                                "exact_train_candidate_attempts": selection_failure.attempts,
                                "ssl_subspace": ssl_record,
@@ -1392,8 +1429,8 @@ def run_experiment(args):
                                     "frozen_from_independent_training_split")
     capture = selection["box"]["capture_B"]
     payload = {
-        "method": encoder.provenance["method"], "dataset": "celeba",
-        "model": encoder.provenance, "selection_succeeded": True,
+        "method": provenance["method"], "dataset": "celeba",
+        "model": provenance, "selection_succeeded": True,
         "selected_triple": selection["names"],
         "protocol": {
             "analysis_protocol": "minimal_paper_accurate_celeba_v3",
@@ -1420,13 +1457,12 @@ def run_experiment(args):
                                     "min_capture_B": MIN_TEST_CAPTURE,
                                     "max_normalized_centroid_rmse": MAX_TEST_RMSE,
                                     "min_cell_count": MIN_TEST_CELL}},
-        "samples": {"train": min(len(train), args.max_samples or len(train)),
-                    "test": min(len(test), args.max_samples or len(test)),
+        "samples": {"train": n_train, "test": n_test,
                     "raw_feature_dimension": raw_dimension,
                     "feature_extraction_batch_size": batch_size,
                     "max_samples_diagnostic_cap": args.max_samples,
-                    "train_fingerprint": getattr(train, "_fingerprint", None),
-                    "test_fingerprint": getattr(test, "_fingerprint", None)},
+                    "train_fingerprint": train_fingerprint,
+                    "test_fingerprint": test_fingerprint},
         "ssl_subspace": ssl_record,
         "train_selection": {
             "triple_names": selection["names"],
@@ -1520,6 +1556,9 @@ def main():
                              "reported but not required")
     parser.add_argument("--all-triples", action="store_true",
                         help="also score every attribute triple with enough cell support")
+    parser.add_argument("--features-dir", default=None,
+                        help="reuse feature dumps from a previous --save-features run in this "
+                             "directory instead of encoding images; needs no GPU or dataset")
     parser.add_argument("--save-features", action="store_true",
                         help="write raw encoder features (float16 .npz) for CPU-only reanalysis")
     run_experiment(parser.parse_args())

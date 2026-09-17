@@ -55,7 +55,7 @@ def _args(out_dir, **overrides):
     base = dict(model="vicreg_celeba", weights=None, model_cache_dir=None, out_dir=str(out_dir),
                 cache_dir=None, device="cpu", batch_size=None, transform_batch_size=4096,
                 max_samples=None, ssl_dim=None, fixed_attributes=None, all_triples=False,
-                save_features=False)
+                save_features=False, features_dir=None)
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -100,3 +100,25 @@ def test_run_with_fixed_attributes_records_mode(tmp_path, monkeypatch):
     assert payload["protocol"]["selection_mode"] == "fixed_attributes"
     assert payload["ssl_subspace"]["covariance_retained_dimension"] == 16
     assert payload["train_selection"]["exact_train_candidate_attempts"][0]["mode"] == "fixed_attributes"
+
+
+def test_saved_features_reproduce_the_encoded_run_without_an_encoder(tmp_path, monkeypatch):
+    _patch(monkeypatch)
+    first_json, _ = hr.run_experiment(_args(tmp_path / "gpu", ssl_dim="16", save_features=True))
+
+    def forbidden(*a, **k):
+        raise AssertionError("encoder or dataset touched in saved-feature mode")
+
+    for name in ("load_encoder", "load_celeba_splits", "extract_paired_features",
+                 "extract_dataset_features"):
+        monkeypatch.setattr(hr, name, forbidden)
+    second_json, _ = hr.run_experiment(
+        _args(tmp_path / "cpu", ssl_dim="16", features_dir=str(tmp_path / "gpu"), all_triples=True))
+    first, second = json.loads(first_json.read_text()), json.loads(second_json.read_text())
+    assert second["selected_triple"] == first["selected_triple"]
+    # float16 storage perturbs features slightly; geometry must agree closely.
+    assert abs(second["test_box_diagnostics"]["normalized_centroid_rmse"]
+               - first["test_box_diagnostics"]["normalized_centroid_rmse"]) < 5e-3
+    assert second["model"]["features_loaded_from"].endswith("gpu")
+    assert second["samples"]["train"] == 24000 and second["samples"]["test"] == 6000
+    assert second["all_triples_summary"]["n_scored"] >= 1
