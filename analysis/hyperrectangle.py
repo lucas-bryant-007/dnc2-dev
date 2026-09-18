@@ -56,8 +56,23 @@ MODEL_SPECS = {
         "filename": "IN1K-vit.h.14-300e.pth.tar",
         "sha256": "0382013c481743e9ccea89f970bc6c6aa126aa19a62127500d6e672a641aae22",
     },
+    "barlow_imagenet": {
+        "url": ("https://dl.fbaipublicfiles.com/barlowtwins/"
+                "ep1000_bs2048_lrw0.2_lrb0.0048_lambd0.0051/resnet50.pth"),
+        "filename": "barlowtwins_resnet50.pth",
+        "sha256": None,  # not published; the observed digest is recorded in provenance
+    },
+    "supervised_imagenet": {
+        # torchvision ResNet50_Weights.IMAGENET1K_V2
+        "url": "https://download.pytorch.org/models/resnet50-11ad3fa6.pth",
+        "filename": "resnet50-11ad3fa6.pth",
+        "sha256": None,
+    },
     "supervised_celeba": {},  # No published default: explicit --weights required.
+    "wmse_celeba": {},
 }
+LOCAL_RESNET_MODELS = ("vicreg_celeba", "supervised_celeba", "wmse_celeba")
+IMAGENET_RESNET_MODELS = ("vicreg_imagenet", "barlow_imagenet", "supervised_imagenet")
 MODELS = tuple(MODEL_SPECS)
 CELLS = tuple(itertools.product((-1, 1), repeat=3))
 
@@ -160,12 +175,13 @@ def resolve_weights(model_name, weights=None, cache_dir=None):
             else Path(torch.hub.get_dir()).resolve() / "hyperrectangle")
     root.mkdir(parents=True, exist_ok=True)
     path = root / spec["filename"]
-    if not path.is_file() or _sha256(path) != spec["sha256"]:
+    expected = spec["sha256"]
+    if not path.is_file() or (expected is not None and _sha256(path) != expected):
         partial_path = path.with_suffix(path.suffix + ".part")
         print(f"Download {spec['url']} -> {path}")
         torch.hub.download_url_to_file(spec["url"], str(partial_path), progress=True)
         observed = _sha256(partial_path)
-        if observed != spec["sha256"]:
+        if expected is not None and observed != expected:
             partial_path.unlink(missing_ok=True)
             raise RuntimeError(
                 f"downloaded {model_name} SHA-256 mismatch: {observed}"
@@ -280,14 +296,21 @@ def _load_local_ijepa(checkpoint, state_dict=None):
                       "metadata_warnings": warnings}
 
 
-def _load_imagenet_vicreg(state):
+def _load_imagenet_resnet(state):
+    """Official ImageNet ResNet-50 weights (VICReg, Barlow Twins, torchvision supervised).
+
+    Any classifier head (``fc.*``) is dropped; the 2048-d pooled trunk is evaluated.
+    """
     from torchvision.models import resnet50
 
     backbone = resnet50(weights=None)
     backbone.fc = torch.nn.Identity()
-    backbone.load_state_dict(state, strict=True)
+    trunk = {key.removeprefix("module."): value for key, value in state.items()}
+    dropped = sorted(key for key in trunk if key.startswith("fc."))
+    backbone.load_state_dict({k: v for k, v in trunk.items() if not k.startswith("fc.")}, strict=True)
     return backbone, {"architecture": "resnet50", "embedding_dimension": 2048,
-                      "image_size": 224, "patch_size": None, "metadata_warnings": []}
+                      "image_size": 224, "patch_size": None, "metadata_warnings": [],
+                      "dropped_head_parameters": dropped}
 
 
 def _load_imagenet_ijepa(path, checkpoint, state):
@@ -336,7 +359,7 @@ def load_encoder(model_name, weights, device, model_cache_dir=None):
         declared_method = _checkpoint_value(checkpoint, "method", "name").lower()
         if method != declared_method:
             raise ValueError(f"requested {model_name}, but checkpoint says {declared_method}")
-    if model_name in {"vicreg_celeba", "supervised_celeba"}:
+    if model_name in LOCAL_RESNET_MODELS:
         model, metadata = _load_local_vicreg(checkpoint, state)
         encoder_name = "backbone"
         if model_name == "supervised_celeba":
@@ -348,9 +371,12 @@ def load_encoder(model_name, weights, device, model_cache_dir=None):
     elif model_name == "ijepa_celeba":
         model, metadata = _load_local_ijepa(checkpoint, state)
         encoder_name = "EMA teacher, mean patch pooling"
-    elif model_name == "vicreg_imagenet":
-        model, metadata = _load_imagenet_vicreg(state)
-        encoder_name = "official backbone"
+    elif model_name in IMAGENET_RESNET_MODELS:
+        model, metadata = _load_imagenet_resnet(state)
+        encoder_name = "official backbone" if method != "supervised" else "trunk, classifier dropped"
+        if method == "supervised":
+            metadata["analysis_transform_protocol"] = (
+                "ImageNet SSL analysis transforms; not the supervised training augmentation")
     else:
         model, metadata = _load_imagenet_ijepa(path, checkpoint, state)
         encoder_name = "official target encoder, mean patch pooling"
@@ -370,7 +396,7 @@ def build_transforms(model_name):
 
     normalize = transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
     tensor = [transforms.ToTensor(), normalize]
-    if model_name in {"vicreg_celeba", "supervised_celeba"}:
+    if model_name in LOCAL_RESNET_MODELS:
         train = [transforms.RandomCrop(160), transforms.Resize((128, 128)),
                  transforms.RandomHorizontalFlip(),
                  transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.2, 0.05)], p=0.8),
@@ -381,7 +407,8 @@ def build_transforms(model_name):
         train = [transforms.RandomCrop(160), transforms.Resize((224, 224)),
                  transforms.RandomHorizontalFlip()]
         evaluate = [transforms.Resize((224, 224))]
-    elif model_name == "vicreg_imagenet":
+    elif model_name in IMAGENET_RESNET_MODELS:
+        # VICReg's ImageNet augmentation, reused for Barlow Twins and the supervised trunk.
         train = [transforms.RandomResizedCrop(224, scale=(0.08, 1.0)),
                  transforms.RandomHorizontalFlip(),
                  transforms.RandomApply([transforms.ColorJitter(0.4, 0.4, 0.2, 0.1)], p=0.8),
@@ -1594,6 +1621,9 @@ def run_experiment(args):
     stage_started = time.perf_counter()
     print("6/6  Save paper-style figure")
     subtitles = {"supervised_celeba": "Supervised on CelebA",
+                 "wmse_celeba": "W-MSE, pretrained on CelebA",
+                 "barlow_imagenet": "Barlow Twins, pretrained on ImageNet-1K",
+                 "supervised_imagenet": "Supervised, pretrained on ImageNet-1K",
                  "vicreg_celeba": "VICReg, pretrained on CelebA",
                  "ijepa_celeba": "I-JEPA, pretrained on CelebA",
                  "vicreg_imagenet": "VICReg, pretrained on ImageNet-1K",

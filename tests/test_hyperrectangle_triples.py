@@ -191,3 +191,18 @@ def test_triple_fit_keeps_capture_valid_when_dimension_is_large():
     rows, _, _ = _balanced_rows(test_labels, 7, None)
     white = fit["whitener"].transform(test_features[rows])
     assert abs(float(white.var(0).mean()) - 1) < 0.06
+
+
+def test_imagenet_resnet_loader_drops_classifier_and_accepts_module_prefix():
+    from torchvision.models import resnet50
+    from analysis.hyperrectangle import MODEL_SPECS, MODELS, _load_imagenet_resnet, build_transforms
+
+    state = {"module." + k: v for k, v in resnet50(weights=None).state_dict().items()}
+    backbone, metadata = _load_imagenet_resnet(state)
+    assert metadata["dropped_head_parameters"] == ["fc.bias", "fc.weight"]
+    assert backbone(torch.zeros(1, 3, 224, 224)).shape == (1, 2048)
+    for name in ("barlow_imagenet", "supervised_imagenet", "wmse_celeba"):
+        assert name in MODELS
+        train, evaluate = build_transforms(name)
+        assert train is not None and evaluate is not None
+    assert MODEL_SPECS["wmse_celeba"] == {}
