@@ -490,9 +490,11 @@ def fit_ssl_map(first, second, covariance_threshold=COVARIANCE_EIGENVALUE_CUTOFF
 
     ``covariance_dimension`` replaces the relative eigenvalue cutoff: an integer
     keeps that many leading covariance directions; ``"keff"`` keeps each encoder's
-    own effective dimension, the participation ratio (sum lambda)^2 / sum lambda^2
-    of its covariance spectrum, so encoders with very different spectra (e.g.
-    supervised vs. SSL) are each evaluated at their own intrinsic dimension.
+    own effective dimension, defined as the number of leading covariance directions
+    holding 99% of the variance; ``"pr"`` uses the participation ratio
+    (sum lambda)^2 / sum lambda^2 instead. Both are recorded whichever rule is used,
+    so encoders with very different spectra (e.g. supervised vs. SSL) are each
+    evaluated at their own intrinsic dimension.
     """
     if first.shape != second.shape or first.ndim != 2:
         raise ValueError("paired SSL views must have the same [N,D] shape")
@@ -510,7 +512,11 @@ def fit_ssl_map(first, second, covariance_threshold=COVARIANCE_EIGENVALUE_CUTOFF
     participation_ratio = float(positive.sum().square() / positive.square().sum())
     cumulative = torch.cumsum(positive, 0) / positive.sum()
     dimension_99 = int((cumulative < 0.99).sum()) + 1
+    rule = {None: "relative_eigenvalue_cutoff", "keff": "effective_dimension_99pct_variance",
+            "pr": "participation_ratio"}.get(covariance_dimension, "fixed_dimension")
     if covariance_dimension == "keff":
+        covariance_dimension = dimension_99
+    elif covariance_dimension == "pr":
         covariance_dimension = math.ceil(participation_ratio)
     if covariance_dimension is None:
         covariance_keep = covariance_values >= covariance_values[0] * covariance_threshold
@@ -542,8 +548,7 @@ def fit_ssl_map(first, second, covariance_threshold=COVARIANCE_EIGENVALUE_CUTOFF
         "fit_population": "all train instances; two augmented views each",
         "input_dimension": first.shape[1],
         "covariance_retained_dimension": int(covariance_keep.sum()),
-        "covariance_dimension_rule": ("relative_eigenvalue_cutoff" if covariance_dimension is None
-                                      else "fixed_dimension"),
+        "covariance_dimension_rule": rule,
         "effective_dimension_participation_ratio": participation_ratio,
         "dimension_for_99pct_variance": dimension_99,
         "minimum_retained_covariance_eigenvalue_relative_to_top": float(
@@ -1432,7 +1437,7 @@ def run_experiment(args):
     view_a, view_b = saved["views"] if saved else extract_paired_features(
         train, encoder.encode, train_transform, device=device,
         batch_size=batch_size, max_samples=args.max_samples)
-    ssl_dim = args.ssl_dim if args.ssl_dim in (None, "keff") else int(args.ssl_dim)
+    ssl_dim = args.ssl_dim if args.ssl_dim in (None, "keff", "pr") else int(args.ssl_dim)
     ssl_map, ssl_record = fit_ssl_map(view_a, view_b, covariance_dimension=ssl_dim)
     print(f"  retained {ssl_record['retained_dimension']} dims "
           f"(rule {ssl_record['covariance_dimension_rule']}, k_eff "
@@ -1665,10 +1670,11 @@ def main():
     parser.add_argument("--transform-batch-size", type=int, default=4096)
     parser.add_argument("--max-samples", type=int, default=None,
                         help="diagnostic subset only; omit for a paper run")
-    parser.add_argument("--ssl-dim", default=None, metavar="N|keff",
+    parser.add_argument("--ssl-dim", default=None, metavar="N|keff|pr",
                         help="paired-view map dimension: an integer keeps that many leading "
                              "covariance directions; 'keff' keeps the encoder's own effective "
-                             "dimension (participation ratio); default is the relative cutoff")
+                             "dimension (directions holding 99%% of variance); 'pr' uses the "
+                             "participation ratio; default is the relative eigenvalue cutoff")
     parser.add_argument("--fixed-attributes", nargs=3, default=None, metavar="ATTR",
                         help="evaluate this triple instead of searching; train criteria are "
                              "reported but not required")

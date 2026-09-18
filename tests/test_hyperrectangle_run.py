@@ -67,9 +67,8 @@ def test_run_with_all_triples_keff_and_saved_features(tmp_path, monkeypatch):
     payload = json.loads(json_path.read_text())
     assert payload["selection_succeeded"] and figure_path.is_file()
     assert "Young" not in payload["selected_triple"]  # the zero-signal attribute
-    assert payload["ssl_subspace"]["covariance_dimension_rule"] == "fixed_dimension"
-    assert payload["ssl_subspace"]["covariance_retained_dimension"] == math.ceil(
-        payload["ssl_subspace"]["effective_dimension_participation_ratio"])
+    assert payload["ssl_subspace"]["covariance_dimension_rule"] == "effective_dimension_99pct_variance"
+    assert payload["ssl_subspace"]["covariance_retained_dimension"] == payload["ssl_subspace"]["dimension_for_99pct_variance"]
     assert payload["protocol"]["ssl_covariance_dimension_override"] == "keff"
     shape = payload["test_box_shape_diagnostics"]
     assert shape["non_box_share"] < 0.05

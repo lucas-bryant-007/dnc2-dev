@@ -124,13 +124,17 @@ def test_ssl_map_fixed_dimension_and_keff():
     _, default = fit_ssl_map(first, second)
     _, fixed = fit_ssl_map(first, second, covariance_dimension=5)
     _, keff = fit_ssl_map(first, second, covariance_dimension="keff")
+    _, pr_rule = fit_ssl_map(first, second, covariance_dimension="pr")
     assert fixed["covariance_retained_dimension"] == 5
     assert fixed["covariance_dimension_rule"] == "fixed_dimension"
     assert default["covariance_dimension_rule"] == "relative_eigenvalue_cutoff"
     pr = default["effective_dimension_participation_ratio"]
     assert 1 < pr < 3  # dominated by the single 10x direction
-    assert keff["covariance_retained_dimension"] == math.ceil(pr)
-    assert default["dimension_for_99pct_variance"] >= 2
+    assert pr_rule["covariance_retained_dimension"] == math.ceil(pr)
+    assert pr_rule["covariance_dimension_rule"] == "participation_ratio"
+    # k_eff = directions holding 99% of variance (variances 100, 9, 1, ...: the first two).
+    assert keff["covariance_retained_dimension"] == default["dimension_for_99pct_variance"] == 2
+    assert keff["covariance_dimension_rule"] == "effective_dimension_99pct_variance"
 
 
 def test_write_features_round_trips_as_float16(tmp_path):
